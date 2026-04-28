@@ -1,0 +1,46 @@
+# Environment
+.env
+*.env
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+dev.db
+
+# Node
+node_modules/
+frontend/dist/
+frontend/.env
+
+# IDE / Editor
+.vscode/
+.idea/
+*.suo
+*.user
+
+# Build tools / SDKs (should never be in source repo)
+.gradle
+.gradle/
+.android/
+.m2/
+.expo/
+
+# Sensitive / personal config (NEVER commit these)
+.ssh
+.ssh/
+.gnupg
+.gnupg/
+.gitconfig
+.emulator_console_auth_token
+.lesshst
+.gk
+.claude/
+
+# OS
+.DS_Store
+Thumbs.db
+.Ld9VirtualBox
