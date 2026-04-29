@@ -20,7 +20,13 @@ const SERVICES = [
 		label: "HealthPlanet (タニタ)",
 		desc: "体重・体脂肪・筋肉量・BMI",
 	},
-	{ key: "fatsecret", label: "FatSecret", desc: "食品データベース・食事記録" },
+	{
+		key: "fatsecret",
+		label: "FatSecret",
+		desc: "食品データベース（検索は連携不要で利用可）",
+		unavailable: true,
+		unavailableReason: "FatSecretのOAuth認証はCloudflare保護により現在利用できません",
+	},
 	{ key: "google", label: "Googleカレンダー", desc: "予定取得（外食・運動）" },
 ];
 
@@ -499,7 +505,14 @@ export default function SettingsSection() {
 								<div className="service-card-desc">{svc.desc}</div>
 							</div>
 							<div className="service-card-action">
-								{isConn ? (
+								{svc.unavailable ? (
+									<span
+										style={{ fontSize: 11, color: "var(--text-2)", maxWidth: 160, textAlign: "right", lineHeight: 1.4 }}
+										title={svc.unavailableReason}
+									>
+										現在利用不可
+									</span>
+								) : isConn ? (
 									<>
 										<span className="connected-badge">
 											<Wifi
