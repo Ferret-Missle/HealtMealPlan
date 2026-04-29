@@ -71,7 +71,9 @@ export const mealsApi = {
 // Body
 export const bodyApi = {
   weightHistory: (days = 30) => api.get('/api/body/weight', { params: { days } }),
-  syncWeightHistory: (days = 30) => api.post('/api/body/sync-weight-history', null, { params: { days } }),
+  syncWeightHistory:    (days = 30) => api.post('/api/body/sync-weight-history', null, { params: { days } }),
+  activityHistory:      (days = 7)  => api.get('/api/body/activity-history', { params: { days } }),
+  syncActivityHistory:  (days = 7)  => api.post('/api/body/sync-activity-history', null, { params: { days } }),
   addWeight: (data) => api.post('/api/body/weight', data),
   sync: (date) => api.post('/api/body/sync', null, { params: date ? { target_date: date } : {} }),
   goals: () => api.get('/api/body/goals'),

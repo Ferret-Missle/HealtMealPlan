@@ -319,18 +319,18 @@ function StepsGraph({ steps }) {
     { name: '残り', value: Math.max(0, STEP_GOAL - steps), fill: '#e2e8f0' },
   ];
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-      <ResponsiveContainer width={72} height={72}>
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+      <ResponsiveContainer width={80} height={80}>
         <PieChart>
-          <Pie data={data} cx="50%" cy="50%" innerRadius={22} outerRadius={34}
+          <Pie data={data} cx="50%" cy="50%" innerRadius={24} outerRadius={38}
             dataKey="value" startAngle={90} endAngle={-270} strokeWidth={0}>
             {data.map((d, i) => <Cell key={i} fill={d.fill} />)}
           </Pie>
         </PieChart>
       </ResponsiveContainer>
-      <div style={{ fontSize: 11, lineHeight: 1.6 }}>
+      <div style={{ textAlign: 'center' }}>
         <div style={{ fontSize: 20, fontWeight: 800, color: BRAND, lineHeight: 1.1 }}>{pct}%</div>
-        <div style={{ color: 'var(--text-2)' }}>{steps.toLocaleString()} 歩</div>
+        <div style={{ fontSize: 11, color: 'var(--text-2)' }}>{steps.toLocaleString()} 歩</div>
       </div>
     </div>
   );
@@ -349,29 +349,46 @@ function SleepValue({ hours, score }) {
   );
 }
 
-function SleepGraph({ hours, score }) {
-  if (!hours) return <EmptyGraph />;
-  const deep  = parseFloat((hours * 0.20).toFixed(1));
-  const rem   = parseFloat((hours * 0.25).toFixed(1));
-  const light = parseFloat((hours - deep - rem).toFixed(1));
-  const data  = [
-    { name: '今日', ディープ: deep, レム: rem, 浅い: light },
-    { name: '目標', ディープ: 1.4,  レム: 1.75, 浅い: 3.85 },
-  ];
+function SleepGraph({ history, onBulkSync, isSyncing }) {
+  const isEmpty = !history?.length;
+  const data    = isEmpty ? [] : history
+    .filter(d => d.sleep_hours)
+    .map(d => ({ d: fmtShort(d.date), v: d.sleep_hours }));
+
   return (
-    <>
-      <ResponsiveContainer width="100%" height={76}>
-        <BarChart data={data} margin={{ top: 4, right: 4, left: -28, bottom: 0 }}>
-          <XAxis dataKey="name" tick={{ fontSize: 10, fill: 'var(--text-3)' }} axisLine={false} tickLine={false} />
-          <YAxis tick={{ fontSize: 9, fill: 'var(--text-3)' }} axisLine={false} tickLine={false} />
-          <Tooltip contentStyle={tipStyle} formatter={(v, n) => [`${v}h`, n]} />
-          <Bar dataKey="ディープ" stackId="a" fill="#1d4ed8" />
-          <Bar dataKey="レム"     stackId="a" fill="#60a5fa" />
-          <Bar dataKey="浅い"     stackId="a" fill="#bfdbfe" radius={[3, 3, 0, 0]} />
-        </BarChart>
-      </ResponsiveContainer>
-      {score && <div style={{ fontSize: 11, color: 'var(--text-2)', textAlign: 'right' }}>スコア {score}</div>}
-    </>
+    <div>
+      {data.length < 2
+        ? <EmptyGraph msg="データなし — 右の一括同期で取得できます" />
+        : (
+          <ResponsiveContainer width="100%" height={88}>
+            <AreaChart data={data} margin={{ top: 4, right: 4, left: -28, bottom: 0 }}>
+              <defs>
+                <linearGradient id="sleepGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%"  stopColor="#3b82f6" stopOpacity={0.25} />
+                  <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <XAxis dataKey="d" tick={{ fontSize: 9, fill: 'var(--text-3)' }} axisLine={false} tickLine={false} />
+              <YAxis domain={[0, 'auto']} tick={{ fontSize: 9, fill: 'var(--text-3)' }} axisLine={false} tickLine={false} />
+              <Tooltip contentStyle={tipStyle} formatter={v => [`${v} h`, '睡眠']} />
+              {/* 目標ライン 7h */}
+              <Area type="monotone" dataKey="v" stroke="#3b82f6" strokeWidth={1.5}
+                fill="url(#sleepGrad)" dot={{ r: 2, fill: '#3b82f6' }} />
+            </AreaChart>
+          </ResponsiveContainer>
+        )
+      }
+      <button
+        className="btn btn-outline btn-sm"
+        style={{ marginTop: 6, width: '100%', fontSize: 11 }}
+        onClick={onBulkSync}
+        disabled={isSyncing}
+      >
+        <RefreshCw size={11} strokeWidth={2}
+          style={isSyncing ? { animation: 'spin 0.65s linear infinite', marginRight: 4 } : { marginRight: 4 }} />
+        {isSyncing ? '同期中…' : '過去の睡眠を一括同期'}
+      </button>
+    </div>
   );
 }
 
@@ -481,6 +498,18 @@ export default function DashboardPage() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['weight-history'] }),
   });
 
+  // 睡眠・歩数履歴：選択中の期間に応じて日数を調整
+  const activityDays = periods.sleep === '30d' ? 30 : 7;
+  const { data: activityHistory = [] } = useQuery({
+    queryKey: ['activity-history', activityDays],
+    queryFn: () => bodyApi.activityHistory(activityDays).then(r => r.data),
+  });
+
+  const sleepBulkSyncMutation = useMutation({
+    mutationFn: () => bodyApi.syncActivityHistory(activityDays),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['activity-history'] }),
+  });
+
   const syncMutation = useMutation({
     mutationFn: () => bodyApi.sync(dateStr),
     onSuccess: () => {
@@ -548,9 +577,13 @@ export default function DashboardPage() {
       graph:   <StepsGraph steps={summary?.steps} />,
     },
     sleep: {
-      support: ['1d'],
+      support: ['7d', '30d'],
       value:   <SleepValue hours={summary?.sleep_hours} score={summary?.sleep_score} />,
-      graph:   <SleepGraph hours={summary?.sleep_hours} score={summary?.sleep_score} />,
+      graph:   <SleepGraph
+                 history={activityHistory}
+                 onBulkSync={() => sleepBulkSyncMutation.mutate()}
+                 isSyncing={sleepBulkSyncMutation.isPending}
+               />,
     },
   };
 

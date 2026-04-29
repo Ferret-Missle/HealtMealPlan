@@ -146,7 +146,7 @@ async def sync_weight_history(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Fitbit から過去 N 日分の体重を一括取得して保存する。"""
+    """Fitbit / HealthPlanet から過去 N 日分の体重を一括取得して保存する。"""
     end   = str(dt_date.today())
     start = str(dt_date.today() - timedelta(days=days))
 
@@ -156,26 +156,113 @@ async def sync_weight_history(
     ]
 
     saved = 0
+
+    async def _save_weight(date: str, weight: float, source: str, **extra):
+        nonlocal saved
+        if not weight:
+            return
+        existing = (
+            db.query(models.WeightLog)
+            .filter_by(user_id=current_user.id, date=date, source=source)
+            .first()
+        )
+        if not existing:
+            db.add(models.WeightLog(
+                user_id=current_user.id, date=date, weight=weight, source=source, **extra
+            ))
+            saved += 1
+
     if "fitbit" in connected:
-        entries = await fitbit.get_weight_range(current_user.id, start, end, db)
-        for entry in entries:
-            if not entry.get("weight"):
-                continue
-            existing = (
-                db.query(models.WeightLog)
-                .filter_by(user_id=current_user.id, date=entry["date"], source="fitbit")
+        try:
+            for e in await fitbit.get_weight_range(current_user.id, start, end, db):
+                await _save_weight(e["date"], e.get("weight"), "fitbit", bmi=e.get("bmi"))
+        except Exception as exc:
+            print(f"[sync-weight-history fitbit] {exc}")
+
+    if "healthplanet" in connected:
+        try:
+            for e in await healthplanet.get_innerscan_range(current_user.id, start, end, db):
+                await _save_weight(
+                    e["date"], e.get("weight"), "healthplanet",
+                    body_fat=e.get("body_fat"),
+                )
+        except Exception as exc:
+            print(f"[sync-weight-history healthplanet] {exc}")
+
+    db.commit()
+    return {"saved": saved, "from": start, "to": end}
+
+
+@router.get("/activity-history")
+async def get_activity_history(
+    days: int = 7,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """過去 N 日分の歩数・睡眠ログを返す。"""
+    start = str(dt_date.today() - timedelta(days=days))
+    logs = (
+        db.query(models.ActivityLog)
+        .filter(
+            models.ActivityLog.user_id == current_user.id,
+            models.ActivityLog.date >= start,
+        )
+        .order_by(models.ActivityLog.date)
+        .all()
+    )
+    return [
+        {
+            "date":        log.date,
+            "steps":       log.steps,
+            "sleep_hours": log.sleep_hours,
+            "sleep_score": log.sleep_score,
+        }
+        for log in logs
+    ]
+
+
+@router.post("/sync-activity-history")
+async def sync_activity_history(
+    days: int = 7,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Fitbit から過去 N 日分の睡眠・歩数を一括取得して保存する。"""
+    end   = str(dt_date.today())
+    start = str(dt_date.today() - timedelta(days=days))
+
+    connected = [
+        t.service
+        for t in db.query(models.OAuthToken).filter_by(user_id=current_user.id).all()
+    ]
+
+    saved = 0
+    if "fitbit" not in connected:
+        return {"saved": 0, "from": start, "to": end}
+
+    try:
+        sleep_entries = await fitbit.get_sleep_range(current_user.id, start, end, db)
+        for e in sleep_entries:
+            log = (
+                db.query(models.ActivityLog)
+                .filter_by(user_id=current_user.id, date=e["date"])
                 .first()
             )
-            if not existing:
-                db.add(models.WeightLog(
+            if log:
+                log.sleep_hours = e["sleep_hours"]
+                log.sleep_score = e["sleep_score"]
+            else:
+                db.add(models.ActivityLog(
                     user_id=current_user.id,
-                    date=entry["date"],
-                    weight=entry["weight"],
-                    bmi=entry.get("bmi"),
+                    date=e["date"],
+                    sleep_hours=e["sleep_hours"],
+                    sleep_score=e["sleep_score"],
                     source="fitbit",
                 ))
                 saved += 1
         db.commit()
+    except Exception as exc:
+        print(f"[sync-activity-history] {exc}")
 
     return {"saved": saved, "from": start, "to": end}
 

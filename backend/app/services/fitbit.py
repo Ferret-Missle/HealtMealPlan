@@ -109,6 +109,28 @@ async def get_weight_range(user_id: str, start: str, end: str, db: Session) -> l
     ]
 
 
+async def get_sleep_range(user_id: str, start: str, end: str, db: Session) -> list[dict]:
+    """Fitbit の日付範囲で睡眠ログを一括取得する。"""
+    access_token = await _get_access_token(user_id, db)
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(
+            f"{BASE_URL}/1.2/user/-/sleep/date/{start}/{end}.json",
+            headers={"Authorization": f"Bearer {access_token}"},
+        )
+    resp.raise_for_status()
+    entries = resp.json().get("sleep", [])
+    result: dict[str, dict] = {}
+    for e in entries:
+        date = e.get("dateOfSleep")
+        if not date:
+            continue
+        minutes = e.get("minutesAsleep", 0)
+        result.setdefault(date, {"sleep_hours": 0, "sleep_score": 0})
+        result[date]["sleep_hours"]  = round(minutes / 60, 1)
+        result[date]["sleep_score"]  = e.get("efficiency", 0)
+    return [{"date": d, **v} for d, v in sorted(result.items())]
+
+
 async def get_heart_rate_zones(user_id: str, date: str, db: Session) -> list:
     access_token = await _get_access_token(user_id, db)
     async with httpx.AsyncClient() as client:

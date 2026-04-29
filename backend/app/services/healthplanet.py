@@ -83,3 +83,39 @@ async def get_innerscan(user_id: str, date: str, db: Session) -> dict | None:
             result["body_fat"] = float(keydata)
 
     return result if len(result) > 1 else None
+
+
+async def get_innerscan_range(user_id: str, from_date: str, to_date: str, db: Session) -> list[dict]:
+    """HealthPlanet の日付範囲で体組成データを一括取得する。"""
+    access_token = await _get_access_token(user_id, db)
+    from_fmt = from_date.replace("-", "") + "000000"
+    to_fmt   = to_date.replace("-", "")   + "235959"
+
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(
+            f"{BASE_URL}/status/innerscan.json",
+            data={
+                "access_token": access_token,
+                "date": "1",
+                "from": from_fmt,
+                "to":   to_fmt,
+                "tag":  "6021,6022",
+            },
+        )
+    if resp.status_code != 200:
+        raise ValueError(f"HealthPlanet range error {resp.status_code}: {resp.text}")
+
+    data_list = resp.json().get("data", [])
+    by_date: dict[str, dict] = {}
+    for item in data_list:
+        raw_date = item.get("date", "")[:8]          # YYYYMMDDHHMMSS → YYYYMMDD
+        formatted = f"{raw_date[:4]}-{raw_date[4:6]}-{raw_date[6:8]}"
+        by_date.setdefault(formatted, {"source": "healthplanet"})
+        tag     = item.get("tag")
+        keydata = item.get("keydata")
+        if tag == "6021" and keydata:
+            by_date[formatted]["weight"] = float(keydata)
+        elif tag == "6022" and keydata:
+            by_date[formatted]["body_fat"] = float(keydata)
+
+    return [{"date": d, **v} for d, v in by_date.items() if "weight" in v]
