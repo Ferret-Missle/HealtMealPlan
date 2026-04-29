@@ -1,11 +1,11 @@
 import { Outlet, NavLink } from 'react-router-dom';
-import { Activity, CalendarDays, ShoppingBag, UserCircle2, Leaf } from 'lucide-react';
+import { LayoutDashboard, CalendarDays, ListChecks, UserCircle2, Leaf } from 'lucide-react';
 
 const NAV_ITEMS = [
-  { to: '/',      label: '今日',     Icon: Activity,     end: true },
-  { to: '/plan',  label: 'プラン',   Icon: CalendarDays, end: false },
-  { to: '/list',  label: 'リスト',   Icon: ShoppingBag,  end: false },
-  { to: '/me',    label: 'マイページ', Icon: UserCircle2,  end: false },
+  { to: '/',      label: '今日',      Icon: LayoutDashboard, end: true },
+  { to: '/plan',  label: 'プラン',    Icon: CalendarDays,    end: false },
+  { to: '/list',  label: 'リスト',    Icon: ListChecks,      end: false },
+  { to: '/me',    label: 'マイページ', Icon: UserCircle2,     end: false },
 ];
 
 export default function Layout({ children }) {
@@ -25,7 +25,7 @@ export default function Layout({ children }) {
               end={end}
               className={({ isActive }) => `side-nav-item${isActive ? ' active' : ''}`}
             >
-              <Icon size={17} strokeWidth={1.9} className="nav-icon" />
+              <Icon size={17} strokeWidth={1.5} className="nav-icon" />
               <span className="nav-label">{label}</span>
             </NavLink>
           ))}
@@ -50,7 +50,7 @@ export default function Layout({ children }) {
             className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}
           >
             <span className="nav-icon">
-              <Icon size={22} strokeWidth={1.8} />
+              <Icon size={22} strokeWidth={1.5} />
             </span>
             <span className="nav-label">{label}</span>
           </NavLink>

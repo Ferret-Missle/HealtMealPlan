@@ -1,8 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
-import { Wifi, WifiOff, Trash2, Plus, LogOut, CalendarSync } from 'lucide-react';
-import { settingsApi, authApi } from '../../services/api';
+import { Wifi, WifiOff, Trash2, Plus, LogOut, CalendarSync, Target } from 'lucide-react';
+import { settingsApi, authApi, bodyApi } from '../../services/api';
 import { useAuth } from '../../hooks/useAuth';
 
 const SERVICES = [
@@ -21,6 +21,25 @@ const BYOK_PROVIDERS = [
 ];
 
 const DIET_STYLES = ['和食中心', '洋食中心', '高タンパク', '低炭水化物', '糖質制限', 'ベジタリアン', 'ビーガン'];
+const GOAL_TYPES = [
+  { key: 'lose',     label: '減量' },
+  { key: 'maintain', label: '維持' },
+  { key: 'gain',     label: '増量' },
+];
+
+// "あと X 日" を計算
+function daysRemaining(dateStr) {
+  if (!dateStr) return null;
+  const diff = Math.ceil((new Date(dateStr) - new Date()) / 86400000);
+  return diff > 0 ? diff : 0;
+}
+
+// 今日から N ヶ月後の日付文字列
+function addMonths(n) {
+  const d = new Date();
+  d.setMonth(d.getMonth() + n);
+  return d.toISOString().split('T')[0];
+}
 
 export default function SettingsSection() {
   const { user, profile, logout, refreshProfile } = useAuth();
@@ -34,9 +53,39 @@ export default function SettingsSection() {
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState(connected ? `${connected} を連携しました！` : '');
 
+  // 健康目標
+  const [goalForm, setGoalForm] = useState(null); // null = not loaded yet
+
   const { data: settings, isLoading } = useQuery({
     queryKey: ['settings'],
     queryFn: () => settingsApi.get().then((r) => r.data),
+  });
+
+  const { data: goalsData } = useQuery({
+    queryKey: ['body-goals'],
+    queryFn: () => bodyApi.goals().then((r) => r.data),
+  });
+
+  // ロード完了後に一度だけフォームを初期化
+  useEffect(() => {
+    if (goalsData && goalForm === null) {
+      setGoalForm({
+        target_weight: goalsData.target_weight ?? '',
+        target_kcal:   goalsData.target_kcal   ?? '',
+        goal_type:     goalsData.goal_type     ?? 'lose',
+        deadline:      goalsData.deadline      ?? '',
+      });
+    }
+  }, [goalsData]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const goalMutation = useMutation({
+    mutationFn: (data) => bodyApi.updateGoals(data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['body-goals'] });
+      qc.invalidateQueries({ queryKey: ['dashboard'] });
+      setSuccessMsg('目標を保存しました');
+    },
+    onError: (e) => setErrorMsg(e.message),
   });
 
   const prefMutation = useMutation({
@@ -155,6 +204,111 @@ export default function SettingsSection() {
           </span>
         </div>
       </div>
+
+      {/* 健康目標 */}
+      <div className="section-title" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <Target size={13} strokeWidth={1.8} />
+        健康目標
+      </div>
+      {goalForm && (
+        <div className="card">
+          {/* goal_type */}
+          <div className="form-group">
+            <label className="form-label">目標タイプ</label>
+            <div style={{ display: 'flex', gap: 8 }}>
+              {GOAL_TYPES.map(({ key, label }) => (
+                <button
+                  key={key}
+                  className={`btn btn-sm${goalForm.goal_type === key ? ' btn-primary' : ' btn-outline'}`}
+                  onClick={() => setGoalForm(f => ({ ...f, goal_type: key }))}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* 目標体重 */}
+          <div className="form-group">
+            <label className="form-label">目標体重 (kg)</label>
+            <input
+              className="form-input"
+              type="number"
+              step="0.1"
+              placeholder="例: 65.0"
+              value={goalForm.target_weight}
+              onChange={e => setGoalForm(f => ({ ...f, target_weight: e.target.value }))}
+              style={{ maxWidth: 140 }}
+            />
+          </div>
+
+          {/* 目標カロリー */}
+          <div className="form-group">
+            <label className="form-label">1日の目標カロリー (kcal)</label>
+            <input
+              className="form-input"
+              type="number"
+              step="50"
+              placeholder="例: 1800"
+              value={goalForm.target_kcal}
+              onChange={e => setGoalForm(f => ({ ...f, target_kcal: e.target.value }))}
+              style={{ maxWidth: 140 }}
+            />
+          </div>
+
+          {/* 期限プリセット */}
+          <div className="form-group">
+            <label className="form-label">達成期限</label>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
+              {[
+                { label: '1ヶ月', months: 1 },
+                { label: '3ヶ月', months: 3 },
+                { label: '6ヶ月', months: 6 },
+                { label: '1年',   months: 12 },
+              ].map(({ label, months }) => {
+                const d = addMonths(months);
+                const active = goalForm.deadline === d;
+                return (
+                  <button
+                    key={months}
+                    className={`btn btn-sm${active ? ' btn-primary' : ' btn-outline'}`}
+                    onClick={() => setGoalForm(f => ({ ...f, deadline: d }))}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+            {/* カスタム日付 */}
+            <input
+              className="form-input"
+              type="date"
+              value={goalForm.deadline}
+              onChange={e => setGoalForm(f => ({ ...f, deadline: e.target.value }))}
+              style={{ maxWidth: 180 }}
+            />
+            {goalForm.deadline && (
+              <div style={{ fontSize: 12, color: 'var(--brand)', marginTop: 4, fontWeight: 600 }}>
+                あと {daysRemaining(goalForm.deadline).toLocaleString()} 日
+              </div>
+            )}
+          </div>
+
+          <button
+            className="btn btn-primary btn-full"
+            style={{ marginTop: 4 }}
+            onClick={() => goalMutation.mutate({
+              target_weight: goalForm.target_weight ? parseFloat(goalForm.target_weight) : null,
+              target_kcal:   goalForm.target_kcal   ? parseInt(goalForm.target_kcal, 10) : null,
+              goal_type:     goalForm.goal_type || null,
+              deadline:      goalForm.deadline || null,
+            })}
+            disabled={goalMutation.isPending}
+          >
+            {goalMutation.isPending ? '保存中…' : '目標を保存'}
+          </button>
+        </div>
+      )}
 
       {/* External services */}
       <div className="section-title">外部サービス連携</div>
