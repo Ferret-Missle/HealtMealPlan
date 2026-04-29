@@ -17,7 +17,7 @@ import {
 import {
   Scale, Flame, Layers, Footprints, Moon,
   RefreshCw, Utensils, Dumbbell, CalendarClock,
-  ChevronLeft, ChevronRight, BarChart2, Hash, GripVertical,
+  ChevronLeft, ChevronRight, GripVertical, Settings2,
 } from 'lucide-react';
 import { dashboardApi, bodyApi } from '../services/api';
 import { Link } from 'react-router-dom';
@@ -42,75 +42,97 @@ function fmtShort(dateStr) {
 
 // ── localStorage ─────────────────────────────────────────────
 function lsGet(key, def) {
-  try { return JSON.parse(localStorage.getItem(key)) ?? def; }
-  catch { return def; }
+  try { return JSON.parse(localStorage.getItem(key)) ?? def; } catch { return def; }
 }
 function lsSet(key, val) {
   try { localStorage.setItem(key, JSON.stringify(val)); } catch {}
 }
 
 // ── 定数 ─────────────────────────────────────────────────────
-const DEFAULT_ORDER = ['weight', 'calories', 'pfc', 'steps', 'sleep'];
-const BRAND         = '#16a34a';
-const PFC_COLORS    = ['#16a34a', '#f59e0b', '#3b82f6']; // P / F / C
+const WIDGET_IDS = ['weight', 'calories', 'pfc', 'steps', 'sleep'];
 
-// ── ウィジェット共通シェル（ソート可能）──────────────────────
-function WidgetShell({ id, Icon, title, showGraph, onToggle, valueContent, graphContent }) {
-  const {
-    attributes, listeners, setNodeRef,
-    transform, transition, isDragging,
-  } = useSortable({ id });
+const WIDGET_META = {
+  weight:   { label: '体重',     Icon: Scale },
+  calories: { label: 'カロリー', Icon: Flame },
+  pfc:      { label: 'PFC',      Icon: Layers },
+  steps:    { label: '歩数',     Icon: Footprints },
+  sleep:    { label: '睡眠',     Icon: Moon },
+};
+
+const DEFAULT_ORDER   = WIDGET_IDS;
+const DEFAULT_VIS     = Object.fromEntries(WIDGET_IDS.map(id => [id, { value: true, graph: false }]));
+const DEFAULT_PERIODS = Object.fromEntries(WIDGET_IDS.map(id => [id, '7d']));
+
+const BRAND      = '#16a34a';
+const PFC_COLORS = ['#16a34a', '#f59e0b', '#3b82f6'];
+const tipStyle   = { fontSize: 11, padding: '4px 8px', borderRadius: 6, border: '1px solid #e2e8f0' };
+
+// ── 共通パーツ ────────────────────────────────────────────────
+function Dot({ color }) {
+  return <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: color, marginRight: 4 }} />;
+}
+function EmptyGraph({ msg = 'データなし' }) {
+  return <div style={{ color: 'var(--text-2)', fontSize: 12, padding: '8px 0' }}>{msg}</div>;
+}
+function PeriodPills({ period, onChange, supported = ['1d', '7d', '30d'] }) {
+  const labels = { '1d': '1日', '7d': '7日', '30d': '30日' };
+  return (
+    <div className="period-pills">
+      {supported.map(p => (
+        <button key={p} className={`period-pill${period === p ? ' active' : ''}`} onClick={() => onChange(p)}>
+          {labels[p]}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// ── ソータブル ウィジェットシェル ─────────────────────────────
+function WidgetShell({ id, vis, period, onPeriodChange, valueContent, graphContent, graphSupport }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
+  const { label, Icon } = WIDGET_META[id];
+  const showBoth = vis.value && vis.graph;
 
   return (
     <div
       ref={setNodeRef}
       className="widget-card"
-      style={{
-        transform: CSS.Transform.toString(transform),
-        transition,
-        opacity: isDragging ? 0.35 : 1,
-      }}
+      style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.35 : 1 }}
     >
       {/* ヘッダー */}
-      <div className="widget-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+      <div className="widget-header">
         <span className="widget-label">
           <Icon size={12} strokeWidth={1.8} />
-          {title}
+          {label}
         </span>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-          {/* 値/グラフ切替 */}
-          <button
-            className="btn-ghost"
-            style={{ padding: '2px 4px', borderRadius: 4 }}
-            onClick={onToggle}
-            title={showGraph ? '数値のみ表示' : 'グラフ表示'}
-          >
-            {showGraph
-              ? <Hash size={11} strokeWidth={2} style={{ color: 'var(--brand)' }} />
-              : <BarChart2 size={11} strokeWidth={1.8} style={{ color: 'var(--text-2)' }} />
-            }
-          </button>
-          {/* ドラッグハンドル（長押し300ms） */}
-          <span
-            {...attributes}
-            {...listeners}
-            style={{ cursor: 'grab', padding: '2px 2px', color: 'var(--text-3)', lineHeight: 1, touchAction: 'none' }}
-            title="長押しで並び替え"
-          >
-            <GripVertical size={13} strokeWidth={1.5} />
-          </span>
-        </div>
+        <span
+          {...attributes} {...listeners}
+          style={{ cursor: 'grab', padding: '2px', color: 'var(--text-3)', lineHeight: 1, touchAction: 'none' }}
+          title="長押しで並び替え"
+        >
+          <GripVertical size={13} strokeWidth={1.5} />
+        </span>
       </div>
 
-      {/* コンテンツ */}
-      {showGraph && graphContent ? graphContent : valueContent}
+      {/* 数値セクション */}
+      {vis.value && <div>{valueContent}</div>}
+
+      {/* 区切り線（両方表示時） */}
+      {showBoth && <div className="widget-divider" />}
+
+      {/* グラフセクション */}
+      {vis.graph && (
+        <div>
+          <PeriodPills period={period} onChange={onPeriodChange} supported={graphSupport} />
+          {graphContent}
+        </div>
+      )}
     </div>
   );
 }
 
 // ── 体重 ──────────────────────────────────────────────────────
 function WeightValue({ latest, delta, pct }) {
-  const isOver = pct != null && pct > 100;
   return (
     <>
       <div style={{ lineHeight: 1.1, marginTop: 2 }}>
@@ -119,49 +141,45 @@ function WeightValue({ latest, delta, pct }) {
       </div>
       {delta && (
         <div className="widget-sub">
-          {parseFloat(delta) < 0 ? '▼' : '▲'} {Math.abs(delta)} kg（7日間）
+          {parseFloat(delta) < 0 ? '▼' : '▲'} {Math.abs(delta)} kg（{delta < 0 ? '' : '+'}）
         </div>
       )}
       {pct != null && (
         <div className="progress-bar" style={{ marginTop: 6 }}>
-          <div className={`progress-fill${isOver ? ' over' : ''}`} style={{ width: `${Math.min(pct, 100)}%` }} />
+          <div className={`progress-fill${pct > 100 ? ' over' : ''}`} style={{ width: `${Math.min(pct, 100)}%` }} />
         </div>
       )}
     </>
   );
 }
 
-function WeightGraph({ history }) {
+function WeightGraph({ history, period }) {
   if (!history?.length) return <EmptyGraph />;
   const data = history.map(w => ({ d: fmtShort(w.date), v: w.weight }));
-  const vals  = data.map(d => d.v);
-  const lo    = Math.floor(Math.min(...vals) - 0.5);
-  const hi    = Math.ceil(Math.max(...vals) + 0.5);
+  const vals = data.map(d => d.v);
+  const lo   = Math.floor(Math.min(...vals) - 0.5);
+  const hi   = Math.ceil(Math.max(...vals) + 0.5);
   return (
-    <div style={{ marginTop: 6 }}>
-      <ResponsiveContainer width="100%" height={88}>
-        <AreaChart data={data} margin={{ top: 4, right: 4, left: -28, bottom: 0 }}>
-          <defs>
-            <linearGradient id="wGrad" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="5%"  stopColor={BRAND} stopOpacity={0.25} />
-              <stop offset="95%" stopColor={BRAND} stopOpacity={0} />
-            </linearGradient>
-          </defs>
-          <XAxis dataKey="d" tick={{ fontSize: 9, fill: 'var(--text-3)' }} axisLine={false} tickLine={false} />
-          <YAxis domain={[lo, hi]} tick={{ fontSize: 9, fill: 'var(--text-3)' }} axisLine={false} tickLine={false} />
-          <Tooltip contentStyle={tipStyle} formatter={v => [`${v} kg`, '体重']} />
-          <Area type="monotone" dataKey="v" stroke={BRAND} strokeWidth={1.5}
-            fill="url(#wGrad)" dot={{ r: 2, fill: BRAND }} />
-        </AreaChart>
-      </ResponsiveContainer>
-    </div>
+    <ResponsiveContainer width="100%" height={88}>
+      <AreaChart data={data} margin={{ top: 4, right: 4, left: -28, bottom: 0 }}>
+        <defs>
+          <linearGradient id="wGrad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="5%"  stopColor={BRAND} stopOpacity={0.25} />
+            <stop offset="95%" stopColor={BRAND} stopOpacity={0} />
+          </linearGradient>
+        </defs>
+        <XAxis dataKey="d" tick={{ fontSize: 9, fill: 'var(--text-3)' }} axisLine={false} tickLine={false} />
+        <YAxis domain={[lo, hi]} tick={{ fontSize: 9, fill: 'var(--text-3)' }} axisLine={false} tickLine={false} />
+        <Tooltip contentStyle={tipStyle} formatter={v => [`${v} kg`, '体重']} />
+        <Area type="monotone" dataKey="v" stroke={BRAND} strokeWidth={1.5} fill="url(#wGrad)" dot={{ r: 2, fill: BRAND }} />
+      </AreaChart>
+    </ResponsiveContainer>
   );
 }
 
 // ── カロリー ──────────────────────────────────────────────────
 function CaloriesValue({ intake, target, pct, remaining }) {
-  const isOver = pct != null && pct > 100;
-  const fill   = `progress-fill${isOver ? ' over' : pct > 75 ? ' warn' : ''}`;
+  const fill = `progress-fill${pct > 100 ? ' over' : pct > 75 ? ' warn' : ''}`;
   return (
     <>
       <div style={{ lineHeight: 1.1, marginTop: 2 }}>
@@ -182,28 +200,28 @@ function CaloriesValue({ intake, target, pct, remaining }) {
 
 function CaloriesGraph({ intake, target }) {
   if (!intake) return <EmptyGraph />;
-  const over      = target && intake > target ? intake - target : 0;
-  const consumed  = intake - over;
-  const remaining = target ? Math.max(0, target - intake) : 0;
+  const over     = target && intake > target ? intake - target : 0;
+  const consumed = intake - over;
+  const remain   = target ? Math.max(0, target - intake) : 0;
   const data = [
-    { name: '摂取',     value: consumed,  fill: BRAND },
-    { name: 'オーバー', value: over,       fill: '#dc2626' },
-    { name: '残り',     value: remaining,  fill: '#e2e8f0' },
+    { name: '摂取',     value: consumed, fill: BRAND },
+    { name: 'オーバー', value: over,     fill: '#dc2626' },
+    { name: '残り',     value: remain,   fill: '#e2e8f0' },
   ].filter(d => d.value > 0);
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6 }}>
-      <ResponsiveContainer width={80} height={80}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+      <ResponsiveContainer width={72} height={72}>
         <PieChart>
-          <Pie data={data} cx="50%" cy="50%" innerRadius={26} outerRadius={38}
+          <Pie data={data} cx="50%" cy="50%" innerRadius={22} outerRadius={34}
             dataKey="value" startAngle={90} endAngle={-270} strokeWidth={0}>
             {data.map((d, i) => <Cell key={i} fill={d.fill} />)}
           </Pie>
         </PieChart>
       </ResponsiveContainer>
-      <div style={{ fontSize: 11, lineHeight: 1.8 }}>
-        <div><Dot color={BRAND} /> 摂取 {intake.toLocaleString()} kcal</div>
-        {target && <div><Dot color="#e2e8f0" /> 残り {remaining.toLocaleString()} kcal</div>}
-        {over > 0 && <div><Dot color="#dc2626" /> オーバー {over.toLocaleString()}</div>}
+      <div style={{ fontSize: 11, lineHeight: 1.9 }}>
+        <div><Dot color={BRAND} />摂取 {intake.toLocaleString()}</div>
+        {target && <div><Dot color="#e2e8f0" />残り {remain.toLocaleString()}</div>}
+        {over > 0 && <div><Dot color="#dc2626" />超過 {over.toLocaleString()}</div>}
       </div>
     </div>
   );
@@ -228,19 +246,19 @@ function PFCGraph({ p, f, c }) {
     { name: '炭水化物',   value: c ?? 0 },
   ].filter(d => d.value > 0);
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6 }}>
-      <ResponsiveContainer width={80} height={80}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+      <ResponsiveContainer width={72} height={72}>
         <PieChart>
-          <Pie data={data} cx="50%" cy="50%" innerRadius={26} outerRadius={38}
+          <Pie data={data} cx="50%" cy="50%" innerRadius={22} outerRadius={34}
             dataKey="value" startAngle={90} endAngle={-270} strokeWidth={0}>
             {data.map((_, i) => <Cell key={i} fill={PFC_COLORS[i]} />)}
           </Pie>
         </PieChart>
       </ResponsiveContainer>
-      <div style={{ fontSize: 11, lineHeight: 1.8 }}>
-        <div><Dot color={PFC_COLORS[0]} /> P {p?.toFixed(1) ?? '—'}g</div>
-        <div><Dot color={PFC_COLORS[1]} /> F {f?.toFixed(1) ?? '—'}g</div>
-        <div><Dot color={PFC_COLORS[2]} /> C {c?.toFixed(1) ?? '—'}g</div>
+      <div style={{ fontSize: 11, lineHeight: 1.9 }}>
+        <div><Dot color={PFC_COLORS[0]} />P {p?.toFixed(1) ?? '—'}g</div>
+        <div><Dot color={PFC_COLORS[1]} />F {f?.toFixed(1) ?? '—'}g</div>
+        <div><Dot color={PFC_COLORS[2]} />C {c?.toFixed(1) ?? '—'}g</div>
       </div>
     </div>
   );
@@ -275,17 +293,17 @@ function StepsGraph({ steps }) {
     { name: '残り', value: Math.max(0, STEP_GOAL - steps), fill: '#e2e8f0' },
   ];
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6 }}>
-      <ResponsiveContainer width={80} height={80}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+      <ResponsiveContainer width={72} height={72}>
         <PieChart>
-          <Pie data={data} cx="50%" cy="50%" innerRadius={26} outerRadius={38}
+          <Pie data={data} cx="50%" cy="50%" innerRadius={22} outerRadius={34}
             dataKey="value" startAngle={90} endAngle={-270} strokeWidth={0}>
             {data.map((d, i) => <Cell key={i} fill={d.fill} />)}
           </Pie>
         </PieChart>
       </ResponsiveContainer>
-      <div style={{ fontSize: 11, lineHeight: 1.8 }}>
-        <div style={{ fontSize: 18, fontWeight: 700, color: BRAND, lineHeight: 1.2 }}>{pct}%</div>
+      <div style={{ fontSize: 11, lineHeight: 1.6 }}>
+        <div style={{ fontSize: 20, fontWeight: 800, color: BRAND, lineHeight: 1.1 }}>{pct}%</div>
         <div style={{ color: 'var(--text-2)' }}>{steps.toLocaleString()} 歩</div>
       </div>
     </div>
@@ -315,8 +333,8 @@ function SleepGraph({ hours, score }) {
     { name: '目標', ディープ: 1.4,  レム: 1.75, 浅い: 3.85 },
   ];
   return (
-    <div style={{ marginTop: 6 }}>
-      <ResponsiveContainer width="100%" height={80}>
+    <>
+      <ResponsiveContainer width="100%" height={76}>
         <BarChart data={data} margin={{ top: 4, right: 4, left: -28, bottom: 0 }}>
           <XAxis dataKey="name" tick={{ fontSize: 10, fill: 'var(--text-3)' }} axisLine={false} tickLine={false} />
           <YAxis tick={{ fontSize: 9, fill: 'var(--text-3)' }} axisLine={false} tickLine={false} />
@@ -326,20 +344,18 @@ function SleepGraph({ hours, score }) {
           <Bar dataKey="浅い"     stackId="a" fill="#bfdbfe" radius={[3, 3, 0, 0]} />
         </BarChart>
       </ResponsiveContainer>
-      {score && <div style={{ fontSize: 11, color: 'var(--text-2)', marginTop: 2, textAlign: 'right' }}>スコア {score}</div>}
-    </div>
+      {score && <div style={{ fontSize: 11, color: 'var(--text-2)', textAlign: 'right' }}>スコア {score}</div>}
+    </>
   );
 }
 
-// ── 今日の予定（常時フルワイド・ソート対象外）────────────────
+// ── 今日の予定（フルワイド固定） ─────────────────────────────
 function ScheduleCard({ cal }) {
   const events = [
     ...(cal?.meal_events     || []).map(e => ({ ...e, type: 'meal' })),
     ...(cal?.exercise_events || []).map(e => ({ ...e, type: 'ex' })),
   ].sort((a, b) => (a.time || '') < (b.time || '') ? -1 : 1);
-
   if (!events.length) return null;
-
   return (
     <div className="card">
       <div className="card-title" style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
@@ -365,28 +381,59 @@ function ScheduleCard({ cal }) {
   );
 }
 
-// ── 共通パーツ ────────────────────────────────────────────────
-const tipStyle = { fontSize: 11, padding: '4px 8px', borderRadius: 6, border: '1px solid var(--border)' };
-function Dot({ color }) {
-  return <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: color, marginRight: 4 }} />;
-}
-function EmptyGraph() {
-  return <div style={{ color: 'var(--text-2)', fontSize: 12, padding: '10px 0' }}>データなし</div>;
+// ── ウィジェット設定パネル ────────────────────────────────────
+function SettingsPanel({ vis, onToggle }) {
+  return (
+    <div className="dash-settings">
+      <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-2)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+        ウィジェット表示設定
+      </div>
+      {WIDGET_IDS.map(id => {
+        const { label } = WIDGET_META[id];
+        return (
+          <div key={id} className="dash-settings-row">
+            <span style={{ fontWeight: 500 }}>{label}</span>
+            <div className="dash-settings-toggles">
+              {[['value', '数値'], ['graph', 'グラフ']].map(([key, lbl]) => (
+                <button
+                  key={key}
+                  className={`btn btn-sm${vis[id][key] ? ' btn-primary' : ' btn-outline'}`}
+                  onClick={() => onToggle(id, key)}
+                  style={{ minWidth: 52 }}
+                >
+                  {lbl}
+                </button>
+              ))}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 // ── メインページ ─────────────────────────────────────────────
 export default function DashboardPage() {
   const qc = useQueryClient();
+
+  // 日付
   const [dateStr, setDateStr] = useState(todayStr);
   const isToday = dateStr === todayStr();
 
-  // ウィジェット順序・グラフ表示状態（localStorage で永続化）
-  const [order,  setOrder]  = useState(() => lsGet('db-order',  DEFAULT_ORDER));
-  const [graphs, setGraphs] = useState(() => lsGet('db-graphs', {}));
+  // ウィジェット設定（localStorage 永続化）
+  const [order,        setOrder]        = useState(() => lsGet('db-order',   DEFAULT_ORDER));
+  const [vis,          setVis]          = useState(() => lsGet('db-vis',     DEFAULT_VIS));
+  const [periods,      setPeriods]      = useState(() => lsGet('db-periods', DEFAULT_PERIODS));
+  const [showSettings, setShowSettings] = useState(false);
 
-  const toggleGraph = (id) => setGraphs(prev => {
-    const next = { ...prev, [id]: !prev[id] };
-    lsSet('db-graphs', next);
+  const toggleVis = (id, key) => setVis(prev => {
+    const next = { ...prev, [id]: { ...prev[id], [key]: !prev[id][key] } };
+    lsSet('db-vis', next);
+    return next;
+  });
+  const setPeriod = (id, p) => setPeriods(prev => {
+    const next = { ...prev, [id]: p };
+    lsSet('db-periods', next);
     return next;
   });
 
@@ -395,9 +442,12 @@ export default function DashboardPage() {
     queryKey: ['dashboard', dateStr],
     queryFn: () => dashboardApi.today(dateStr).then(r => r.data),
   });
+
+  // 体重履歴：選択中の期間に応じて日数を調整
+  const weightDays = periods.weight === '30d' ? 30 : 7;
   const { data: weightHistory = [] } = useQuery({
-    queryKey: ['weight-history', 7],
-    queryFn: () => bodyApi.weightHistory(7).then(r => r.data),
+    queryKey: ['weight-history', weightDays],
+    queryFn: () => bodyApi.weightHistory(weightDays).then(r => r.data),
   });
 
   const syncMutation = useMutation({
@@ -418,7 +468,8 @@ export default function DashboardPage() {
   const wDelta   = latestW && oldestW && latestW !== oldestW
     ? (latestW - oldestW).toFixed(1) : null;
   const wPct     = goals.target_weight && latestW && oldestW
-    ? Math.max(0, Math.round(100 - Math.abs(latestW - goals.target_weight) / Math.abs((oldestW || latestW) - goals.target_weight) * 100))
+    ? Math.max(0, Math.round(100 - Math.abs(latestW - goals.target_weight)
+        / Math.abs((oldestW || latestW) - goals.target_weight) * 100))
     : null;
 
   const calIntake    = nut.kcal ? Math.round(nut.kcal) : null;
@@ -426,7 +477,7 @@ export default function DashboardPage() {
   const calPct       = calIntake && calTarget ? Math.round(calIntake / calTarget * 100) : null;
   const calRemaining = calIntake && calTarget ? Math.max(0, calTarget - calIntake) : null;
 
-  // DnD（長押し 300ms でドラッグ開始）
+  // DnD（長押し 300ms）
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { delay: 300, tolerance: 5 } })
   );
@@ -439,43 +490,33 @@ export default function DashboardPage() {
     });
   };
 
-  // ウィジェット定義マップ
-  const widgetMap = {
-    weight: (
-      <WidgetShell key="weight" id="weight" Icon={Scale} title="体重"
-        showGraph={!!graphs.weight} onToggle={() => toggleGraph('weight')}
-        valueContent={<WeightValue latest={latestW} delta={wDelta} pct={wPct} />}
-        graphContent={<WeightGraph history={weightHistory} />}
-      />
-    ),
-    calories: (
-      <WidgetShell key="calories" id="calories" Icon={Flame} title="カロリー"
-        showGraph={!!graphs.calories} onToggle={() => toggleGraph('calories')}
-        valueContent={<CaloriesValue intake={calIntake} target={calTarget} pct={calPct} remaining={calRemaining} />}
-        graphContent={<CaloriesGraph intake={calIntake} target={calTarget} />}
-      />
-    ),
-    pfc: (
-      <WidgetShell key="pfc" id="pfc" Icon={Layers} title="PFC"
-        showGraph={!!graphs.pfc} onToggle={() => toggleGraph('pfc')}
-        valueContent={<PFCValue p={nut.protein_g} f={nut.fat_g} c={nut.carb_g} />}
-        graphContent={<PFCGraph p={nut.protein_g} f={nut.fat_g} c={nut.carb_g} />}
-      />
-    ),
-    steps: (
-      <WidgetShell key="steps" id="steps" Icon={Footprints} title="歩数"
-        showGraph={!!graphs.steps} onToggle={() => toggleGraph('steps')}
-        valueContent={<StepsValue steps={summary?.steps} />}
-        graphContent={<StepsGraph steps={summary?.steps} />}
-      />
-    ),
-    sleep: (
-      <WidgetShell key="sleep" id="sleep" Icon={Moon} title="睡眠"
-        showGraph={!!graphs.sleep} onToggle={() => toggleGraph('sleep')}
-        valueContent={<SleepValue hours={summary?.sleep_hours} score={summary?.sleep_score} />}
-        graphContent={<SleepGraph hours={summary?.sleep_hours} score={summary?.sleep_score} />}
-      />
-    ),
+  // ウィジェット定義
+  const widgetDef = {
+    weight: {
+      support: ['1d', '7d', '30d'],
+      value:   <WeightValue latest={latestW} delta={wDelta} pct={wPct} />,
+      graph:   <WeightGraph history={weightHistory} period={periods.weight} />,
+    },
+    calories: {
+      support: ['1d'],
+      value:   <CaloriesValue intake={calIntake} target={calTarget} pct={calPct} remaining={calRemaining} />,
+      graph:   <CaloriesGraph intake={calIntake} target={calTarget} />,
+    },
+    pfc: {
+      support: ['1d'],
+      value:   <PFCValue p={nut.protein_g} f={nut.fat_g} c={nut.carb_g} />,
+      graph:   <PFCGraph p={nut.protein_g} f={nut.fat_g} c={nut.carb_g} />,
+    },
+    steps: {
+      support: ['1d'],
+      value:   <StepsValue steps={summary?.steps} />,
+      graph:   <StepsGraph steps={summary?.steps} />,
+    },
+    sleep: {
+      support: ['1d'],
+      value:   <SleepValue hours={summary?.sleep_hours} score={summary?.sleep_score} />,
+      graph:   <SleepGraph hours={summary?.sleep_hours} score={summary?.sleep_score} />,
+    },
   };
 
   return (
@@ -483,35 +524,57 @@ export default function DashboardPage() {
       {/* ヘッダー */}
       <div className="page-header">
         <h1 className="page-title">ダッシュボード</h1>
-        <button
-          className="btn btn-outline btn-sm"
-          onClick={() => syncMutation.mutate()}
-          disabled={syncMutation.isPending}
-        >
-          <RefreshCw size={13} strokeWidth={2}
-            style={syncMutation.isPending ? { animation: 'spin 0.65s linear infinite' } : {}} />
-          {syncMutation.isPending ? '同期中…' : '同期'}
-        </button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button
+            className={`btn btn-sm${showSettings ? ' btn-primary' : ' btn-outline'}`}
+            onClick={() => setShowSettings(v => !v)}
+            title="ウィジェット設定"
+          >
+            <Settings2 size={13} strokeWidth={1.8} />
+            設定
+          </button>
+          <button
+            className="btn btn-outline btn-sm"
+            onClick={() => syncMutation.mutate()}
+            disabled={syncMutation.isPending}
+          >
+            <RefreshCw size={13} strokeWidth={2}
+              style={syncMutation.isPending ? { animation: 'spin 0.65s linear infinite' } : {}} />
+            {syncMutation.isPending ? '同期中…' : '同期'}
+          </button>
+        </div>
       </div>
 
+      {/* ウィジェット設定パネル */}
+      {showSettings && <SettingsPanel vis={vis} onToggle={toggleVis} />}
+
       {/* 日付ナビゲーション */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginBottom: 'var(--sp-4)' }}>
-        <button className="btn-ghost" style={{ padding: '6px 10px', borderRadius: 8 }}
-          onClick={() => setDateStr(d => offsetDate(d, -1))}>
-          <ChevronLeft size={18} strokeWidth={1.8} />
-        </button>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, marginBottom: 'var(--sp-4)' }}>
         <button
           className="btn-ghost"
-          style={{ padding: '5px 14px', borderRadius: 20, fontSize: 13, fontWeight: 600, minWidth: 140, textAlign: 'center', color: isToday ? 'var(--brand)' : 'var(--text)' }}
-          onClick={() => setDateStr(todayStr())}
-          title="今日に戻る"
+          style={{ padding: '6px 10px', borderRadius: 8 }}
+          onClick={() => setDateStr(d => offsetDate(d, -1))}
         >
+          <ChevronLeft size={18} strokeWidth={1.8} />
+        </button>
+
+        <span style={{ fontSize: 13, fontWeight: 600, minWidth: 130, textAlign: 'center', color: isToday ? 'var(--brand)' : 'var(--text)' }}>
           {isToday ? '今日 · ' : ''}{fmtDate(dateStr)}
+        </span>
+
+        <button
+          className="btn-ghost"
+          style={{ padding: '6px 10px', borderRadius: 8 }}
+          onClick={() => setDateStr(d => offsetDate(d, 1))}
+        >
+          <ChevronRight size={18} strokeWidth={1.8} />
         </button>
-        <button className="btn-ghost" style={{ padding: '6px 10px', borderRadius: 8 }}
-          onClick={() => setDateStr(d => offsetDate(d, 1))} disabled={isToday}>
-          <ChevronRight size={18} strokeWidth={1.8} style={{ opacity: isToday ? 0.3 : 1 }} />
-        </button>
+
+        {!isToday && (
+          <button className="today-btn" onClick={() => setDateStr(todayStr())}>
+            今日
+          </button>
+        )}
       </div>
 
       {/* 未連携バナー */}
@@ -528,19 +591,33 @@ export default function DashboardPage() {
         </div>
       ) : (
         <>
-          {/* ソート可能なウィジェットグリッド */}
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
             <SortableContext items={order} strategy={rectSortingStrategy}>
               <div className="widget-grid">
-                {order.map(id => widgetMap[id]).filter(Boolean)}
+                {order.map(id => {
+                  const def = widgetDef[id];
+                  if (!def) return null;
+                  const v = vis[id] ?? { value: true, graph: false };
+                  // 何も表示しない設定の場合でも最低限シェルは表示
+                  return (
+                    <WidgetShell
+                      key={id}
+                      id={id}
+                      vis={v}
+                      period={periods[id] ?? '1d'}
+                      onPeriodChange={p => setPeriod(id, p)}
+                      valueContent={def.value}
+                      graphContent={def.graph}
+                      graphSupport={def.support}
+                    />
+                  );
+                })}
               </div>
             </SortableContext>
           </DndContext>
 
-          {/* 今日の予定（フルワイド固定） */}
           <ScheduleCard cal={cal} />
 
-          {/* 今週の献立へ */}
           <Link to="/plan" className="btn btn-secondary btn-full"
             style={{ marginTop: 'var(--sp-2)', textDecoration: 'none' }}>
             今週の献立を確認する

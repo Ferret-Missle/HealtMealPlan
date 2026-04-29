@@ -947,6 +947,71 @@ select.form-input {
   color: var(--text-2);
 }
 
+/* Widget inner divider (value ↔ graph) */
+.widget-divider {
+  height: 1px;
+  background: var(--s100);
+  margin: var(--sp-1) 0;
+}
+/* Period pill row inside graph section */
+.period-pills {
+  display: flex;
+  gap: 4px;
+  margin-bottom: var(--sp-2);
+}
+.period-pill {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 20px;
+  border: 1px solid var(--s200);
+  cursor: pointer;
+  background: var(--bg);
+  color: var(--text-2);
+  line-height: 1.6;
+  transition: background 0.12s, color 0.12s;
+}
+.period-pill.active {
+  background: var(--brand);
+  color: #fff;
+  border-color: var(--brand);
+}
+/* Dashboard settings panel */
+.dash-settings {
+  background: var(--surface);
+  border: 1px solid var(--s200);
+  border-radius: var(--r-lg);
+  padding: var(--sp-4);
+  margin-bottom: var(--sp-3);
+  box-shadow: var(--sh-sm);
+}
+.dash-settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--sp-2) 0;
+  border-bottom: 1px solid var(--s100);
+  font-size: 13px;
+}
+.dash-settings-row:last-child { border-bottom: none; }
+.dash-settings-toggles {
+  display: flex;
+  gap: 8px;
+}
+/* Today button */
+.today-btn {
+  font-size: 12px;
+  font-weight: 700;
+  padding: 4px 12px;
+  border-radius: 20px;
+  background: var(--brand-pale);
+  color: var(--brand-text);
+  border: 1px solid var(--brand-light);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.today-btn:hover { background: var(--brand-light); }
+
 /* Sync status pill */
 .sync-pill {
   display: inline-flex;
