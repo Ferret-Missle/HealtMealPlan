@@ -4,16 +4,24 @@ import {
   Scale, Flame, Footprints, Moon,
   RefreshCw, Utensils, Dumbbell,
   CalendarClock, ChevronDown, ChevronUp,
+  ChevronLeft, ChevronRight,
 } from 'lucide-react';
 import { dashboardApi, bodyApi } from '../services/api';
 import { useAuth } from '../hooks/useAuth';
 import PFCChart from '../components/PFCChart';
 import { Link } from 'react-router-dom';
 
-// ── 今日の日付 ───────────────────────────────────────────────
+// ── 日付ユーティリティ ────────────────────────────────────────
 function todayStr() { return new Date().toISOString().split('T')[0]; }
-function todayFmt() {
-  return new Date().toLocaleDateString('ja-JP', { month: 'long', day: 'numeric', weekday: 'short' });
+function offsetDate(base, days) {
+  const d = new Date(base);
+  d.setDate(d.getDate() + days);
+  return d.toISOString().split('T')[0];
+}
+function fmtDate(dateStr) {
+  return new Date(dateStr + 'T00:00:00').toLocaleDateString('ja-JP', {
+    month: 'long', day: 'numeric', weekday: 'short',
+  });
 }
 
 // ── コンパクト指標ウィジェット ───────────────────────────────
@@ -99,7 +107,8 @@ function ExercisePanel() {
 export default function DashboardPage() {
   const { profile } = useAuth();
   const qc = useQueryClient();
-  const dateStr = todayStr();
+  const [dateStr, setDateStr] = useState(todayStr);
+  const isToday = dateStr === todayStr();
 
   const { data: summary, isLoading } = useQuery({
     queryKey: ['dashboard', dateStr],
@@ -150,10 +159,7 @@ export default function DashboardPage() {
     <div>
       {/* ヘッダー */}
       <div className="page-header">
-        <div>
-          <h1 className="page-title">今日</h1>
-          <div style={{ fontSize: 13, color: 'var(--text-2)', marginTop: 2 }}>{todayFmt()}</div>
-        </div>
+        <h1 className="page-title">ダッシュボード</h1>
         <button
           className="btn btn-outline btn-sm"
           onClick={() => syncMutation.mutate()}
@@ -164,6 +170,42 @@ export default function DashboardPage() {
             style={syncMutation.isPending ? { animation: 'spin 0.65s linear infinite' } : {}}
           />
           {syncMutation.isPending ? '同期中…' : '同期'}
+        </button>
+      </div>
+
+      {/* 日付ナビゲーション */}
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        gap: 8, marginBottom: 'var(--sp-4)',
+      }}>
+        <button
+          className="btn-ghost"
+          style={{ padding: '6px 10px', borderRadius: 8 }}
+          onClick={() => setDateStr(d => offsetDate(d, -1))}
+        >
+          <ChevronLeft size={18} strokeWidth={1.8} />
+        </button>
+
+        <button
+          className="btn-ghost"
+          style={{
+            padding: '5px 14px', borderRadius: 20,
+            fontSize: 13, fontWeight: 600, minWidth: 140, textAlign: 'center',
+            color: isToday ? 'var(--brand)' : 'var(--text)',
+          }}
+          onClick={() => setDateStr(todayStr())}
+          title="今日に戻る"
+        >
+          {isToday ? '今日 · ' : ''}{fmtDate(dateStr)}
+        </button>
+
+        <button
+          className="btn-ghost"
+          style={{ padding: '6px 10px', borderRadius: 8 }}
+          onClick={() => setDateStr(d => offsetDate(d, 1))}
+          disabled={isToday}
+        >
+          <ChevronRight size={18} strokeWidth={1.8} style={{ opacity: isToday ? 0.3 : 1 }} />
         </button>
       </div>
 

@@ -2,7 +2,7 @@ import { Outlet, NavLink } from 'react-router-dom';
 import { LayoutDashboard, CalendarDays, ListChecks, UserCircle2, Leaf } from 'lucide-react';
 
 const NAV_ITEMS = [
-  { to: '/',      label: '今日',      Icon: LayoutDashboard, end: true },
+  { to: '/',      label: 'ダッシュボード', Icon: LayoutDashboard, end: true },
   { to: '/plan',  label: 'プラン',    Icon: CalendarDays,    end: false },
   { to: '/list',  label: 'リスト',    Icon: ListChecks,      end: false },
   { to: '/me',    label: 'マイページ', Icon: UserCircle2,     end: false },
