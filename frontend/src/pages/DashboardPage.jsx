@@ -15,12 +15,11 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 import {
-  Scale, Flame, Layers, Footprints, Moon,
+  Scale, Flame, Layers, Footprints, Moon, UtensilsCrossed,
   RefreshCw, Utensils, Dumbbell, CalendarClock,
   ChevronLeft, ChevronRight, GripVertical, Settings2,
 } from 'lucide-react';
-import { dashboardApi, bodyApi } from '../services/api';
-import { History } from 'lucide-react';
+import { dashboardApi, bodyApi, mealsApi } from '../services/api';
 import { Link } from 'react-router-dom';
 
 // ── 日付ユーティリティ ────────────────────────────────────────
@@ -57,7 +56,7 @@ function lsSet(key, val) {
 }
 
 // ── 定数 ─────────────────────────────────────────────────────
-const WIDGET_IDS = ['weight', 'calories', 'pfc', 'steps', 'sleep'];
+const WIDGET_IDS = ['weight', 'calories', 'pfc', 'steps', 'sleep', 'meals'];
 
 const WIDGET_META = {
   weight:   { label: '体重',     Icon: Scale },
@@ -65,6 +64,7 @@ const WIDGET_META = {
   pfc:      { label: 'PFC',      Icon: Layers },
   steps:    { label: '歩数',     Icon: Footprints },
   sleep:    { label: '睡眠',     Icon: Moon },
+  meals:    { label: '食事記録', Icon: UtensilsCrossed },
 };
 
 const DEFAULT_ORDER   = WIDGET_IDS;
@@ -392,6 +392,74 @@ function SleepGraph({ history, onBulkSync, isSyncing }) {
   );
 }
 
+// ── 食事記録 ──────────────────────────────────────────────────
+const MEAL_TYPE_LABEL = {
+  breakfast: '朝食', lunch: '昼食', dinner: '夕食', snack: '間食',
+};
+const MEAL_TYPE_ORDER = ['breakfast', 'lunch', 'dinner', 'snack'];
+
+function MealsValue({ logs }) {
+  const total = logs.reduce((s, l) => s + (l.kcal || 0), 0);
+  return (
+    <>
+      <div style={{ lineHeight: 1.1, marginTop: 2 }}>
+        <span className="widget-value">{total ? Math.round(total).toLocaleString() : '—'}</span>
+        <span className="widget-unit">kcal</span>
+      </div>
+      <div className="widget-sub">{logs.length} 件の食事記録</div>
+    </>
+  );
+}
+
+function MealsList({ logs, dateStr, onSync, isSyncing }) {
+  // meal_type ごとにグルーピング
+  const grouped = MEAL_TYPE_ORDER.reduce((acc, t) => {
+    const items = logs.filter(l => l.meal_type === t);
+    if (items.length) acc[t] = items;
+    return acc;
+  }, {});
+
+  return (
+    <div>
+      {logs.length === 0
+        ? <EmptyGraph msg="食事記録なし — FatSecret 同期か食事ログから追加してください" />
+        : Object.entries(grouped).map(([type, items]) => (
+          <div key={type} style={{ marginBottom: 8 }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-2)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 3 }}>
+              {MEAL_TYPE_LABEL[type] || type}
+            </div>
+            {items.map(item => (
+              <div key={item.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '2px 0', borderBottom: '1px solid var(--border-light)' }}>
+                <span style={{ color: 'var(--text)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginRight: 8 }}>
+                  {item.food_name}
+                </span>
+                <span style={{ color: 'var(--text-2)', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
+                  {Math.round(item.kcal)} kcal
+                </span>
+              </div>
+            ))}
+          </div>
+        ))
+      }
+      <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+        <button
+          className="btn btn-outline btn-sm"
+          style={{ flex: 1, fontSize: 11 }}
+          onClick={onSync}
+          disabled={isSyncing}
+        >
+          <RefreshCw size={11} strokeWidth={2}
+            style={isSyncing ? { animation: 'spin 0.65s linear infinite', marginRight: 4 } : { marginRight: 4 }} />
+          {isSyncing ? '同期中…' : 'FatSecret 同期'}
+        </button>
+        <Link to="/meals" className="btn btn-outline btn-sm" style={{ fontSize: 11, textDecoration: 'none' }}>
+          食事記録へ
+        </Link>
+      </div>
+    </div>
+  );
+}
+
 // ── 今日の予定（フルワイド固定） ─────────────────────────────
 function ScheduleCard({ cal }) {
   const events = [
@@ -510,6 +578,17 @@ export default function DashboardPage() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['activity-history'] }),
   });
 
+  // 食事記録
+  const { data: mealLogs = [] } = useQuery({
+    queryKey: ['meals', dateStr],
+    queryFn: () => mealsApi.list(dateStr).then(r => r.data),
+  });
+
+  const syncFatSecretMutation = useMutation({
+    mutationFn: () => mealsApi.syncFatSecret(dateStr),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['meals', dateStr] }),
+  });
+
   const syncMutation = useMutation({
     mutationFn: () => bodyApi.sync(dateStr),
     onSuccess: () => {
@@ -583,6 +662,16 @@ export default function DashboardPage() {
                  history={activityHistory}
                  onBulkSync={() => sleepBulkSyncMutation.mutate()}
                  isSyncing={sleepBulkSyncMutation.isPending}
+               />,
+    },
+    meals: {
+      support: ['1d'],
+      value:   <MealsValue logs={mealLogs} />,
+      graph:   <MealsList
+                 logs={mealLogs}
+                 dateStr={dateStr}
+                 onSync={() => syncFatSecretMutation.mutate()}
+                 isSyncing={syncFatSecretMutation.isPending}
                />,
     },
   };
@@ -681,7 +770,7 @@ export default function DashboardPage() {
                       valueContent={def.value}
                       graphContent={def.graph}
                       graphSupport={def.support}
-                      fullWidth={id === 'weight' && v.graph}
+                      fullWidth={(id === 'weight' || id === 'meals') && v.graph}
                     />
                   );
                 })}

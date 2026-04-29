@@ -39,6 +39,9 @@ export const authApi = {
 		api.post("/api/auth/healthplanet/exchange", { user_id: userId, code }),
 	googleLoginUrl: (userId) =>
 		api.get(`/api/auth/google/login?user_id=${userId}`),
+	fatsecretLoginUrl: (userId) =>
+		api.get(`/api/auth/fatsecret/login?user_id=${userId}`),
+	// 旧エンドポイント（後方互換）
 	fatsecretRequestToken: (userId) =>
 		api.get(`/api/auth/fatsecret/request-token?user_id=${userId}`),
 	fatsecretAccessToken: (data) =>

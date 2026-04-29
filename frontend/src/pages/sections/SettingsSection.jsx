@@ -20,13 +20,7 @@ const SERVICES = [
 		label: "HealthPlanet (タニタ)",
 		desc: "体重・体脂肪・筋肉量・BMI",
 	},
-	{
-		key: "fatsecret",
-		label: "FatSecret",
-		desc: "食品データベース（検索は連携不要で利用可）",
-		unavailable: true,
-		unavailableReason: "FatSecretのOAuth認証はCloudflare保護により現在利用できません",
-	},
+	{ key: "fatsecret", label: "FatSecret", desc: "食品データベース・食事記録同期" },
 	{ key: "google", label: "Googleカレンダー", desc: "予定取得（外食・運動）" },
 ];
 
@@ -192,8 +186,9 @@ export default function SettingsSection() {
 				const res = await authApi.googleLoginUrl(user.uid);
 				window.location.href = res.data.url;
 			} else if (service === "fatsecret") {
-				const res = await authApi.fatsecretRequestToken(user.uid);
-				window.location.href = res.data.authorize_url;
+				// OAuth 2.0 フロー（サーバー→FatSecret 直接通信なし = Cloudflare 回避）
+				const res = await authApi.fatsecretLoginUrl(user.uid);
+				window.location.href = res.data.url;
 			}
 		} catch (e) {
 			const detail = e.response?.data?.detail || e.message;
