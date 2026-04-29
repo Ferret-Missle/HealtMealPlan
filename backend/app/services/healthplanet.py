@@ -60,11 +60,13 @@ async def get_innerscan(user_id: str, date: str, db: Session) -> dict | None:
                 "date": "1",
                 "from": f"{from_date}000000",
                 "to": f"{to_date}235959",
-                "tag": "6021,6022,6023,6024",  # weight, body_fat, muscle_mass, bmi
+                # 6021: weight, 6022: body_fat_pct
+                # 6023/6024 discontinued on 2020-06-29
+                "tag": "6021,6022",
             },
         )
     if resp.status_code != 200:
-        return None
+        raise ValueError(f"HealthPlanet innerscan error {resp.status_code}: {resp.text}")
 
     data = resp.json()
     data_list = data.get("data", [])
@@ -79,9 +81,5 @@ async def get_innerscan(user_id: str, date: str, db: Session) -> dict | None:
             result["weight"] = float(keydata)
         elif tag == "6022":
             result["body_fat"] = float(keydata)
-        elif tag == "6023":
-            result["muscle_mass"] = float(keydata)
-        elif tag == "6024":
-            result["bmi"] = float(keydata)
 
     return result if len(result) > 1 else None

@@ -155,21 +155,65 @@ async def fitbit_callback(code: str, state: str, db: Session = Depends(get_db)):
 
 # ---- HealthPlanet OAuth ----
 
+# HealthPlanet does not allow localhost as a host domain.
+# Use the officially permitted redirect_uri: https://www.healthplanet.jp/success.html
+HEALTHPLANET_FIXED_REDIRECT_URI = "https://www.healthplanet.jp/success.html"
+
+
 @router.get("/healthplanet/login")
 async def healthplanet_login(user_id: str):
     params = {
         "client_id": HEALTHPLANET_CLIENT_ID,
-        "redirect_uri": HEALTHPLANET_REDIRECT_URI,
+        "redirect_uri": HEALTHPLANET_FIXED_REDIRECT_URI,
         "response_type": "code",
-        "scope": "innerscan sphygmomanometer pedometer",
+        "scope": "innerscan,sphygmomanometer,pedometer",
         "state": user_id,
     }
     url = "https://www.healthplanet.jp/oauth/auth?" + urllib.parse.urlencode(params)
     return {"url": url}
 
 
+class HealthPlanetCodeRequest(BaseModel):
+    user_id: str
+    code: str
+
+
+@router.post("/healthplanet/exchange")
+async def healthplanet_exchange(req: HealthPlanetCodeRequest, db: Session = Depends(get_db)):
+    """Exchange authorization code for access token (manual code entry flow)."""
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(
+            "https://www.healthplanet.jp/oauth/token",
+            data={
+                "client_id": HEALTHPLANET_CLIENT_ID,
+                "client_secret": HEALTHPLANET_CLIENT_SECRET,
+                "redirect_uri": HEALTHPLANET_FIXED_REDIRECT_URI,
+                "code": req.code,
+                "grant_type": "authorization_code",
+            },
+        )
+    if resp.status_code != 200:
+        raise HTTPException(400, f"HealthPlanet token error: {resp.text}")
+
+    data = resp.json()
+    expires_at = datetime.utcnow() + timedelta(days=30)
+
+    token = db.query(models.OAuthToken).filter_by(user_id=req.user_id, service="healthplanet").first()
+    if not token:
+        token = models.OAuthToken(user_id=req.user_id, service="healthplanet")
+        db.add(token)
+    token.access_token = security.encrypt(data["access_token"])
+    if data.get("refresh_token"):
+        token.refresh_token = security.encrypt(data["refresh_token"])
+    token.expires_at = expires_at
+    db.commit()
+
+    return {"status": "connected"}
+
+
 @router.get("/healthplanet/callback")
 async def healthplanet_callback(code: str, state: str, db: Session = Depends(get_db)):
+    """Legacy callback - kept for compatibility but not used with success.html redirect."""
     user_id = state
     async with httpx.AsyncClient() as client:
         resp = await client.post(

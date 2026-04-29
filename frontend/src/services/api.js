@@ -28,14 +28,21 @@ api.interceptors.response.use(
 
 // Auth
 export const authApi = {
-  register: (data) => api.post('/api/auth/register', data),
-  me: () => api.get('/api/auth/me'),
-  disconnect: (service) => api.delete(`/api/auth/disconnect/${service}`),
-  fitbitLoginUrl: (userId) => api.get(`/api/auth/fitbit/login?user_id=${userId}`),
-  healthplanetLoginUrl: (userId) => api.get(`/api/auth/healthplanet/login?user_id=${userId}`),
-  googleLoginUrl: (userId) => api.get(`/api/auth/google/login?user_id=${userId}`),
-  fatsecretRequestToken: (userId) => api.get(`/api/auth/fatsecret/request-token?user_id=${userId}`),
-  fatsecretAccessToken: (data) => api.post('/api/auth/fatsecret/access-token', data),
+	register: (data) => api.post("/api/auth/register", data),
+	me: () => api.get("/api/auth/me"),
+	disconnect: (service) => api.delete(`/api/auth/disconnect/${service}`),
+	fitbitLoginUrl: (userId) =>
+		api.get(`/api/auth/fitbit/login?user_id=${userId}`),
+	healthplanetLoginUrl: (userId) =>
+		api.get(`/api/auth/healthplanet/login?user_id=${userId}`),
+	healthplanetExchange: (userId, code) =>
+		api.post("/api/auth/healthplanet/exchange", { user_id: userId, code }),
+	googleLoginUrl: (userId) =>
+		api.get(`/api/auth/google/login?user_id=${userId}`),
+	fatsecretRequestToken: (userId) =>
+		api.get(`/api/auth/fatsecret/request-token?user_id=${userId}`),
+	fatsecretAccessToken: (data) =>
+		api.post("/api/auth/fatsecret/access-token", data),
 };
 
 // Dashboard

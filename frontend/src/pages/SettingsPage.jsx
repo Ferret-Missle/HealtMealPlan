@@ -1,308 +1,529 @@
-import { useState } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useSearchParams } from 'react-router-dom';
-import { settingsApi, authApi } from '../services/api';
-import { useAuth } from '../hooks/useAuth';
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
+import { useSearchParams } from "react-router-dom";
+import { useAuth } from "../hooks/useAuth";
+import { authApi, settingsApi } from "../services/api";
 
 const SERVICES = [
-  { key: 'fitbit', label: 'Fitbit', icon: '💚', desc: '歩数・睡眠・心拍・体重' },
-  { key: 'healthplanet', label: 'HealthPlanet (タニタ)', icon: '⚖️', desc: '体重・体脂肪・筋肉量・BMI' },
-  { key: 'fatsecret', label: 'FatSecret', icon: '🍎', desc: '食品データベース・食事記録' },
-  { key: 'google', label: 'Googleカレンダー', icon: '📅', desc: '予定取得（外食・運動）' },
+	{
+		key: "fitbit",
+		label: "Fitbit",
+		icon: "💚",
+		desc: "歩数・睡眠・心拍・体重",
+	},
+	{
+		key: "healthplanet",
+		label: "HealthPlanet (タニタ)",
+		icon: "⚖️",
+		desc: "体重・体脂肪・筋肉量・BMI",
+	},
+	{
+		key: "fatsecret",
+		label: "FatSecret",
+		icon: "🍎",
+		desc: "食品データベース・食事記録",
+	},
+	{
+		key: "google",
+		label: "Googleカレンダー",
+		icon: "📅",
+		desc: "予定取得（外食・運動）",
+	},
 ];
 
 const BYOK_PROVIDERS = [
-  { key: 'anthropic', label: 'Anthropic (Claude)', vision: true },
-  { key: 'openai', label: 'OpenAI (GPT-4o)', vision: true },
-  { key: 'gemini', label: 'Google Gemini', vision: true },
-  { key: 'groq', label: 'Groq (Llama 3.1)', vision: false },
-  { key: 'mistral', label: 'Mistral AI', vision: false },
+	{ key: "anthropic", label: "Anthropic (Claude)", vision: true },
+	{ key: "openai", label: "OpenAI (GPT-4o)", vision: true },
+	{ key: "gemini", label: "Google Gemini", vision: true },
+	{ key: "groq", label: "Groq (Llama 3.1)", vision: false },
+	{ key: "mistral", label: "Mistral AI", vision: false },
 ];
 
-const DIET_STYLES = ['和食中心', '洋食中心', '高タンパク', '低炭水化物', '糖質制限', 'ベジタリアン', 'ビーガン'];
+const DIET_STYLES = [
+	"和食中心",
+	"洋食中心",
+	"高タンパク",
+	"低炭水化物",
+	"糖質制限",
+	"ベジタリアン",
+	"ビーガン",
+];
 
 export default function SettingsPage() {
-  const { user, profile, logout, refreshProfile } = useAuth();
-  const qc = useQueryClient();
-  const [searchParams] = useSearchParams();
-  const connected = searchParams.get('connected');
+	const { user, profile, logout, refreshProfile } = useAuth();
+	const qc = useQueryClient();
+	const [searchParams] = useSearchParams();
+	const connected = searchParams.get("connected");
 
-  const [newApiKey, setNewApiKey] = useState({ provider: 'anthropic', key: '' });
-  const [showApiKeyForm, setShowApiKeyForm] = useState(false);
-  const [excludedInput, setExcludedInput] = useState('');
-  const [errorMsg, setErrorMsg] = useState('');
-  const [successMsg, setSuccessMsg] = useState(connected ? `${connected} を連携しました！` : '');
+	const [newApiKey, setNewApiKey] = useState({
+		provider: "anthropic",
+		key: "",
+	});
+	const [showApiKeyForm, setShowApiKeyForm] = useState(false);
+	const [excludedInput, setExcludedInput] = useState("");
+	const [errorMsg, setErrorMsg] = useState("");
+	const [successMsg, setSuccessMsg] = useState(
+		connected ? `${connected} を連携しました！` : "",
+	);
 
-  const { data: settings, isLoading } = useQuery({
-    queryKey: ['settings'],
-    queryFn: () => settingsApi.get().then((r) => r.data),
-  });
+	const { data: settings, isLoading } = useQuery({
+		queryKey: ["settings"],
+		queryFn: () => settingsApi.get().then((r) => r.data),
+	});
 
-  const prefMutation = useMutation({
-    mutationFn: (data) => settingsApi.updatePreferences(data),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['settings'] });
-      setSuccessMsg('設定を保存しました');
-    },
-  });
+	const prefMutation = useMutation({
+		mutationFn: (data) => settingsApi.updatePreferences(data),
+		onSuccess: () => {
+			qc.invalidateQueries({ queryKey: ["settings"] });
+			setSuccessMsg("設定を保存しました");
+		},
+	});
 
-  const apiKeyMutation = useMutation({
-    mutationFn: (data) => settingsApi.registerApiKey(data),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['settings'] });
-      refreshProfile();
-      setShowApiKeyForm(false);
-      setNewApiKey({ provider: 'anthropic', key: '' });
-      setSuccessMsg('APIキーを登録しました');
-    },
-    onError: (e) => setErrorMsg(e.message),
-  });
+	const apiKeyMutation = useMutation({
+		mutationFn: (data) => settingsApi.registerApiKey(data),
+		onSuccess: () => {
+			qc.invalidateQueries({ queryKey: ["settings"] });
+			refreshProfile();
+			setShowApiKeyForm(false);
+			setNewApiKey({ provider: "anthropic", key: "" });
+			setSuccessMsg("APIキーを登録しました");
+		},
+		onError: (e) => setErrorMsg(e.message),
+	});
 
-  const deleteKeyMutation = useMutation({
-    mutationFn: (provider) => settingsApi.deleteApiKey(provider),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['settings'] });
-      refreshProfile();
-    },
-  });
+	const deleteKeyMutation = useMutation({
+		mutationFn: (provider) => settingsApi.deleteApiKey(provider),
+		onSuccess: () => {
+			qc.invalidateQueries({ queryKey: ["settings"] });
+			refreshProfile();
+		},
+	});
 
-  const disconnectMutation = useMutation({
-    mutationFn: (service) => authApi.disconnect(service),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['settings'] });
-      refreshProfile();
-    },
-  });
+	const disconnectMutation = useMutation({
+		mutationFn: (service) => authApi.disconnect(service),
+		onSuccess: () => {
+			qc.invalidateQueries({ queryKey: ["settings"] });
+			refreshProfile();
+		},
+	});
 
-  const syncCalMutation = useMutation({
-    mutationFn: () => settingsApi.syncCalendars(),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['settings'] });
-      setSuccessMsg('カレンダーを同期しました');
-    },
-    onError: (e) => setErrorMsg(e.message),
-  });
+	const syncCalMutation = useMutation({
+		mutationFn: () => settingsApi.syncCalendars(),
+		onSuccess: () => {
+			qc.invalidateQueries({ queryKey: ["settings"] });
+			setSuccessMsg("カレンダーを同期しました");
+		},
+		onError: (e) => setErrorMsg(e.message),
+	});
 
-  const connectedServices = settings?.connected_services || [];
-  const apiKeys = settings?.api_keys || [];
-  const dietStyles = settings?.preferences?.diet_styles || [];
-  const excludedFoods = settings?.excluded_foods || [];
+	const connectedServices = settings?.connected_services || [];
+	const apiKeys = settings?.api_keys || [];
+	const dietStyles = settings?.preferences?.diet_styles || [];
+	const excludedFoods = settings?.excluded_foods || [];
 
-  const handleConnect = async (service) => {
-    try {
-      if (service === 'fitbit') {
-        const res = await authApi.fitbitLoginUrl(user.uid);
-        window.location.href = res.data.url;
-      } else if (service === 'healthplanet') {
-        const res = await authApi.healthplanetLoginUrl(user.uid);
-        window.location.href = res.data.url;
-      } else if (service === 'google') {
-        const res = await authApi.googleLoginUrl(user.uid);
-        window.location.href = res.data.url;
-      } else if (service === 'fatsecret') {
-        const res = await authApi.fatsecretRequestToken(user.uid);
-        window.location.href = res.data.authorize_url;
-      }
-    } catch (e) {
-      setErrorMsg('連携の開始に失敗しました: ' + e.message);
-    }
-  };
+	// HealthPlanet manual code entry state
+	const [hpPendingUserId, setHpPendingUserId] = useState(null);
+	const [hpCode, setHpCode] = useState("");
+	const [hpSubmitting, setHpSubmitting] = useState(false);
 
-  const toggleDietStyle = (style) => {
-    const next = dietStyles.includes(style)
-      ? dietStyles.filter((s) => s !== style)
-      : [...dietStyles, style];
-    prefMutation.mutate({ diet_styles: next });
-  };
+	const handleConnect = async (service) => {
+		try {
+			if (service === "fitbit") {
+				const res = await authApi.fitbitLoginUrl(user.uid);
+				window.location.href = res.data.url;
+			} else if (service === "healthplanet") {
+				const res = await authApi.healthplanetLoginUrl(user.uid);
+				window.open(res.data.url, "_blank");
+				setHpPendingUserId(user.uid);
+				setHpCode("");
+			} else if (service === "google") {
+				const res = await authApi.googleLoginUrl(user.uid);
+				window.location.href = res.data.url;
+			} else if (service === "fatsecret") {
+				const res = await authApi.fatsecretRequestToken(user.uid);
+				window.location.href = res.data.authorize_url;
+			}
+		} catch (e) {
+			setErrorMsg("連携の開始に失敗しました: " + e.message);
+		}
+	};
 
-  const addExcluded = () => {
-    if (!excludedInput.trim()) return;
-    const next = [...new Set([...excludedFoods, excludedInput.trim()])];
-    prefMutation.mutate({ excluded_foods: next });
-    setExcludedInput('');
-  };
+	const handleHealthPlanetCodeSubmit = async () => {
+		if (!hpCode.trim()) return;
+		let code = hpCode.trim();
+		try {
+			const urlObj = new URL(code);
+			code = urlObj.searchParams.get("code") || code;
+		} catch {
+			// Not a URL, use as-is
+		}
+		setHpSubmitting(true);
+		try {
+			await authApi.healthplanetExchange(hpPendingUserId, code);
+			qc.invalidateQueries({ queryKey: ["settings"] });
+			setSuccessMsg("HealthPlanet を連携しました！");
+			setHpPendingUserId(null);
+			setHpCode("");
+		} catch (e) {
+			setErrorMsg(
+				"コードの交換に失敗しました: " +
+					(e.response?.data?.detail || e.message),
+			);
+		} finally {
+			setHpSubmitting(false);
+		}
+	};
 
-  const removeExcluded = (food) => {
-    prefMutation.mutate({ excluded_foods: excludedFoods.filter((f) => f !== food) });
-  };
+	const toggleDietStyle = (style) => {
+		const next = dietStyles.includes(style)
+			? dietStyles.filter((s) => s !== style)
+			: [...dietStyles, style];
+		prefMutation.mutate({ diet_styles: next });
+	};
 
-  if (isLoading) return <div className="loading-screen"><div className="spinner" /></div>;
+	const addExcluded = () => {
+		if (!excludedInput.trim()) return;
+		const next = [...new Set([...excludedFoods, excludedInput.trim()])];
+		prefMutation.mutate({ excluded_foods: next });
+		setExcludedInput("");
+	};
 
-  return (
-    <div>
-      <div className="page-header">
-        <h1 className="page-title">⚙️ 設定</h1>
-        <button className="btn btn-outline" style={{ fontSize: 12 }} onClick={logout}>ログアウト</button>
-      </div>
+	const removeExcluded = (food) => {
+		prefMutation.mutate({
+			excluded_foods: excludedFoods.filter((f) => f !== food),
+		});
+	};
 
-      {successMsg && <div className="alert alert-success" onClick={() => setSuccessMsg('')}>{successMsg}</div>}
-      {errorMsg && <div className="alert alert-error" onClick={() => setErrorMsg('')}>{errorMsg}</div>}
+	if (isLoading)
+		return (
+			<div className="loading-screen">
+				<div className="spinner" />
+			</div>
+		);
 
-      {/* Profile */}
-      <div className="card">
-        <div className="card-title">アカウント</div>
-        <div style={{ fontSize: 15 }}>
-          <strong>{profile?.name || user?.displayName}</strong>
-          <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 4 }}>{user?.email}</div>
-        </div>
-        <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span className={profile?.plan_type === 'byok' ? 'connected-badge' : 'disconnected-badge'}>
-            {profile?.plan_type === 'byok' ? `BYOK (${profile.byok_provider})` : '無料プラン (Groq)'}
-          </span>
-        </div>
-      </div>
+	return (
+		<div>
+			<div className="page-header">
+				<h1 className="page-title">⚙️ 設定</h1>
+				<button
+					className="btn btn-outline"
+					style={{ fontSize: 12 }}
+					onClick={logout}
+				>
+					ログアウト
+				</button>
+			</div>
 
-      {/* API connections */}
-      <div className="section-title">外部サービス連携</div>
-      {SERVICES.map((svc) => {
-        const isConnected = connectedServices.includes(svc.key);
-        return (
-          <div className="card service-card" key={svc.key}>
-            <div className="service-card-inner">
-              <div className="service-card-info">
-                <div className="service-card-name">{svc.icon} {svc.label}</div>
-                <div className="service-card-desc">{svc.desc}</div>
-              </div>
-              <div className="service-card-action">
-                {isConnected ? (
-                  <>
-                    <span className="connected-badge">連携済み</span>
-                    <button
-                      className="btn btn-danger btn-sm"
-                      onClick={() => disconnectMutation.mutate(svc.key)}
-                    >
-                      解除
-                    </button>
-                  </>
-                ) : (
-                  <button
-                    className="btn btn-primary btn-sm"
-                    onClick={() => handleConnect(svc.key)}
-                  >
-                    連携する
-                  </button>
-                )}
-              </div>
-            </div>
-          </div>
-        );
-      })}
+			{successMsg && (
+				<div className="alert alert-success" onClick={() => setSuccessMsg("")}>
+					{successMsg}
+				</div>
+			)}
+			{errorMsg && (
+				<div className="alert alert-error" onClick={() => setErrorMsg("")}>
+					{errorMsg}
+				</div>
+			)}
 
-      {/* Calendar sync */}
-      {connectedServices.includes('google') && (
-        <button
-          className="btn btn-outline btn-full"
-          style={{ marginBottom: 12 }}
-          onClick={() => syncCalMutation.mutate()}
-          disabled={syncCalMutation.isPending}
-        >
-          {syncCalMutation.isPending ? 'カレンダー同期中...' : '📅 カレンダーリストを同期'}
-        </button>
-      )}
+			{/* HealthPlanet manual code entry modal */}
+			{hpPendingUserId && (
+				<div
+					style={{
+						position: "fixed",
+						inset: 0,
+						background: "rgba(0,0,0,0.5)",
+						display: "flex",
+						alignItems: "center",
+						justifyContent: "center",
+						zIndex: 1000,
+					}}
+				>
+					<div
+						className="card"
+						style={{ maxWidth: 480, width: "90%", margin: 0 }}
+					>
+						<div className="card-title">HealthPlanet 連携コードの入力</div>
+						<p style={{ fontSize: 13, marginBottom: 12 }}>
+							新しいタブで HealthPlanet の認証ページが開きました。
+							<br />
+							許可すると <strong>healthplanet.jp/success.html</strong>{" "}
+							に移動します。
+							<br />
+							そのページのブラウザURLバーから <code>?code=</code>{" "}
+							以降のコード（または URL 全体）をコピーして貼り付けてください。
+						</p>
+						<input
+							className="input"
+							style={{ width: "100%", marginBottom: 8 }}
+							placeholder="コードまたはリダイレクト後のURL全体を貼り付け"
+							value={hpCode}
+							onChange={(e) => setHpCode(e.target.value)}
+						/>
+						<div style={{ display: "flex", gap: 8 }}>
+							<button
+								className="btn btn-primary"
+								onClick={handleHealthPlanetCodeSubmit}
+								disabled={hpSubmitting || !hpCode.trim()}
+							>
+								{hpSubmitting ? "処理中..." : "連携する"}
+							</button>
+							<button
+								className="btn btn-outline"
+								onClick={() => setHpPendingUserId(null)}
+							>
+								キャンセル
+							</button>
+						</div>
+					</div>
+				</div>
+			)}
 
-      {/* LLM / BYOK */}
-      <div className="section-title">LLMプラン</div>
-      <div className="card">
-        <div className="card-title">現在のプラン: {profile?.plan_type === 'byok' ? 'BYOKプラン' : '無料プラン (Groq)'}</div>
-        {apiKeys.map((k) => (
-          <div key={k.provider} className="list-item">
-            <div>
-              <div style={{ fontSize: 14, fontWeight: 500 }}>
-                {BYOK_PROVIDERS.find((p) => p.key === k.provider)?.label || k.provider}
-              </div>
-              <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>...{k.hint}</div>
-            </div>
-            <button
-              className="btn btn-danger"
-              style={{ fontSize: 12, padding: '4px 10px' }}
-              onClick={() => deleteKeyMutation.mutate(k.provider)}
-            >
-              削除
-            </button>
-          </div>
-        ))}
+			{/* Profile */}
+			<div className="card">
+				<div className="card-title">アカウント</div>
+				<div style={{ fontSize: 15 }}>
+					<strong>{profile?.name || user?.displayName}</strong>
+					<div
+						style={{
+							fontSize: 13,
+							color: "var(--text-secondary)",
+							marginTop: 4,
+						}}
+					>
+						{user?.email}
+					</div>
+				</div>
+				<div
+					style={{
+						marginTop: 8,
+						display: "flex",
+						alignItems: "center",
+						gap: 8,
+					}}
+				>
+					<span
+						className={
+							profile?.plan_type === "byok"
+								? "connected-badge"
+								: "disconnected-badge"
+						}
+					>
+						{profile?.plan_type === "byok"
+							? `BYOK (${profile.byok_provider})`
+							: "無料プラン (Groq)"}
+					</span>
+				</div>
+			</div>
 
-        <button
-          className="btn btn-secondary btn-full"
-          style={{ marginTop: 12 }}
-          onClick={() => setShowApiKeyForm(true)}
-        >
-          + APIキーを追加（BYOKプランに切り替え）
-        </button>
+			{/* API connections */}
+			<div className="section-title">外部サービス連携</div>
+			{SERVICES.map((svc) => {
+				const isConnected = connectedServices.includes(svc.key);
+				return (
+					<div className="card service-card" key={svc.key}>
+						<div className="service-card-inner">
+							<div className="service-card-info">
+								<div className="service-card-name">
+									{svc.icon} {svc.label}
+								</div>
+								<div className="service-card-desc">{svc.desc}</div>
+							</div>
+							<div className="service-card-action">
+								{isConnected ? (
+									<>
+										<span className="connected-badge">連携済み</span>
+										<button
+											className="btn btn-danger btn-sm"
+											onClick={() => disconnectMutation.mutate(svc.key)}
+										>
+											解除
+										</button>
+									</>
+								) : (
+									<button
+										className="btn btn-primary btn-sm"
+										onClick={() => handleConnect(svc.key)}
+									>
+										連携する
+									</button>
+								)}
+							</div>
+						</div>
+					</div>
+				);
+			})}
 
-        {showApiKeyForm && (
-          <div style={{ marginTop: 12, padding: 12, background: 'var(--bg)', borderRadius: 8 }}>
-            <div className="form-group">
-              <label className="form-label">プロバイダー</label>
-              <select className="form-input" value={newApiKey.provider} onChange={(e) => setNewApiKey((k) => ({ ...k, provider: e.target.value }))}>
-                {BYOK_PROVIDERS.map((p) => (
-                  <option key={p.key} value={p.key}>{p.label}{!p.vision ? ' (写真推定不可)' : ''}</option>
-                ))}
-              </select>
-            </div>
-            <div className="form-group">
-              <label className="form-label">APIキー</label>
-              <input
-                className="form-input"
-                type="password"
-                placeholder="sk-..."
-                value={newApiKey.key}
-                onChange={(e) => setNewApiKey((k) => ({ ...k, key: e.target.value }))}
-              />
-              <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 4 }}>
-                ※ AES-256-GCMで暗号化して保存。末尾4文字のみ表示されます。
-              </div>
-            </div>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button className="btn btn-primary" style={{ flex: 1 }}
-                onClick={() => apiKeyMutation.mutate({ provider: newApiKey.provider, api_key: newApiKey.key })}
-                disabled={!newApiKey.key || apiKeyMutation.isPending}>
-                {apiKeyMutation.isPending ? '登録中...' : '登録'}
-              </button>
-              <button className="btn btn-outline" onClick={() => setShowApiKeyForm(false)}>キャンセル</button>
-            </div>
-          </div>
-        )}
-      </div>
+			{/* Calendar sync */}
+			{connectedServices.includes("google") && (
+				<button
+					className="btn btn-outline btn-full"
+					style={{ marginBottom: 12 }}
+					onClick={() => syncCalMutation.mutate()}
+					disabled={syncCalMutation.isPending}
+				>
+					{syncCalMutation.isPending
+						? "カレンダー同期中..."
+						: "📅 カレンダーリストを同期"}
+				</button>
+			)}
 
-      {/* Diet preferences */}
-      <div className="section-title">食の好み</div>
-      <div className="card">
-        <div className="card-title">ダイエットスタイル</div>
-        <div className="chip-list">
-          {DIET_STYLES.map((style) => (
-            <div
-              key={style}
-              className="chip"
-              style={dietStyles.includes(style) ? {} : { background: '#f5f5f5', color: 'var(--text-secondary)' }}
-              onClick={() => toggleDietStyle(style)}
-            >
-              {dietStyles.includes(style) ? '✓ ' : ''}{style}
-            </div>
-          ))}
-        </div>
-      </div>
+			{/* LLM / BYOK */}
+			<div className="section-title">LLMプラン</div>
+			<div className="card">
+				<div className="card-title">
+					現在のプラン:{" "}
+					{profile?.plan_type === "byok" ? "BYOKプラン" : "無料プラン (Groq)"}
+				</div>
+				{apiKeys.map((k) => (
+					<div key={k.provider} className="list-item">
+						<div>
+							<div style={{ fontSize: 14, fontWeight: 500 }}>
+								{BYOK_PROVIDERS.find((p) => p.key === k.provider)?.label ||
+									k.provider}
+							</div>
+							<div style={{ fontSize: 12, color: "var(--text-secondary)" }}>
+								...{k.hint}
+							</div>
+						</div>
+						<button
+							className="btn btn-danger"
+							style={{ fontSize: 12, padding: "4px 10px" }}
+							onClick={() => deleteKeyMutation.mutate(k.provider)}
+						>
+							削除
+						</button>
+					</div>
+				))}
 
-      <div className="card">
-        <div className="card-title">除外食材（アレルギー・嫌いなもの）</div>
-        <div className="chip-list" style={{ marginBottom: 12 }}>
-          {excludedFoods.map((food) => (
-            <div key={food} className="chip removable" onClick={() => removeExcluded(food)}>
-              {food}
-            </div>
-          ))}
-        </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <input
-            className="form-input"
-            placeholder="例: 甲殻類、乳製品..."
-            value={excludedInput}
-            onChange={(e) => setExcludedInput(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && addExcluded()}
-          />
-          <button className="btn btn-secondary" onClick={addExcluded}>追加</button>
-        </div>
-      </div>
-    </div>
-  );
+				<button
+					className="btn btn-secondary btn-full"
+					style={{ marginTop: 12 }}
+					onClick={() => setShowApiKeyForm(true)}
+				>
+					+ APIキーを追加（BYOKプランに切り替え）
+				</button>
+
+				{showApiKeyForm && (
+					<div
+						style={{
+							marginTop: 12,
+							padding: 12,
+							background: "var(--bg)",
+							borderRadius: 8,
+						}}
+					>
+						<div className="form-group">
+							<label className="form-label">プロバイダー</label>
+							<select
+								className="form-input"
+								value={newApiKey.provider}
+								onChange={(e) =>
+									setNewApiKey((k) => ({ ...k, provider: e.target.value }))
+								}
+							>
+								{BYOK_PROVIDERS.map((p) => (
+									<option key={p.key} value={p.key}>
+										{p.label}
+										{!p.vision ? " (写真推定不可)" : ""}
+									</option>
+								))}
+							</select>
+						</div>
+						<div className="form-group">
+							<label className="form-label">APIキー</label>
+							<input
+								className="form-input"
+								type="password"
+								placeholder="sk-..."
+								value={newApiKey.key}
+								onChange={(e) =>
+									setNewApiKey((k) => ({ ...k, key: e.target.value }))
+								}
+							/>
+							<div
+								style={{
+									fontSize: 11,
+									color: "var(--text-secondary)",
+									marginTop: 4,
+								}}
+							>
+								※ AES-256-GCMで暗号化して保存。末尾4文字のみ表示されます。
+							</div>
+						</div>
+						<div style={{ display: "flex", gap: 8 }}>
+							<button
+								className="btn btn-primary"
+								style={{ flex: 1 }}
+								onClick={() =>
+									apiKeyMutation.mutate({
+										provider: newApiKey.provider,
+										api_key: newApiKey.key,
+									})
+								}
+								disabled={!newApiKey.key || apiKeyMutation.isPending}
+							>
+								{apiKeyMutation.isPending ? "登録中..." : "登録"}
+							</button>
+							<button
+								className="btn btn-outline"
+								onClick={() => setShowApiKeyForm(false)}
+							>
+								キャンセル
+							</button>
+						</div>
+					</div>
+				)}
+			</div>
+
+			{/* Diet preferences */}
+			<div className="section-title">食の好み</div>
+			<div className="card">
+				<div className="card-title">ダイエットスタイル</div>
+				<div className="chip-list">
+					{DIET_STYLES.map((style) => (
+						<div
+							key={style}
+							className="chip"
+							style={
+								dietStyles.includes(style)
+									? {}
+									: { background: "#f5f5f5", color: "var(--text-secondary)" }
+							}
+							onClick={() => toggleDietStyle(style)}
+						>
+							{dietStyles.includes(style) ? "✓ " : ""}
+							{style}
+						</div>
+					))}
+				</div>
+			</div>
+
+			<div className="card">
+				<div className="card-title">除外食材（アレルギー・嫌いなもの）</div>
+				<div className="chip-list" style={{ marginBottom: 12 }}>
+					{excludedFoods.map((food) => (
+						<div
+							key={food}
+							className="chip removable"
+							onClick={() => removeExcluded(food)}
+						>
+							{food}
+						</div>
+					))}
+				</div>
+				<div style={{ display: "flex", gap: 8 }}>
+					<input
+						className="form-input"
+						placeholder="例: 甲殻類、乳製品..."
+						value={excludedInput}
+						onChange={(e) => setExcludedInput(e.target.value)}
+						onKeyDown={(e) => e.key === "Enter" && addExcluded()}
+					/>
+					<button className="btn btn-secondary" onClick={addExcluded}>
+						追加
+					</button>
+				</div>
+			</div>
+		</div>
+	);
 }

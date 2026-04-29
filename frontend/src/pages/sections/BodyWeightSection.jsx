@@ -56,9 +56,21 @@ export default function BodyWeightSection() {
     },
   });
 
+  const [syncMsg, setSyncMsg] = useState('');
+
   const syncMutation = useMutation({
     mutationFn: () => bodyApi.sync(),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['weight-history'] }),
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ['weight-history'] });
+      const synced = data?.synced || [];
+      if (synced.length > 0) {
+        setSyncMsg(`同期完了: ${synced.join(', ')}`);
+      } else {
+        setSyncMsg('今日のデータが見つかりませんでした（HealthPlanetで測定済みか確認してください）');
+      }
+      setTimeout(() => setSyncMsg(''), 5000);
+    },
+    onError: (e) => setSyncMsg('同期エラー: ' + (e.response?.data?.detail || e.message)),
   });
 
   const goalMutation = useMutation({
@@ -177,6 +189,16 @@ export default function BodyWeightSection() {
           {syncMutation.isPending ? '同期中…' : '同期'}
         </button>
       </div>
+
+      {syncMsg && (
+        <div
+          className={syncMsg.includes('エラー') || syncMsg.includes('見つかりません') ? 'alert alert-error' : 'alert alert-success'}
+          onClick={() => setSyncMsg('')}
+          style={{ cursor: 'pointer' }}
+        >
+          {syncMsg}
+        </div>
+      )}
 
       {/* Weight / Sleep sub-tabs */}
       <div className="tab-bar" style={{ marginBottom: 12 }}>

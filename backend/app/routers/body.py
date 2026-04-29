@@ -95,7 +95,12 @@ async def sync_body_data(
                     .filter_by(user_id=current_user.id, date=today, source="healthplanet")
                     .first()
                 )
-                if not existing:
+                if existing:
+                    # Update existing record
+                    for k, v in hp.items():
+                        if k != "source" and v is not None:
+                            setattr(existing, k, v)
+                else:
                     log = models.WeightLog(
                         user_id=current_user.id,
                         date=today,
@@ -103,10 +108,11 @@ async def sync_body_data(
                         **{k: v for k, v in hp.items() if k != "source"},
                     )
                     db.add(log)
-                    db.commit()
+                db.commit()
                 synced.append("healthplanet")
         except Exception as e:
-            pass
+            import traceback
+            print(f"[HealthPlanet sync error] {e}\n{traceback.format_exc()}")
 
     if "fitbit" in connected:
         try:
