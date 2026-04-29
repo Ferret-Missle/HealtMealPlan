@@ -23,11 +23,18 @@ import { dashboardApi, bodyApi } from '../services/api';
 import { Link } from 'react-router-dom';
 
 // ── 日付ユーティリティ ────────────────────────────────────────
-function todayStr() { return new Date().toISOString().split('T')[0]; }
+// ※ toISOString() は UTC を返すためタイムゾーンがズレる → ローカル日付を使う
+function localDateStr(d = new Date()) {
+  const y  = d.getFullYear();
+  const m  = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${dd}`;
+}
+function todayStr() { return localDateStr(); }
 function offsetDate(base, days) {
-  const d = new Date(base + 'T00:00:00');
+  const d = new Date(base + 'T00:00:00'); // ローカル0時として解釈
   d.setDate(d.getDate() + days);
-  return d.toISOString().split('T')[0];
+  return localDateStr(d);                 // ローカル日付で文字列化
 }
 function fmtDate(dateStr) {
   return new Date(dateStr + 'T00:00:00').toLocaleDateString('ja-JP', {
@@ -553,28 +560,32 @@ export default function DashboardPage() {
         <button
           className="btn-ghost"
           style={{ padding: '6px 10px', borderRadius: 8 }}
-          onClick={() => setDateStr(d => offsetDate(d, -1))}
+          onClick={() => setDateStr(prev => offsetDate(prev, -1))}
         >
           <ChevronLeft size={18} strokeWidth={1.8} />
         </button>
 
-        <span style={{ fontSize: 13, fontWeight: 600, minWidth: 130, textAlign: 'center', color: isToday ? 'var(--brand)' : 'var(--text)' }}>
+        {/* 日付ラベル：クリックで今日に戻る */}
+        <button
+          className="btn-ghost"
+          style={{
+            padding: '5px 14px', borderRadius: 20,
+            fontSize: 13, fontWeight: 600, minWidth: 140, textAlign: 'center',
+            color: isToday ? 'var(--brand)' : 'var(--text)',
+          }}
+          onClick={() => setDateStr(todayStr())}
+          title="クリックで今日に戻る"
+        >
           {isToday ? '今日 · ' : ''}{fmtDate(dateStr)}
-        </span>
+        </button>
 
         <button
           className="btn-ghost"
           style={{ padding: '6px 10px', borderRadius: 8 }}
-          onClick={() => setDateStr(d => offsetDate(d, 1))}
+          onClick={() => setDateStr(prev => offsetDate(prev, 1))}
         >
           <ChevronRight size={18} strokeWidth={1.8} />
         </button>
-
-        {!isToday && (
-          <button className="today-btn" onClick={() => setDateStr(todayStr())}>
-            今日
-          </button>
-        )}
       </div>
 
       {/* 未連携バナー */}

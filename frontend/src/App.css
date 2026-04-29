@@ -1136,7 +1136,10 @@ select.form-input {
 /* ── 29. Responsive helpers ────────────────────────────────── */
 @media (max-width: 359px) {
   .page-title { font-size: 20px; }
-  .grid-2 { grid-template-columns: 1fr; }
+}
+/* スマホ（〜 479px）: ウィジェットは1列 */
+@media (max-width: 479px) {
+  .grid-2      { grid-template-columns: 1fr; }
   .widget-grid { grid-template-columns: 1fr; }
 }
 
