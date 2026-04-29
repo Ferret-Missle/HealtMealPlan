@@ -66,6 +66,7 @@ export default function SettingsSection() {
 	const qc = useQueryClient();
 	const [searchParams] = useSearchParams();
 	const connected = searchParams.get("connected");
+	const oauthError = searchParams.get("error");
 
 	const [newApiKey, setNewApiKey] = useState({
 		provider: "anthropic",
@@ -73,7 +74,9 @@ export default function SettingsSection() {
 	});
 	const [showApiKeyForm, setShowApiKeyForm] = useState(false);
 	const [excludedInput, setExcludedInput] = useState("");
-	const [errorMsg, setErrorMsg] = useState("");
+	const [errorMsg, setErrorMsg] = useState(
+		oauthError ? `連携に失敗しました (${oauthError})` : "",
+	);
 	const [successMsg, setSuccessMsg] = useState(
 		connected ? `${connected} を連携しました！` : "",
 	);

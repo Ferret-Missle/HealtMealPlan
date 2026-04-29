@@ -34,6 +34,11 @@ GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
 GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI", "http://localhost:8000/api/auth/google/callback")
 
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
+BACKEND_URL  = os.getenv("BACKEND_URL",  "http://localhost:8000")
+
+# FatSecret OAuth 1.0a: Step1 で取得した request_token_secret を一時保持する
+# (DBへの保存は不要、プロセス内メモリで十分)
+_fatsecret_request_tokens: dict[str, str] = {}  # oauth_token → oauth_token_secret
 
 # ---- Register / Me ----
 
@@ -150,7 +155,7 @@ async def fitbit_callback(code: str, state: str, db: Session = Depends(get_db)):
     token.expires_at = expires_at
     db.commit()
 
-    return RedirectResponse(f"{FRONTEND_URL}/settings?connected=fitbit")
+    return RedirectResponse(f"{FRONTEND_URL}/me?connected=fitbit")
 
 
 # ---- HealthPlanet OAuth ----
@@ -242,7 +247,7 @@ async def healthplanet_callback(code: str, state: str, db: Session = Depends(get
     token.expires_at = expires_at
     db.commit()
 
-    return RedirectResponse(f"{FRONTEND_URL}/settings?connected=healthplanet")
+    return RedirectResponse(f"{FRONTEND_URL}/me?connected=healthplanet")
 
 
 # ---- Google Calendar OAuth ----
@@ -292,12 +297,17 @@ async def google_callback(code: str, state: str, db: Session = Depends(get_db)):
     token.expires_at = expires_at
     db.commit()
 
-    return RedirectResponse(f"{FRONTEND_URL}/settings?connected=google")
+    return RedirectResponse(f"{FRONTEND_URL}/me?connected=google")
 
 
 # ---- FatSecret OAuth 1.0a ----
 
-def _fatsecret_oauth_header(method: str, url: str, extra_params: dict = None) -> str:
+def _fatsecret_oauth_header(
+    method: str,
+    url: str,
+    extra_params: dict = None,
+    token_secret: str = "",   # ← Step3 で oauth_token_secret を渡す
+) -> str:
     """Generate OAuth 1.0a Authorization header for FatSecret."""
     params = {
         "oauth_consumer_key": FATSECRET_CONSUMER_KEY,
@@ -318,7 +328,11 @@ def _fatsecret_oauth_header(method: str, url: str, extra_params: dict = None) ->
         urllib.parse.quote(url, safe=""),
         urllib.parse.quote(sorted_params, safe=""),
     ])
-    signing_key = f"{urllib.parse.quote(FATSECRET_CONSUMER_SECRET, safe='')}&"
+    # ★ token_secret を signing key に含める（Step1 は空文字のまま = 正しい挙動）
+    signing_key = (
+        f"{urllib.parse.quote(FATSECRET_CONSUMER_SECRET, safe='')}"
+        f"&{urllib.parse.quote(token_secret, safe='')}"
+    )
     signature = base64.b64encode(
         hmac.new(signing_key.encode(), base_string.encode(), hashlib.sha1).digest()
     ).decode()
@@ -341,9 +355,12 @@ class FatSecretTokenRequest(BaseModel):
 
 @router.get("/fatsecret/request-token")
 async def fatsecret_request_token(user_id: str):
-    """Step 1: Get request token from FatSecret."""
+    """Step 1: Get request token from FatSecret.
+    コールバックをバックエンドで受け取り、token_secret をメモリに保持する。
+    """
     url = "https://www.fatsecret.com/oauth/request_token"
-    callback = f"{FRONTEND_URL}/settings/fatsecret-callback?user_id={user_id}"
+    # ★ コールバック先をバックエンドに変更（フロントのルート不要）
+    callback = f"{BACKEND_URL}/api/auth/fatsecret/callback?user_id={urllib.parse.quote(user_id)}"
     header = _fatsecret_oauth_header("POST", url, {"oauth_callback": callback})
 
     async with httpx.AsyncClient() as client:
@@ -353,21 +370,66 @@ async def fatsecret_request_token(user_id: str):
         raise HTTPException(400, f"FatSecret request token error: {resp.text}")
 
     parsed = dict(urllib.parse.parse_qsl(resp.text))
+    oauth_token        = parsed.get("oauth_token", "")
+    oauth_token_secret = parsed.get("oauth_token_secret", "")
+
+    # ★ token_secret を一時保持（Step3 でコールバックから参照する）
+    _fatsecret_request_tokens[oauth_token] = oauth_token_secret
+
     return {
-        "oauth_token": parsed.get("oauth_token", ""),
-        "authorize_url": f"https://www.fatsecret.com/oauth/authorize?oauth_token={parsed.get('oauth_token', '')}",
-        "oauth_token_secret": parsed.get("oauth_token_secret", ""),
+        "oauth_token": oauth_token,
+        "authorize_url": f"https://www.fatsecret.com/oauth/authorize?oauth_token={oauth_token}",
+        "oauth_token_secret": oauth_token_secret,  # フォールバック用に返す
     }
+
+
+@router.get("/fatsecret/callback")
+async def fatsecret_callback(
+    user_id: str,
+    oauth_token: str,
+    oauth_verifier: str,
+    db: Session = Depends(get_db),
+):
+    """Step 3 (backend callback): FatSecret から認可後に呼ばれるコールバック。"""
+    # Step1 で保存した token_secret を取り出す
+    oauth_token_secret = _fatsecret_request_tokens.pop(oauth_token, "")
+
+    url = "https://www.fatsecret.com/oauth/access_token"
+    # ★ token_secret を signing key に含めて署名
+    header = _fatsecret_oauth_header("POST", url, {
+        "oauth_token": oauth_token,
+        "oauth_verifier": oauth_verifier,
+    }, token_secret=oauth_token_secret)
+
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(url, headers={"Authorization": header})
+
+    if resp.status_code != 200:
+        return RedirectResponse(f"{FRONTEND_URL}/me?error=fatsecret_failed&detail={urllib.parse.quote(resp.text[:120])}")
+
+    parsed = dict(urllib.parse.parse_qsl(resp.text))
+
+    token = db.query(models.OAuthToken).filter_by(user_id=user_id, service="fatsecret").first()
+    if not token:
+        token = models.OAuthToken(user_id=user_id, service="fatsecret")
+        db.add(token)
+    token.access_token  = security.encrypt(parsed.get("oauth_token", ""))
+    token.refresh_token = security.encrypt(parsed.get("oauth_token_secret", ""))
+    token.expires_at    = None  # OAuth 1.0a tokens don't expire
+    db.commit()
+
+    return RedirectResponse(f"{FRONTEND_URL}/me?connected=fatsecret")
 
 
 @router.post("/fatsecret/access-token")
 async def fatsecret_access_token(req: FatSecretTokenRequest, db: Session = Depends(get_db)):
-    """Step 3: Exchange verifier for access token."""
+    """Step 3 (手動フォールバック): フロントエンドからコードを手動送信する場合。"""
     url = "https://www.fatsecret.com/oauth/access_token"
+    # ★ token_secret を signing key に含める（修正前はここが空のままだった）
     header = _fatsecret_oauth_header("POST", url, {
         "oauth_token": req.oauth_token,
         "oauth_verifier": req.verifier,
-    })
+    }, token_secret=req.oauth_token_secret)
 
     async with httpx.AsyncClient() as client:
         resp = await client.post(url, headers={"Authorization": header})
@@ -381,9 +443,9 @@ async def fatsecret_access_token(req: FatSecretTokenRequest, db: Session = Depen
     if not token:
         token = models.OAuthToken(user_id=req.user_id, service="fatsecret")
         db.add(token)
-    token.access_token = security.encrypt(parsed.get("oauth_token", ""))
+    token.access_token  = security.encrypt(parsed.get("oauth_token", ""))
     token.refresh_token = security.encrypt(parsed.get("oauth_token_secret", ""))
-    token.expires_at = None  # OAuth 1.0a tokens don't expire
+    token.expires_at    = None  # OAuth 1.0a tokens don't expire
     db.commit()
 
     return {"connected": True}
