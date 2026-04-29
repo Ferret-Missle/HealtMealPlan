@@ -190,7 +190,8 @@ export default function SettingsSection() {
 				window.location.href = res.data.authorize_url;
 			}
 		} catch (e) {
-			setErrorMsg("連携の開始に失敗しました: " + e.message);
+			const detail = e.response?.data?.detail || e.message;
+			setErrorMsg("連携の開始に失敗しました: " + detail);
 		}
 	};
 
