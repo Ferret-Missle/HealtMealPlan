@@ -140,6 +140,46 @@ async def sync_body_data(
     return {"synced": synced, "date": today}
 
 
+@router.post("/sync-weight-history")
+async def sync_weight_history(
+    days: int = 30,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Fitbit から過去 N 日分の体重を一括取得して保存する。"""
+    end   = str(dt_date.today())
+    start = str(dt_date.today() - timedelta(days=days))
+
+    connected = [
+        t.service
+        for t in db.query(models.OAuthToken).filter_by(user_id=current_user.id).all()
+    ]
+
+    saved = 0
+    if "fitbit" in connected:
+        entries = await fitbit.get_weight_range(current_user.id, start, end, db)
+        for entry in entries:
+            if not entry.get("weight"):
+                continue
+            existing = (
+                db.query(models.WeightLog)
+                .filter_by(user_id=current_user.id, date=entry["date"], source="fitbit")
+                .first()
+            )
+            if not existing:
+                db.add(models.WeightLog(
+                    user_id=current_user.id,
+                    date=entry["date"],
+                    weight=entry["weight"],
+                    bmi=entry.get("bmi"),
+                    source="fitbit",
+                ))
+                saved += 1
+        db.commit()
+
+    return {"saved": saved, "from": start, "to": end}
+
+
 @router.get("/goals")
 async def get_goals(
     current_user: models.User = Depends(get_current_user),

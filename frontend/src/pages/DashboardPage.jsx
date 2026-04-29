@@ -20,6 +20,7 @@ import {
   ChevronLeft, ChevronRight, GripVertical, Settings2,
 } from 'lucide-react';
 import { dashboardApi, bodyApi } from '../services/api';
+import { History } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
 // ── 日付ユーティリティ ────────────────────────────────────────
@@ -95,7 +96,7 @@ function PeriodPills({ period, onChange, supported = ['1d', '7d', '30d'] }) {
 }
 
 // ── ソータブル ウィジェットシェル ─────────────────────────────
-function WidgetShell({ id, vis, period, onPeriodChange, valueContent, graphContent, graphSupport }) {
+function WidgetShell({ id, vis, period, onPeriodChange, valueContent, graphContent, graphSupport, fullWidth }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
   const { label, Icon } = WIDGET_META[id];
   const showBoth = vis.value && vis.graph;
@@ -103,7 +104,7 @@ function WidgetShell({ id, vis, period, onPeriodChange, valueContent, graphConte
   return (
     <div
       ref={setNodeRef}
-      className="widget-card"
+      className={`widget-card${fullWidth ? ' full' : ''}`}
       style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.35 : 1 }}
     >
       {/* ヘッダー */}
@@ -160,27 +161,45 @@ function WeightValue({ latest, delta, pct }) {
   );
 }
 
-function WeightGraph({ history, period }) {
-  if (!history?.length) return <EmptyGraph />;
-  const data = history.map(w => ({ d: fmtShort(w.date), v: w.weight }));
-  const vals = data.map(d => d.v);
-  const lo   = Math.floor(Math.min(...vals) - 0.5);
-  const hi   = Math.ceil(Math.max(...vals) + 0.5);
+function WeightGraph({ history, onBulkSync, isSyncing }) {
+  const isEmpty = !history?.length;
+  const data    = isEmpty ? [] : history.map(w => ({ d: fmtShort(w.date), v: w.weight }));
+  const vals    = data.map(d => d.v);
+  const lo      = data.length ? Math.floor(Math.min(...vals) - 0.5) : 0;
+  const hi      = data.length ? Math.ceil(Math.max(...vals) + 0.5)  : 100;
   return (
-    <ResponsiveContainer width="100%" height={88}>
-      <AreaChart data={data} margin={{ top: 4, right: 4, left: -28, bottom: 0 }}>
-        <defs>
-          <linearGradient id="wGrad" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="5%"  stopColor={BRAND} stopOpacity={0.25} />
-            <stop offset="95%" stopColor={BRAND} stopOpacity={0} />
-          </linearGradient>
-        </defs>
-        <XAxis dataKey="d" tick={{ fontSize: 9, fill: 'var(--text-3)' }} axisLine={false} tickLine={false} />
-        <YAxis domain={[lo, hi]} tick={{ fontSize: 9, fill: 'var(--text-3)' }} axisLine={false} tickLine={false} />
-        <Tooltip contentStyle={tipStyle} formatter={v => [`${v} kg`, '体重']} />
-        <Area type="monotone" dataKey="v" stroke={BRAND} strokeWidth={1.5} fill="url(#wGrad)" dot={{ r: 2, fill: BRAND }} />
-      </AreaChart>
-    </ResponsiveContainer>
+    <div>
+      {isEmpty
+        ? <EmptyGraph msg="データなし — 右の一括同期で取得できます" />
+        : (
+          <ResponsiveContainer width="100%" height={100}>
+            <AreaChart data={data} margin={{ top: 4, right: 4, left: -28, bottom: 0 }}>
+              <defs>
+                <linearGradient id="wGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%"  stopColor={BRAND} stopOpacity={0.25} />
+                  <stop offset="95%" stopColor={BRAND} stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <XAxis dataKey="d" tick={{ fontSize: 9, fill: 'var(--text-3)' }} axisLine={false} tickLine={false} />
+              <YAxis domain={[lo, hi]} tick={{ fontSize: 9, fill: 'var(--text-3)' }} axisLine={false} tickLine={false} />
+              <Tooltip contentStyle={tipStyle} formatter={v => [`${v} kg`, '体重']} />
+              <Area type="monotone" dataKey="v" stroke={BRAND} strokeWidth={1.5} fill="url(#wGrad)" dot={{ r: 2, fill: BRAND }} />
+            </AreaChart>
+          </ResponsiveContainer>
+        )
+      }
+      {/* 一括同期ボタン */}
+      <button
+        className="btn btn-outline btn-sm"
+        style={{ marginTop: 6, width: '100%', fontSize: 11 }}
+        onClick={onBulkSync}
+        disabled={isSyncing}
+      >
+        <RefreshCw size={11} strokeWidth={2}
+          style={isSyncing ? { animation: 'spin 0.65s linear infinite', marginRight: 4 } : { marginRight: 4 }} />
+        {isSyncing ? '同期中…' : '過去の体重を一括同期'}
+      </button>
+    </div>
   );
 }
 
@@ -237,7 +256,7 @@ function CaloriesGraph({ intake, target }) {
 // ── PFC ───────────────────────────────────────────────────────
 function PFCValue({ p, f, c }) {
   return (
-    <div style={{ marginTop: 4, fontSize: 12, lineHeight: 1.9 }}>
+    <div style={{ marginTop: 4, fontSize: 12, lineHeight: 2, textAlign: 'center' }}>
       <div><span style={{ color: PFC_COLORS[0], fontWeight: 700 }}>P</span>{' '}{p ? `${p.toFixed(1)}g` : '—'}</div>
       <div><span style={{ color: PFC_COLORS[1], fontWeight: 700 }}>F</span>{' '}{f ? `${f.toFixed(1)}g` : '—'}</div>
       <div><span style={{ color: PFC_COLORS[2], fontWeight: 700 }}>C</span>{' '}{c ? `${c.toFixed(1)}g` : '—'}</div>
@@ -253,16 +272,16 @@ function PFCGraph({ p, f, c }) {
     { name: '炭水化物',   value: c ?? 0 },
   ].filter(d => d.value > 0);
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-      <ResponsiveContainer width={72} height={72}>
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
+      <ResponsiveContainer width={80} height={80}>
         <PieChart>
-          <Pie data={data} cx="50%" cy="50%" innerRadius={22} outerRadius={34}
+          <Pie data={data} cx="50%" cy="50%" innerRadius={24} outerRadius={38}
             dataKey="value" startAngle={90} endAngle={-270} strokeWidth={0}>
             {data.map((_, i) => <Cell key={i} fill={PFC_COLORS[i]} />)}
           </Pie>
         </PieChart>
       </ResponsiveContainer>
-      <div style={{ fontSize: 11, lineHeight: 1.9 }}>
+      <div style={{ fontSize: 11, lineHeight: 1.8, textAlign: 'center' }}>
         <div><Dot color={PFC_COLORS[0]} />P {p?.toFixed(1) ?? '—'}g</div>
         <div><Dot color={PFC_COLORS[1]} />F {f?.toFixed(1) ?? '—'}g</div>
         <div><Dot color={PFC_COLORS[2]} />C {c?.toFixed(1) ?? '—'}g</div>
@@ -457,6 +476,11 @@ export default function DashboardPage() {
     queryFn: () => bodyApi.weightHistory(weightDays).then(r => r.data),
   });
 
+  const bulkSyncMutation = useMutation({
+    mutationFn: () => bodyApi.syncWeightHistory(weightDays),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['weight-history'] }),
+  });
+
   const syncMutation = useMutation({
     mutationFn: () => bodyApi.sync(dateStr),
     onSuccess: () => {
@@ -500,9 +524,13 @@ export default function DashboardPage() {
   // ウィジェット定義
   const widgetDef = {
     weight: {
-      support: ['1d', '7d', '30d'],
+      support: ['7d', '30d'],  // 1日は体重トレンドとして意味がないため除外
       value:   <WeightValue latest={latestW} delta={wDelta} pct={wPct} />,
-      graph:   <WeightGraph history={weightHistory} period={periods.weight} />,
+      graph:   <WeightGraph
+                 history={weightHistory}
+                 onBulkSync={() => bulkSyncMutation.mutate()}
+                 isSyncing={bulkSyncMutation.isPending}
+               />,
     },
     calories: {
       support: ['1d'],
@@ -615,11 +643,12 @@ export default function DashboardPage() {
                       key={id}
                       id={id}
                       vis={v}
-                      period={periods[id] ?? '1d'}
+                      period={periods[id] ?? '7d'}
                       onPeriodChange={p => setPeriod(id, p)}
                       valueContent={def.value}
                       graphContent={def.graph}
                       graphSupport={def.support}
+                      fullWidth={id === 'weight' && v.graph}
                     />
                   );
                 })}
