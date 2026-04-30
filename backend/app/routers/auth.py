@@ -5,6 +5,7 @@ import hmac
 import base64
 import time
 import asyncio
+import subprocess
 import urllib.parse
 from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -335,24 +336,31 @@ def _fs_auth_header(params: dict) -> str:
     )
 
 
-async def _fs_curl_post(url: str, auth_header: str) -> str:
+def _fs_curl_post_sync(url: str, auth_header: str) -> str:
     """
-    curl を使って www.fatsecret.com に POST する。
+    curl を使って www.fatsecret.com に POST する（同期版）。
     httpx は TLS フィンガープリントで Cloudflare にブロックされるため
     curl（ブラウザ互換 TLS）で回避する。
     """
-    proc = await asyncio.create_subprocess_exec(
-        "curl", "-s", "-X", "POST",
-        "-H", f"Authorization: {auth_header}",
-        "-H", "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-        "-H", "Accept: */*",
-        "-H", "Accept-Language: ja,en-US;q=0.9,en;q=0.8",
-        url,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
+    result = subprocess.run(
+        [
+            "curl", "-s", "-X", "POST",
+            "-H", f"Authorization: {auth_header}",
+            "-H", "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            "-H", "Accept: */*",
+            "-H", "Accept-Language: ja,en-US;q=0.9,en;q=0.8",
+            url,
+        ],
+        capture_output=True,
+        timeout=30,
     )
-    stdout, _ = await proc.communicate()
-    return stdout.decode("utf-8", errors="replace")
+    return result.stdout.decode("utf-8", errors="replace")
+
+
+async def _fs_curl_post(url: str, auth_header: str) -> str:
+    """run_in_executor でスレッドプールから curl を呼び出す（Windows asyncio 対応）。"""
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, _fs_curl_post_sync, url, auth_header)
 
 
 @router.get("/fatsecret/login")
