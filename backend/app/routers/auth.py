@@ -335,6 +335,7 @@ def _fs_auth_header(params: dict) -> str:
 
 
 # Cloudflare 対策: ブラウザに近いヘッダー
+# ※ Accept-Encoding は設定しない → httpx が自動解凍するため
 _FS_BROWSER_HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -343,7 +344,6 @@ _FS_BROWSER_HEADERS = {
     ),
     "Accept": "*/*",
     "Accept-Language": "ja,en-US;q=0.9,en;q=0.8",
-    "Accept-Encoding": "gzip, deflate, br",
     "Cache-Control": "no-cache",
 }
 
