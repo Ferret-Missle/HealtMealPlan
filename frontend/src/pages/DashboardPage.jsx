@@ -603,15 +603,24 @@ export default function DashboardPage() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['weight-history'] }),
   });
 
-  // 睡眠・歩数履歴：どちらか長い方に合わせて取得
-  const activityDays = (periods.sleep === '30d' || periods.steps === '30d') ? 30 : 7;
-  const { data: activityHistory = [] } = useQuery({
-    queryKey: ['activity-history', activityDays],
-    queryFn: () => bodyApi.activityHistory(activityDays).then(r => r.data),
+  // 睡眠・歩数履歴：ウィジェットごとに独立したクエリ
+  const sleepDays = periods.sleep === '30d' ? 30 : 7;
+  const stepsDays = periods.steps === '30d' ? 30 : 7;
+
+  const { data: sleepHistory = [] } = useQuery({
+    queryKey: ['activity-history', sleepDays],
+    queryFn: () => bodyApi.activityHistory(sleepDays).then(r => r.data),
   });
 
+  const { data: stepsHistory = [] } = useQuery({
+    queryKey: ['activity-history', stepsDays],
+    queryFn: () => bodyApi.activityHistory(stepsDays).then(r => r.data),
+    enabled: periods.steps !== '1d',
+  });
+
+  // 同期はより多い日数に合わせて実行
   const sleepBulkSyncMutation = useMutation({
-    mutationFn: () => bodyApi.syncActivityHistory(activityDays),
+    mutationFn: () => bodyApi.syncActivityHistory(Math.max(sleepDays, stepsDays)),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['activity-history'] }),
   });
 
@@ -692,7 +701,7 @@ export default function DashboardPage() {
       value:   <StepsValue steps={summary?.steps} />,
       graph:   <StepsGraph
                  steps={summary?.steps}
-                 history={activityHistory}
+                 history={stepsHistory}
                  period={periods.steps ?? '1d'}
                  onBulkSync={() => sleepBulkSyncMutation.mutate()}
                  isSyncing={sleepBulkSyncMutation.isPending}
@@ -702,7 +711,7 @@ export default function DashboardPage() {
       support: ['7d', '30d'],
       value:   <SleepValue hours={summary?.sleep_hours} score={summary?.sleep_score} />,
       graph:   <SleepGraph
-                 history={activityHistory}
+                 history={sleepHistory}
                  onBulkSync={() => sleepBulkSyncMutation.mutate()}
                  isSyncing={sleepBulkSyncMutation.isPending}
                />,
