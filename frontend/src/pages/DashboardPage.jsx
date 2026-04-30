@@ -813,7 +813,7 @@ export default function DashboardPage() {
                       valueContent={def.value}
                       graphContent={def.graph}
                       graphSupport={def.support}
-                      fullWidth={(id === 'weight' || id === 'meals' || (id === 'steps' && periods.steps !== '1d')) && v.graph}
+                      fullWidth={(id === 'weight' || id === 'sleep' || id === 'meals' || (id === 'steps' && periods.steps !== '1d')) && v.graph}
                     />
                   );
                 })}
