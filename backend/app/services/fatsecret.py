@@ -1,73 +1,51 @@
 import os
-import uuid
-import hashlib
-import hmac
-import base64
 import time
-import urllib.parse
-from cachetools import TTLCache
 import httpx
+from cachetools import TTLCache
 from sqlalchemy.orm import Session
 from .. import models, security
 
 CONSUMER_KEY    = os.getenv("FATSECRET_CONSUMER_KEY", "")
 CONSUMER_SECRET = os.getenv("FATSECRET_CONSUMER_SECRET", "")
 API_URL         = "https://platform.fatsecret.com/rest/server.api"
+TOKEN_URL       = "https://oauth.fatsecret.com/connect/token"
 
 _search_cache: TTLCache = TTLCache(maxsize=500, ttl=3600)
 
-
-# ── OAuth 1.0a helper（既存トークン互換用）──────────────────────────
-def _oauth1_header(method: str, url: str, token: str, token_secret: str, extra: dict = None) -> str:
-    params = {
-        "oauth_consumer_key":    CONSUMER_KEY,
-        "oauth_nonce":           uuid.uuid4().hex,
-        "oauth_signature_method":"HMAC-SHA1",
-        "oauth_timestamp":       str(int(time.time())),
-        "oauth_version":         "1.0",
-    }
-    if token:  # oauth_token は空のとき省略（consumer-only 署名）
-        params["oauth_token"] = token
-    if extra:
-        params.update(extra)
-    sorted_params = "&".join(
-        f"{urllib.parse.quote(k, safe='')}={urllib.parse.quote(str(v), safe='')}"
-        for k, v in sorted(params.items())
-    )
-    base_string = "&".join([
-        method.upper(),
-        urllib.parse.quote(url, safe=""),
-        urllib.parse.quote(sorted_params, safe=""),
-    ])
-    signing_key = (
-        f"{urllib.parse.quote(CONSUMER_SECRET, safe='')}"
-        f"&{urllib.parse.quote(token_secret, safe='')}"
-    )
-    signature = base64.b64encode(
-        hmac.new(signing_key.encode(), base_string.encode(), hashlib.sha1).digest()
-    ).decode()
-    params["oauth_signature"] = signature
-    return "OAuth " + ", ".join(
-        f'{k}="{urllib.parse.quote(str(v), safe="")}"'
-        for k, v in sorted(params.items())
-        if k.startswith("oauth_")
-    )
+# Bearer token キャッシュ（Client Credentials フロー）
+_bearer: dict = {"token": None, "expires_at": 0.0}
 
 
-# ── API 呼び出し ──────────────────────────────────────────────────
-# 食品検索・詳細はユーザートークン不要（consumer key/secret のみで署名）
-# 食事記録取得のみユーザートークンが必要（有料プラン）
+# ── OAuth 2.0 Client Credentials ────────────────────────────────────
 
-def _consumer_only_header(api_params: dict) -> str:
-    """ユーザートークンなし署名（oauth_token = 空文字）"""
-    return _oauth1_header("POST", API_URL, "", "", api_params)
+async def _get_bearer_token(scope: str = "basic barcode") -> str:
+    """Client Credentials フローで Bearer token を取得（24時間キャッシュ）。"""
+    now = time.time()
+    if _bearer["token"] and _bearer["expires_at"] > now + 60:
+        return _bearer["token"]
 
-
-async def _api_call_public(params: dict) -> dict:
-    """食品検索など、ユーザー認証不要の API 呼び出し。"""
-    header = _consumer_only_header(params)
     async with httpx.AsyncClient() as client:
-        resp = await client.post(API_URL, data=params, headers={"Authorization": header})
+        resp = await client.post(
+            TOKEN_URL,
+            data={"grant_type": "client_credentials", "scope": scope},
+            auth=(CONSUMER_KEY, CONSUMER_SECRET),
+        )
+    resp.raise_for_status()
+    data = resp.json()
+    _bearer["token"]      = data["access_token"]
+    _bearer["expires_at"] = now + data.get("expires_in", 86400)
+    return _bearer["token"]
+
+
+async def _api_call_public(params: dict, scope: str = "basic barcode") -> dict:
+    """食品検索など、ユーザー認証不要の API 呼び出し（OAuth 2.0 Bearer）。"""
+    token = await _get_bearer_token(scope)
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(
+            API_URL,
+            data=params,
+            headers={"Authorization": f"Bearer {token}"},
+        )
     resp.raise_for_status()
     return resp.json()
 
@@ -78,13 +56,17 @@ async def _api_call_user(user_id: str, db: Session, params: dict) -> dict:
     if not token:
         raise ValueError("FatSecret not connected")
     access = security.decrypt(token.access_token)
-    secret = security.decrypt(token.refresh_token) if token.refresh_token else ""
-    header = _oauth1_header("POST", API_URL, access, secret, params)
     async with httpx.AsyncClient() as client:
-        resp = await client.post(API_URL, data=params, headers={"Authorization": header})
+        resp = await client.post(
+            API_URL,
+            data=params,
+            headers={"Authorization": f"Bearer {access}"},
+        )
     resp.raise_for_status()
     return resp.json()
 
+
+# ── 公開 API ────────────────────────────────────────────────────────
 
 async def search_foods(user_id: str, query: str, db: Session, page: int = 0) -> dict:
     """食品検索（ユーザートークン不要）。"""
@@ -191,13 +173,13 @@ async def sync_food_diary(user_id: str, date: str, db: Session) -> int:
 
 
 async def search_by_barcode(user_id: str, barcode: str, db: Session) -> dict | None:
-    """バーコード検索（ユーザートークン不要）。"""
+    """バーコード検索（barcode スコープが必要）。"""
     params = {
         "method":  "food.find_id_for_barcode",
         "barcode": barcode,
         "format":  "json",
     }
-    data = await _api_call_public(params)
+    data = await _api_call_public(params, scope="basic barcode")
     food_id = data.get("food_id", {}).get("value")
     if not food_id:
         return None

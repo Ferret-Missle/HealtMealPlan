@@ -26,19 +26,12 @@ HEALTHPLANET_CLIENT_ID = os.getenv("HEALTHPLANET_CLIENT_ID", "")
 HEALTHPLANET_CLIENT_SECRET = os.getenv("HEALTHPLANET_CLIENT_SECRET", "")
 HEALTHPLANET_REDIRECT_URI = os.getenv("HEALTHPLANET_REDIRECT_URI", "http://localhost:8000/api/auth/healthplanet/callback")
 
-FATSECRET_CONSUMER_KEY = os.getenv("FATSECRET_CONSUMER_KEY", "")
-FATSECRET_CONSUMER_SECRET = os.getenv("FATSECRET_CONSUMER_SECRET", "")
-
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
 GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI", "http://localhost:8000/api/auth/google/callback")
 
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
 BACKEND_URL  = os.getenv("BACKEND_URL",  "http://localhost:8000")
-
-# FatSecret OAuth 1.0a: Step1 で取得した request_token_secret を一時保持する
-# (DBへの保存は不要、プロセス内メモリで十分)
-_fatsecret_request_tokens: dict[str, str] = {}  # oauth_token → oauth_token_secret
 
 # ---- Register / Me ----
 
@@ -301,19 +294,20 @@ async def google_callback(code: str, state: str, db: Session = Depends(get_db)):
 
 
 # ---- FatSecret ----
-# 食品検索・詳細は OAuth 1.0a の consumer key/secret だけで動作（ユーザーOAuth不要）。
-# 食事日記の取得・同期は有料プランのユーザー OAuth トークンが必要。
-# FatSecret 無料プランでは authorization_code フローをサポートしていないため
-# OAuth 連携ボタンは非推奨とし、食品検索機能のみ提供する。
+# OAuth 2.0 Client Credentials フローを使用。
+# サーバー側で client_id/client_secret → Bearer token を取得し、
+# 食品検索・バーコード検索はユーザー操作なしで利用可能。
+# ※ FatSecret ポータルでサーバーのIPをホワイトリストに登録する必要あり。
+# 食事日記の同期は有料プラン（Premier）のユーザートークンが必要。
 
 @router.get("/fatsecret/login")
 async def fatsecret_login(user_id: str):
-    """FatSecret OAuth 連携（有料プランのみ利用可能）。無料プランでは 400 を返す。"""
+    """FatSecret ユーザー連携（有料プランのみ）。無料プランでは 400 を返す。"""
     from fastapi import HTTPException as _HTTPException
     raise _HTTPException(
         400,
         "FatSecretの食事日記同期には有料プラン（Premier）が必要です。"
-        "食品検索はOAuth連携なしで利用できます。"
+        "食品検索はユーザー連携なしで利用できます。"
     )
 
 
