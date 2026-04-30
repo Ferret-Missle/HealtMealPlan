@@ -4,6 +4,7 @@ import hashlib
 import hmac
 import base64
 import time
+import asyncio
 import urllib.parse
 from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -334,18 +335,24 @@ def _fs_auth_header(params: dict) -> str:
     )
 
 
-# Cloudflare 対策: ブラウザに近いヘッダー
-# ※ Accept-Encoding は設定しない → httpx が自動解凍するため
-_FS_BROWSER_HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/124.0.0.0 Safari/537.36"
-    ),
-    "Accept": "*/*",
-    "Accept-Language": "ja,en-US;q=0.9,en;q=0.8",
-    "Cache-Control": "no-cache",
-}
+async def _fs_curl_post(url: str, auth_header: str) -> str:
+    """
+    curl を使って www.fatsecret.com に POST する。
+    httpx は TLS フィンガープリントで Cloudflare にブロックされるため
+    curl（ブラウザ互換 TLS）で回避する。
+    """
+    proc = await asyncio.create_subprocess_exec(
+        "curl", "-s", "-X", "POST",
+        "-H", f"Authorization: {auth_header}",
+        "-H", "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "-H", "Accept: */*",
+        "-H", "Accept-Language: ja,en-US;q=0.9,en;q=0.8",
+        url,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    stdout, _ = await proc.communicate()
+    return stdout.decode("utf-8", errors="replace")
 
 
 @router.get("/fatsecret/login")
@@ -363,21 +370,18 @@ async def fatsecret_login(user_id: str):
     }
     params["oauth_signature"] = _fs_oauth1_sign("POST", REQUEST_TOKEN_URL, params)
 
-    async with httpx.AsyncClient() as client:
-        resp = await client.post(
-            REQUEST_TOKEN_URL,
-            headers={**_FS_BROWSER_HEADERS, "Authorization": _fs_auth_header(params)},
-        )
+    body = await _fs_curl_post(REQUEST_TOKEN_URL, _fs_auth_header(params))
 
-    if resp.status_code != 200:
-        raise HTTPException(400, f"FatSecret request token error: {resp.text[:300]}")
+    # Cloudflare チャレンジページの検出
+    if "<!DOCTYPE" in body or "<html" in body.lower():
+        raise HTTPException(400, f"FatSecret request token error: {body[:300]}")
 
-    token_data = dict(urllib.parse.parse_qsl(resp.text))
+    token_data = dict(urllib.parse.parse_qsl(body))
     request_token        = token_data.get("oauth_token")
     request_token_secret = token_data.get("oauth_token_secret")
 
     if not request_token:
-        raise HTTPException(400, f"oauth_token missing in response: {resp.text[:200]}")
+        raise HTTPException(400, f"oauth_token missing in response: {body[:200]}")
 
     _fatsecret_request_tokens[request_token] = (request_token_secret or "", user_id)
     auth_url = f"https://www.fatsecret.com/oauth/authorize?oauth_token={request_token}"
@@ -419,19 +423,15 @@ async def fatsecret_callback(
         "POST", ACCESS_TOKEN_URL, params, token_secret
     )
 
-    async with httpx.AsyncClient() as client:
-        resp = await client.post(
-            ACCESS_TOKEN_URL,
-            headers={**_FS_BROWSER_HEADERS, "Authorization": _fs_auth_header(params)},
-        )
+    body = await _fs_curl_post(ACCESS_TOKEN_URL, _fs_auth_header(params))
 
-    if resp.status_code != 200:
-        detail = urllib.parse.quote(resp.text[:200])
+    if "<!DOCTYPE" in body or "<html" in body.lower() or "oauth_token" not in body:
+        detail = urllib.parse.quote(body[:200])
         return RedirectResponse(
             f"{FRONTEND_URL}/me?error=fatsecret_access_token_failed&detail={detail}"
         )
 
-    access_data   = dict(urllib.parse.parse_qsl(resp.text))
+    access_data   = dict(urllib.parse.parse_qsl(body))
     access_token  = access_data.get("oauth_token", "")
     access_secret = access_data.get("oauth_token_secret", "")
 
