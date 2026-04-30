@@ -342,9 +342,11 @@ def _fs_curl_post_sync(url: str, auth_header: str) -> str:
     httpx は TLS フィンガープリントで Cloudflare にブロックされるため
     curl（ブラウザ互換 TLS）で回避する。
     """
+    # Windows では "curl" は Invoke-WebRequest のエイリアスになるため curl.exe を明示
+    curl_cmd = "curl.exe" if os.name == "nt" else "curl"
     result = subprocess.run(
         [
-            "curl", "-s", "-X", "POST",
+            curl_cmd, "-s", "-X", "POST",
             "-H", f"Authorization: {auth_header}",
             "-H", "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
             "-H", "Accept: */*",
