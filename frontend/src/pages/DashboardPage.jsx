@@ -18,6 +18,7 @@ import {
   Scale, Flame, Layers, Footprints, Moon, UtensilsCrossed,
   RefreshCw, Utensils, Dumbbell, CalendarClock,
   ChevronLeft, ChevronRight, GripVertical, Settings2,
+  Link2Off,
 } from 'lucide-react';
 import { dashboardApi, bodyApi, mealsApi } from '../services/api';
 import { Link } from 'react-router-dom';
@@ -67,6 +68,24 @@ const WIDGET_META = {
   meals:    { label: '食事記録', Icon: UtensilsCrossed },
 };
 
+// ── 連携要件マップ ──────────────────────────────────────────
+// required: そのウィジェットを機能させるのに必須の外部サービス
+//   any:true → どれか1つ連携でOK
+//   any:false (default) → すべて必要
+// 手動入力で代替可能なウィジェット (calories/pfc/meals) は要件なし
+const WIDGET_REQUIREMENTS = {
+  weight: { services: ['fitbit', 'healthplanet'], any: true,  label: 'Fitbit / HealthPlanet' },
+  steps:  { services: ['fitbit'],                              label: 'Fitbit' },
+  sleep:  { services: ['fitbit'],                              label: 'Fitbit' },
+};
+
+function isServiceConnected(req, connectedServices = []) {
+  if (!req) return true;
+  return req.any
+    ? req.services.some(s => connectedServices.includes(s))
+    : req.services.every(s => connectedServices.includes(s));
+}
+
 const DEFAULT_ORDER   = WIDGET_IDS;
 const DEFAULT_VIS     = Object.fromEntries(WIDGET_IDS.map(id => [id, { value: true, graph: false }]));
 const DEFAULT_PERIODS = Object.fromEntries(WIDGET_IDS.map(id => [id, '7d']));
@@ -95,8 +114,21 @@ function PeriodPills({ period, onChange, supported = ['1d', '7d', '30d'] }) {
   );
 }
 
+// ── 連携が必要オーバーレイ ────────────────────────────────────
+function NotConnectedOverlay({ label }) {
+  return (
+    <div className="widget-not-connected">
+      <Link2Off size={22} strokeWidth={1.5} className="widget-not-connected-icon" />
+      <div className="widget-not-connected-msg">{label} 連携が必要</div>
+      <Link to="/me" className="btn btn-primary btn-sm widget-not-connected-cta">
+        連携設定へ →
+      </Link>
+    </div>
+  );
+}
+
 // ── ソータブル ウィジェットシェル ─────────────────────────────
-function WidgetShell({ id, vis, period, onPeriodChange, valueContent, graphContent, graphSupport, fullWidth }) {
+function WidgetShell({ id, vis, period, onPeriodChange, valueContent, graphContent, graphSupport, fullWidth, needsConnection, requirementLabel }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
   const { label, Icon } = WIDGET_META[id];
   const showBoth = vis.value && vis.graph;
@@ -122,18 +154,24 @@ function WidgetShell({ id, vis, period, onPeriodChange, valueContent, graphConte
         </span>
       </div>
 
-      {/* 数値セクション */}
-      {vis.value && <div>{valueContent}</div>}
+      {needsConnection ? (
+        <NotConnectedOverlay label={requirementLabel} />
+      ) : (
+        <>
+          {/* 数値セクション */}
+          {vis.value && <div>{valueContent}</div>}
 
-      {/* 区切り線（両方表示時） */}
-      {showBoth && <div className="widget-divider" />}
+          {/* 区切り線（両方表示時） */}
+          {showBoth && <div className="widget-divider" />}
 
-      {/* グラフセクション */}
-      {vis.graph && (
-        <div>
-          <PeriodPills period={period} onChange={onPeriodChange} supported={graphSupport} />
-          {graphContent}
-        </div>
+          {/* グラフセクション */}
+          {vis.graph && (
+            <div>
+              <PeriodPills period={period} onChange={onPeriodChange} supported={graphSupport} />
+              {graphContent}
+            </div>
+          )}
+        </>
       )}
     </div>
   );
@@ -498,7 +536,28 @@ function MealsList({ logs, dateStr, onSync, isSyncing }) {
 }
 
 // ── 今日の予定（フルワイド固定） ─────────────────────────────
-function ScheduleCard({ cal }) {
+function ScheduleCard({ cal, googleConnected }) {
+  // 未連携: 連携 CTA カードを表示
+  if (!googleConnected) {
+    return (
+      <div className="card">
+        <div className="card-title" style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+          <CalendarClock size={12} strokeWidth={2} />
+          今日の予定
+        </div>
+        <div className="widget-not-connected" style={{ minHeight: 100 }}>
+          <Link2Off size={22} strokeWidth={1.5} className="widget-not-connected-icon" />
+          <div className="widget-not-connected-msg">
+            Googleカレンダー連携で<br />本日の予定を表示
+          </div>
+          <Link to="/me" className="btn btn-primary btn-sm widget-not-connected-cta">
+            連携設定へ →
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
   const events = [
     ...(cal?.meal_events     || []).map(e => ({ ...e, type: 'meal' })),
     ...(cal?.exercise_events || []).map(e => ({ ...e, type: 'ex' })),
@@ -823,6 +882,8 @@ export default function DashboardPage() {
                       graphContent={def.graph}
                       graphSupport={def.support}
                       fullWidth={(id === 'weight' || id === 'sleep' || id === 'meals' || (id === 'steps' && periods.steps !== '1d')) && v.graph}
+                      needsConnection={!isServiceConnected(WIDGET_REQUIREMENTS[id], summary?.connected_services)}
+                      requirementLabel={WIDGET_REQUIREMENTS[id]?.label}
                     />
                   );
                 })}
@@ -830,7 +891,7 @@ export default function DashboardPage() {
             </SortableContext>
           </DndContext>
 
-          <ScheduleCard cal={cal} />
+          <ScheduleCard cal={cal} googleConnected={summary?.connected_services?.includes('google')} />
 
           <Link to="/plan" className="btn btn-secondary btn-full"
             style={{ marginTop: 'var(--sp-2)', textDecoration: 'none' }}>

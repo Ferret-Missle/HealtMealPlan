@@ -131,6 +131,23 @@ async def get_sleep_range(user_id: str, start: str, end: str, db: Session) -> li
     return [{"date": d, **v} for d, v in sorted(result.items())]
 
 
+async def get_steps_range(user_id: str, start: str, end: str, db: Session) -> list[dict]:
+    """Fitbit の日付範囲で歩数を一括取得する。"""
+    access_token = await _get_access_token(user_id, db)
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(
+            f"{BASE_URL}/1/user/-/activities/steps/date/{start}/{end}.json",
+            headers={"Authorization": f"Bearer {access_token}"},
+        )
+    resp.raise_for_status()
+    entries = resp.json().get("activities-steps", [])
+    return [
+        {"date": e["dateTime"], "steps": int(e["value"])}
+        for e in entries
+        if int(e.get("value", 0)) > 0
+    ]
+
+
 async def get_heart_rate_zones(user_id: str, date: str, db: Session) -> list:
     access_token = await _get_access_token(user_id, db)
     async with httpx.AsyncClient() as client:

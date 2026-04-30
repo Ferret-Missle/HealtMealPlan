@@ -262,7 +262,29 @@ async def sync_activity_history(
                 saved += 1
         db.commit()
     except Exception as exc:
-        print(f"[sync-activity-history] {exc}")
+        print(f"[sync-activity-history] sleep: {exc}")
+
+    try:
+        steps_entries = await fitbit.get_steps_range(current_user.id, start, end, db)
+        for e in steps_entries:
+            log = (
+                db.query(models.ActivityLog)
+                .filter_by(user_id=current_user.id, date=e["date"])
+                .first()
+            )
+            if log:
+                log.steps = e["steps"]
+            else:
+                db.add(models.ActivityLog(
+                    user_id=current_user.id,
+                    date=e["date"],
+                    steps=e["steps"],
+                    source="fitbit",
+                ))
+                saved += 1
+        db.commit()
+    except Exception as exc:
+        print(f"[sync-activity-history] steps: {exc}")
 
     return {"saved": saved, "from": start, "to": end}
 
