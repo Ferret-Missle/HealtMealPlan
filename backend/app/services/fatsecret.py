@@ -1,5 +1,10 @@
 import os
+import uuid
+import hashlib
+import hmac
+import base64
 import time
+import urllib.parse
 import httpx
 from cachetools import TTLCache
 from sqlalchemy.orm import Session
@@ -12,11 +17,11 @@ TOKEN_URL       = "https://oauth.fatsecret.com/connect/token"
 
 _search_cache: TTLCache = TTLCache(maxsize=500, ttl=3600)
 
-# Bearer token キャッシュ（Client Credentials フロー）
+# ── OAuth 2.0 Client Credentials（食品検索用）─────────────────────────
+
+# Bearer token キャッシュ（24時間有効）
 _bearer: dict = {"token": None, "expires_at": 0.0}
 
-
-# ── OAuth 2.0 Client Credentials ────────────────────────────────────
 
 async def _get_bearer_token(scope: str = "basic barcode") -> str:
     """Client Credentials フローで Bearer token を取得（24時間キャッシュ）。"""
@@ -50,17 +55,57 @@ async def _api_call_public(params: dict, scope: str = "basic barcode") -> dict:
     return resp.json()
 
 
+# ── OAuth 1.0a（ユーザー食事日記用）──────────────────────────────────
+
+def _oauth1_header(access_token: str, token_secret: str, extra_params: dict) -> str:
+    """ユーザーの OAuth 1.0a トークンで署名した Authorization ヘッダーを返す。"""
+    params = {
+        "oauth_consumer_key":     CONSUMER_KEY,
+        "oauth_nonce":            uuid.uuid4().hex,
+        "oauth_signature_method": "HMAC-SHA1",
+        "oauth_timestamp":        str(int(time.time())),
+        "oauth_token":            access_token,
+        "oauth_version":          "1.0",
+    }
+    # 署名ベースに API パラメータも含める
+    all_params = {**params, **extra_params}
+    sorted_params = "&".join(
+        f"{urllib.parse.quote(k, safe='')}={urllib.parse.quote(str(v), safe='')}"
+        for k, v in sorted(all_params.items())
+    )
+    base_string = "&".join([
+        "POST",
+        urllib.parse.quote(API_URL, safe=""),
+        urllib.parse.quote(sorted_params, safe=""),
+    ])
+    signing_key = (
+        f"{urllib.parse.quote(CONSUMER_SECRET, safe='')}"
+        f"&{urllib.parse.quote(token_secret, safe='')}"
+    )
+    sig = base64.b64encode(
+        hmac.new(signing_key.encode(), base_string.encode(), hashlib.sha1).digest()
+    ).decode()
+    params["oauth_signature"] = sig
+    return "OAuth " + ", ".join(
+        f'{k}="{urllib.parse.quote(str(v), safe="")}"'
+        for k, v in sorted(params.items())
+        if k.startswith("oauth_")
+    )
+
+
 async def _api_call_user(user_id: str, db: Session, params: dict) -> dict:
-    """食事記録など、ユーザートークンが必要な API 呼び出し（有料プランのみ）。"""
+    """食事記録など、ユーザートークンが必要な API 呼び出し（OAuth 1.0a 3-legged）。"""
     token = db.query(models.OAuthToken).filter_by(user_id=user_id, service="fatsecret").first()
     if not token:
-        raise ValueError("FatSecret not connected")
-    access = security.decrypt(token.access_token)
+        raise ValueError("FatSecretが連携されていません。設定画面から連携してください。")
+    access_token  = security.decrypt(token.access_token)
+    token_secret  = security.decrypt(token.refresh_token) if token.refresh_token else ""
+    auth_header   = _oauth1_header(access_token, token_secret, params)
     async with httpx.AsyncClient() as client:
         resp = await client.post(
             API_URL,
             data=params,
-            headers={"Authorization": f"Bearer {access}"},
+            headers={"Authorization": auth_header},
         )
     resp.raise_for_status()
     return resp.json()

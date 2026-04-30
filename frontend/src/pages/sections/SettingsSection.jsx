@@ -23,9 +23,8 @@ const SERVICES = [
 	{
 		key: "fatsecret",
 		label: "FatSecret",
-		desc: "食品データベース（連携不要）",
-		note: "食品検索はOAuth連携なしで利用可能。食事日記の同期にはFatSecret有料プランが必要です。",
-		noConnect: true,
+		desc: "食品検索・食事日記同期",
+		note: "連携すると食事日記の同期が可能になります。食品検索は連携なしでも利用できます。",
 	},
 	{ key: "google", label: "Googleカレンダー", desc: "予定取得（外食・運動）" },
 ];
@@ -192,7 +191,7 @@ export default function SettingsSection() {
 				const res = await authApi.googleLoginUrl(user.uid);
 				window.location.href = res.data.url;
 			} else if (service === "fatsecret") {
-				// OAuth 2.0 フロー（サーバー→FatSecret 直接通信なし = Cloudflare 回避）
+				// OAuth 1.0a 3-legged フロー（食事日記アクセスは無料プランで可能）
 				const res = await authApi.fatsecretLoginUrl(user.uid);
 				window.location.href = res.data.url;
 			}
@@ -511,14 +510,7 @@ export default function SettingsSection() {
 								)}
 							</div>
 							<div className="service-card-action">
-								{svc.noConnect ? (
-									<span
-										style={{ fontSize: 11, color: "var(--text-secondary)", maxWidth: 180, textAlign: "right", lineHeight: 1.4 }}
-										title={svc.note}
-									>
-										連携不要
-									</span>
-								) : svc.unavailable ? (
+								{svc.unavailable ? (
 									<span
 										style={{ fontSize: 11, color: "var(--text-2)", maxWidth: 160, textAlign: "right", lineHeight: 1.4 }}
 										title={svc.unavailableReason}
