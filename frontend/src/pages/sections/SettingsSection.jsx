@@ -20,7 +20,13 @@ const SERVICES = [
 		label: "HealthPlanet (タニタ)",
 		desc: "体重・体脂肪・筋肉量・BMI",
 	},
-	{ key: "fatsecret", label: "FatSecret", desc: "食品データベース・食事記録同期" },
+	{
+		key: "fatsecret",
+		label: "FatSecret",
+		desc: "食品データベース（連携不要）",
+		note: "食品検索はOAuth連携なしで利用可能。食事日記の同期にはFatSecret有料プランが必要です。",
+		noConnect: true,
+	},
 	{ key: "google", label: "Googleカレンダー", desc: "予定取得（外食・運動）" },
 ];
 
@@ -498,9 +504,21 @@ export default function SettingsSection() {
 							<div className="service-card-info">
 								<div className="service-card-name">{svc.label}</div>
 								<div className="service-card-desc">{svc.desc}</div>
+								{svc.note && (
+									<div style={{ fontSize: 11, color: "var(--text-secondary)", marginTop: 3, lineHeight: 1.4 }}>
+										{svc.note}
+									</div>
+								)}
 							</div>
 							<div className="service-card-action">
-								{svc.unavailable ? (
+								{svc.noConnect ? (
+									<span
+										style={{ fontSize: 11, color: "var(--text-secondary)", maxWidth: 180, textAlign: "right", lineHeight: 1.4 }}
+										title={svc.note}
+									>
+										連携不要
+									</span>
+								) : svc.unavailable ? (
 									<span
 										style={{ fontSize: 11, color: "var(--text-2)", maxWidth: 160, textAlign: "right", lineHeight: 1.4 }}
 										title={svc.unavailableReason}
