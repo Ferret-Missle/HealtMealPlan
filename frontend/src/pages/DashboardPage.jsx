@@ -11,7 +11,7 @@ import {
   AreaChart, Area,
   PieChart, Pie, Cell,
   BarChart, Bar,
-  XAxis, YAxis, Tooltip,
+  XAxis, YAxis, Tooltip, ReferenceLine,
   ResponsiveContainer,
 } from 'recharts';
 import {
@@ -311,27 +311,64 @@ function StepsValue({ steps }) {
   );
 }
 
-function StepsGraph({ steps }) {
-  if (!steps) return <EmptyGraph />;
-  const pct  = Math.round(steps / STEP_GOAL * 100);
-  const data = [
-    { name: '達成', value: Math.min(steps, STEP_GOAL), fill: BRAND },
-    { name: '残り', value: Math.max(0, STEP_GOAL - steps), fill: '#e2e8f0' },
-  ];
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
-      <ResponsiveContainer width={80} height={80}>
-        <PieChart>
-          <Pie data={data} cx="50%" cy="50%" innerRadius={24} outerRadius={38}
-            dataKey="value" startAngle={90} endAngle={-270} strokeWidth={0}>
-            {data.map((d, i) => <Cell key={i} fill={d.fill} />)}
-          </Pie>
-        </PieChart>
-      </ResponsiveContainer>
-      <div style={{ textAlign: 'center' }}>
-        <div style={{ fontSize: 20, fontWeight: 800, color: BRAND, lineHeight: 1.1 }}>{pct}%</div>
-        <div style={{ fontSize: 11, color: 'var(--text-2)' }}>{steps.toLocaleString()} 歩</div>
+function StepsGraph({ steps, history, period, onBulkSync, isSyncing }) {
+  // 1d：今日のドーナツグラフ
+  if (period === '1d') {
+    if (!steps) return <EmptyGraph />;
+    const pct  = Math.round(steps / STEP_GOAL * 100);
+    const data = [
+      { name: '達成', value: Math.min(steps, STEP_GOAL), fill: BRAND },
+      { name: '残り', value: Math.max(0, STEP_GOAL - steps), fill: '#e2e8f0' },
+    ];
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+        <ResponsiveContainer width={80} height={80}>
+          <PieChart>
+            <Pie data={data} cx="50%" cy="50%" innerRadius={24} outerRadius={38}
+              dataKey="value" startAngle={90} endAngle={-270} strokeWidth={0}>
+              {data.map((d, i) => <Cell key={i} fill={d.fill} />)}
+            </Pie>
+          </PieChart>
+        </ResponsiveContainer>
+        <div style={{ textAlign: 'center' }}>
+          <div style={{ fontSize: 20, fontWeight: 800, color: BRAND, lineHeight: 1.1 }}>{pct}%</div>
+          <div style={{ fontSize: 11, color: 'var(--text-2)' }}>{steps.toLocaleString()} 歩</div>
+        </div>
       </div>
+    );
+  }
+
+  // 7d / 30d：棒グラフ
+  const data = (history ?? [])
+    .filter(d => d.steps != null)
+    .map(d => ({ d: fmtShort(d.date), v: d.steps }));
+
+  return (
+    <div>
+      {data.length < 2
+        ? <EmptyGraph msg="データなし — 右の一括同期で取得できます" />
+        : (
+          <ResponsiveContainer width="100%" height={90}>
+            <BarChart data={data} margin={{ top: 4, right: 4, left: -28, bottom: 0 }}>
+              <XAxis dataKey="d" tick={{ fontSize: 9, fill: 'var(--text-3)' }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fontSize: 9, fill: 'var(--text-3)' }} axisLine={false} tickLine={false} />
+              <Tooltip contentStyle={tipStyle} formatter={v => [`${v?.toLocaleString()} 歩`, '歩数']} />
+              <ReferenceLine y={STEP_GOAL} stroke="#f59e0b" strokeDasharray="3 3" strokeWidth={1} />
+              <Bar dataKey="v" fill={BRAND} radius={[2, 2, 0, 0]} maxBarSize={18} />
+            </BarChart>
+          </ResponsiveContainer>
+        )
+      }
+      <button
+        className="btn btn-outline btn-sm"
+        style={{ marginTop: 6, width: '100%', fontSize: 11 }}
+        onClick={onBulkSync}
+        disabled={isSyncing}
+      >
+        <RefreshCw size={11} strokeWidth={2}
+          style={isSyncing ? { animation: 'spin 0.65s linear infinite', marginRight: 4 } : { marginRight: 4 }} />
+        {isSyncing ? '同期中…' : '過去の歩数を一括同期'}
+      </button>
     </div>
   );
 }
@@ -566,8 +603,8 @@ export default function DashboardPage() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['weight-history'] }),
   });
 
-  // 睡眠・歩数履歴：選択中の期間に応じて日数を調整
-  const activityDays = periods.sleep === '30d' ? 30 : 7;
+  // 睡眠・歩数履歴：どちらか長い方に合わせて取得
+  const activityDays = (periods.sleep === '30d' || periods.steps === '30d') ? 30 : 7;
   const { data: activityHistory = [] } = useQuery({
     queryKey: ['activity-history', activityDays],
     queryFn: () => bodyApi.activityHistory(activityDays).then(r => r.data),
@@ -651,9 +688,15 @@ export default function DashboardPage() {
       graph:   <PFCGraph p={nut.protein_g} f={nut.fat_g} c={nut.carb_g} />,
     },
     steps: {
-      support: ['1d'],
+      support: ['1d', '7d', '30d'],
       value:   <StepsValue steps={summary?.steps} />,
-      graph:   <StepsGraph steps={summary?.steps} />,
+      graph:   <StepsGraph
+                 steps={summary?.steps}
+                 history={activityHistory}
+                 period={periods.steps ?? '1d'}
+                 onBulkSync={() => sleepBulkSyncMutation.mutate()}
+                 isSyncing={sleepBulkSyncMutation.isPending}
+               />,
     },
     sleep: {
       support: ['7d', '30d'],
@@ -770,7 +813,7 @@ export default function DashboardPage() {
                       valueContent={def.value}
                       graphContent={def.graph}
                       graphSupport={def.support}
-                      fullWidth={(id === 'weight' || id === 'meals') && v.graph}
+                      fullWidth={(id === 'weight' || id === 'meals' || (id === 'steps' && periods.steps !== '1d')) && v.graph}
                     />
                   );
                 })}
