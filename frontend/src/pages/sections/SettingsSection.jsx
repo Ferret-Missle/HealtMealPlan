@@ -23,9 +23,8 @@ const SERVICES = [
 	{
 		key: "fatsecret",
 		label: "FatSecret",
-		desc: "食品データベース検索",
-		note: "食品検索・バーコード検索は連携不要で利用可能。食事日記の同期はFatSecret側のCloudflare制限により現在対応不可。",
-		noConnect: true,
+		desc: "食品検索・食事日記同期",
+		note: "連携すると食事日記の自動同期が可能。食品検索は連携なしでも利用可能。",
 	},
 	{ key: "google", label: "Googleカレンダー", desc: "予定取得（外食・運動）" },
 ];
@@ -192,7 +191,7 @@ export default function SettingsSection() {
 				const res = await authApi.googleLoginUrl(user.uid);
 				window.location.href = res.data.url;
 			} else if (service === "fatsecret") {
-				// OAuth 1.0a 3-legged フロー（食事日記アクセスは無料プランで可能）
+				// OAuth 2.0 Authorization Code（oauth.fatsecret.com/connect/authorize）
 				const res = await authApi.fatsecretLoginUrl(user.uid);
 				window.location.href = res.data.url;
 			}
