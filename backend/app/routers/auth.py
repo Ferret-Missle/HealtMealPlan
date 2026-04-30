@@ -293,83 +293,26 @@ async def google_callback(code: str, state: str, db: Session = Depends(get_db)):
     return RedirectResponse(f"{FRONTEND_URL}/me?connected=google")
 
 
-# ---- FatSecret OAuth 2.0 Authorization Code ----
-# www.fatsecret.com/oauth/request_token は Cloudflare Managed Challenge により
-# curl 含むあらゆるHTTPクライアントがブロックされる（JS実行が必要）。
-# OAuth 2.0 Authorization Code フローなら:
-#   認可URL生成 → サーバーリクエスト不要（URLを組み立てるだけ）
-#   トークン交換 → oauth.fatsecret.com（Cloudflare なし）
-# で www.fatsecret.com へのサーバーサイドリクエストがゼロになる。
-
-FATSECRET_TOKEN_URL = "https://oauth.fatsecret.com/connect/token"
-
+# ---- FatSecret ----
+# 調査結果：
+#   OAuth 1.0a request_token → Cloudflare Managed Challenge（JS必須、突破不可）
+#   OAuth 2.0 Auth Code      → www.fatsecret.com/oauth2/authorize が 404
+#   OAuth 2.0 Client Credentials → 動作するが食事日記は取得不可
+# → 無料プランではサーバーサイドからのユーザー日記取得は不可能
+# → 食品検索（Client Credentials）のみ提供
 
 @router.get("/fatsecret/login")
 async def fatsecret_login(user_id: str):
-    """OAuth 2.0 認可 URL を組み立てて返す（サーバーリクエストなし）。"""
-    params = {
-        "response_type": "code",
-        "client_id":     FATSECRET_CONSUMER_KEY,
-        "redirect_uri":  FATSECRET_REDIRECT_URI,
-        "scope":         "basic",
-        "state":         user_id,
-    }
-    url = "https://www.fatsecret.com/oauth2/authorize?" + urllib.parse.urlencode(params)
-    return {"url": url}
+    raise HTTPException(
+        400,
+        "FatSecretの食事日記同期はサーバーサイドOAuth技術的制限により利用不可です。"
+        "食品検索機能は連携なしで引き続き利用できます。"
+    )
 
 
-# 後方互換エイリアス
 @router.get("/fatsecret/request-token")
 async def fatsecret_request_token_compat(user_id: str):
     return await fatsecret_login(user_id)
-
-
-@router.get("/fatsecret/callback")
-async def fatsecret_callback(
-    code:  str | None = None,
-    state: str | None = None,
-    error: str | None = None,
-    db: Session = Depends(get_db),
-):
-    """Authorization Code を Access Token に交換して DB に保存。"""
-    if error:
-        return RedirectResponse(f"{FRONTEND_URL}/me?error=fatsecret_{error}")
-    if not code or not state:
-        return RedirectResponse(f"{FRONTEND_URL}/me?error=fatsecret_invalid_callback")
-
-    user_id = state
-
-    async with httpx.AsyncClient() as client:
-        resp = await client.post(
-            FATSECRET_TOKEN_URL,
-            data={
-                "grant_type":   "authorization_code",
-                "code":         code,
-                "redirect_uri": FATSECRET_REDIRECT_URI,
-            },
-            auth=(FATSECRET_CONSUMER_KEY, FATSECRET_CONSUMER_SECRET),
-        )
-
-    if resp.status_code != 200:
-        detail = urllib.parse.quote(resp.text[:200])
-        return RedirectResponse(
-            f"{FRONTEND_URL}/me?error=fatsecret_token_failed&detail={detail}"
-        )
-
-    data         = resp.json()
-    access_token = data.get("access_token", "")
-    expires_in   = data.get("expires_in", 86400)
-
-    token = db.query(models.OAuthToken).filter_by(user_id=user_id, service="fatsecret").first()
-    if not token:
-        token = models.OAuthToken(user_id=user_id, service="fatsecret")
-        db.add(token)
-    token.access_token  = security.encrypt(access_token)
-    token.refresh_token = security.encrypt(data.get("refresh_token", ""))
-    token.expires_at    = datetime.utcnow() + timedelta(seconds=expires_in)
-    db.commit()
-
-    return RedirectResponse(f"{FRONTEND_URL}/me?connected=fatsecret")
 
 
 # ---- Disconnect ----

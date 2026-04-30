@@ -23,8 +23,9 @@ const SERVICES = [
 	{
 		key: "fatsecret",
 		label: "FatSecret",
-		desc: "食品検索・食事日記同期",
-		note: "連携すると食事日記の同期が可能になります。食品検索は連携なしでも利用できます。",
+		desc: "食品データベース検索",
+		note: "食品検索・バーコード検索は連携不要で利用可能。食事日記の同期はFatSecret側のCloudflare制限により現在対応不可。",
+		noConnect: true,
 	},
 	{ key: "google", label: "Googleカレンダー", desc: "予定取得（外食・運動）" },
 ];
@@ -510,7 +511,14 @@ export default function SettingsSection() {
 								)}
 							</div>
 							<div className="service-card-action">
-								{svc.unavailable ? (
+								{svc.noConnect ? (
+									<span
+										style={{ fontSize: 11, color: "var(--text-secondary)", maxWidth: 180, textAlign: "right", lineHeight: 1.4 }}
+										title={svc.note}
+									>
+										連携不要
+									</span>
+								) : svc.unavailable ? (
 									<span
 										style={{ fontSize: 11, color: "var(--text-2)", maxWidth: 160, textAlign: "right", lineHeight: 1.4 }}
 										title={svc.unavailableReason}
