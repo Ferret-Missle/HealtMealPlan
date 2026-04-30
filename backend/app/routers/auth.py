@@ -1,11 +1,4 @@
 import os
-import uuid
-import hashlib
-import hmac
-import base64
-import time
-import asyncio
-import subprocess
 import urllib.parse
 from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -32,12 +25,10 @@ GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
 GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI", "http://localhost:8000/api/auth/google/callback")
 
-# FatSecret OAuth 1.0a（食事日記アクセスは無料プランで利用可能）
+# FatSecret OAuth 2.0
 FATSECRET_CONSUMER_KEY    = os.getenv("FATSECRET_CONSUMER_KEY", "")
 FATSECRET_CONSUMER_SECRET = os.getenv("FATSECRET_CONSUMER_SECRET", "")
 FATSECRET_REDIRECT_URI    = os.getenv("FATSECRET_REDIRECT_URI", "http://localhost:8000/api/auth/fatsecret/callback")
-# Step1 で取得した request_token_secret を一時保持 (oauth_token → (token_secret, user_id))
-_fatsecret_request_tokens: dict[str, tuple[str, str]] = {}
 
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
 BACKEND_URL  = os.getenv("BACKEND_URL",  "http://localhost:8000")
@@ -302,100 +293,29 @@ async def google_callback(code: str, state: str, db: Session = Depends(get_db)):
     return RedirectResponse(f"{FRONTEND_URL}/me?connected=google")
 
 
-# ---- FatSecret OAuth 1.0a 3-legged ----
-# food_entries.get は Premier Exclusive 非対象 → 無料プランで利用可能。
-# ユーザーの食事日記アクセスには 3-legged OAuth 1.0a が必要。
-# 食品検索は fatsecret.py の OAuth 2.0 Client Credentials で行う（ユーザー不要）。
+# ---- FatSecret OAuth 2.0 Authorization Code ----
+# www.fatsecret.com/oauth/request_token は Cloudflare Managed Challenge により
+# curl 含むあらゆるHTTPクライアントがブロックされる（JS実行が必要）。
+# OAuth 2.0 Authorization Code フローなら:
+#   認可URL生成 → サーバーリクエスト不要（URLを組み立てるだけ）
+#   トークン交換 → oauth.fatsecret.com（Cloudflare なし）
+# で www.fatsecret.com へのサーバーサイドリクエストがゼロになる。
 
-def _fs_oauth1_sign(method: str, url: str, params: dict, token_secret: str = "") -> str:
-    """OAuth 1.0a HMAC-SHA1 署名を返す（params に署名は含めない）。"""
-    sorted_params = "&".join(
-        f"{urllib.parse.quote(k, safe='')}={urllib.parse.quote(str(v), safe='')}"
-        for k, v in sorted(params.items())
-    )
-    base_string = "&".join([
-        method.upper(),
-        urllib.parse.quote(url, safe=""),
-        urllib.parse.quote(sorted_params, safe=""),
-    ])
-    signing_key = (
-        f"{urllib.parse.quote(FATSECRET_CONSUMER_SECRET, safe='')}"
-        f"&{urllib.parse.quote(token_secret, safe='')}"
-    )
-    return base64.b64encode(
-        hmac.new(signing_key.encode(), base_string.encode(), hashlib.sha1).digest()
-    ).decode()
-
-
-def _fs_auth_header(params: dict) -> str:
-    """OAuth Authorization ヘッダー文字列を生成（params は署名込み）。"""
-    return "OAuth " + ", ".join(
-        f'{k}="{urllib.parse.quote(str(v), safe="")}"'
-        for k, v in sorted(params.items())
-        if k.startswith("oauth_")
-    )
-
-
-def _fs_curl_post_sync(url: str, auth_header: str) -> str:
-    """
-    curl を使って www.fatsecret.com に POST する（同期版）。
-    httpx は TLS フィンガープリントで Cloudflare にブロックされるため
-    curl（ブラウザ互換 TLS）で回避する。
-    """
-    # Windows では "curl" は Invoke-WebRequest のエイリアスになるため curl.exe を明示
-    curl_cmd = "curl.exe" if os.name == "nt" else "curl"
-    result = subprocess.run(
-        [
-            curl_cmd, "-s", "-X", "POST",
-            "-H", f"Authorization: {auth_header}",
-            "-H", "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-            "-H", "Accept: */*",
-            "-H", "Accept-Language: ja,en-US;q=0.9,en;q=0.8",
-            url,
-        ],
-        capture_output=True,
-        timeout=30,
-    )
-    return result.stdout.decode("utf-8", errors="replace")
-
-
-async def _fs_curl_post(url: str, auth_header: str) -> str:
-    """run_in_executor でスレッドプールから curl を呼び出す（Windows asyncio 対応）。"""
-    loop = asyncio.get_event_loop()
-    return await loop.run_in_executor(None, _fs_curl_post_sync, url, auth_header)
+FATSECRET_TOKEN_URL = "https://oauth.fatsecret.com/connect/token"
 
 
 @router.get("/fatsecret/login")
 async def fatsecret_login(user_id: str):
-    """Step 1: request_token を取得して認可 URL を返す。"""
-    REQUEST_TOKEN_URL = "https://www.fatsecret.com/oauth/request_token"
-
+    """OAuth 2.0 認可 URL を組み立てて返す（サーバーリクエストなし）。"""
     params = {
-        "oauth_callback":         FATSECRET_REDIRECT_URI,
-        "oauth_consumer_key":     FATSECRET_CONSUMER_KEY,
-        "oauth_nonce":            uuid.uuid4().hex,
-        "oauth_signature_method": "HMAC-SHA1",
-        "oauth_timestamp":        str(int(time.time())),
-        "oauth_version":          "1.0",
+        "response_type": "code",
+        "client_id":     FATSECRET_CONSUMER_KEY,
+        "redirect_uri":  FATSECRET_REDIRECT_URI,
+        "scope":         "basic",
+        "state":         user_id,
     }
-    params["oauth_signature"] = _fs_oauth1_sign("POST", REQUEST_TOKEN_URL, params)
-
-    body = await _fs_curl_post(REQUEST_TOKEN_URL, _fs_auth_header(params))
-
-    # Cloudflare チャレンジページの検出
-    if "<!DOCTYPE" in body or "<html" in body.lower():
-        raise HTTPException(400, f"FatSecret request token error: {body[:300]}")
-
-    token_data = dict(urllib.parse.parse_qsl(body))
-    request_token        = token_data.get("oauth_token")
-    request_token_secret = token_data.get("oauth_token_secret")
-
-    if not request_token:
-        raise HTTPException(400, f"oauth_token missing in response: {body[:200]}")
-
-    _fatsecret_request_tokens[request_token] = (request_token_secret or "", user_id)
-    auth_url = f"https://www.fatsecret.com/oauth/authorize?oauth_token={request_token}"
-    return {"url": auth_url}
+    url = "https://www.fatsecret.com/oauth2/authorize?" + urllib.parse.urlencode(params)
+    return {"url": url}
 
 
 # 後方互換エイリアス
@@ -406,52 +326,47 @@ async def fatsecret_request_token_compat(user_id: str):
 
 @router.get("/fatsecret/callback")
 async def fatsecret_callback(
-    oauth_token:    str | None = None,
-    oauth_verifier: str | None = None,
+    code:  str | None = None,
+    state: str | None = None,
+    error: str | None = None,
     db: Session = Depends(get_db),
 ):
-    """Step 3: oauth_verifier を使って access_token を取得しDBに保存。"""
-    ACCESS_TOKEN_URL = "https://www.fatsecret.com/oauth/access_token"
-
-    if not oauth_token or not oauth_verifier:
+    """Authorization Code を Access Token に交換して DB に保存。"""
+    if error:
+        return RedirectResponse(f"{FRONTEND_URL}/me?error=fatsecret_{error}")
+    if not code or not state:
         return RedirectResponse(f"{FRONTEND_URL}/me?error=fatsecret_invalid_callback")
 
-    token_secret, user_id = _fatsecret_request_tokens.pop(oauth_token, ("", ""))
-    if not user_id:
-        return RedirectResponse(f"{FRONTEND_URL}/me?error=fatsecret_session_expired")
+    user_id = state
 
-    params = {
-        "oauth_consumer_key":     FATSECRET_CONSUMER_KEY,
-        "oauth_nonce":            uuid.uuid4().hex,
-        "oauth_signature_method": "HMAC-SHA1",
-        "oauth_timestamp":        str(int(time.time())),
-        "oauth_token":            oauth_token,
-        "oauth_verifier":         oauth_verifier,
-        "oauth_version":          "1.0",
-    }
-    params["oauth_signature"] = _fs_oauth1_sign(
-        "POST", ACCESS_TOKEN_URL, params, token_secret
-    )
-
-    body = await _fs_curl_post(ACCESS_TOKEN_URL, _fs_auth_header(params))
-
-    if "<!DOCTYPE" in body or "<html" in body.lower() or "oauth_token" not in body:
-        detail = urllib.parse.quote(body[:200])
-        return RedirectResponse(
-            f"{FRONTEND_URL}/me?error=fatsecret_access_token_failed&detail={detail}"
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(
+            FATSECRET_TOKEN_URL,
+            data={
+                "grant_type":   "authorization_code",
+                "code":         code,
+                "redirect_uri": FATSECRET_REDIRECT_URI,
+            },
+            auth=(FATSECRET_CONSUMER_KEY, FATSECRET_CONSUMER_SECRET),
         )
 
-    access_data   = dict(urllib.parse.parse_qsl(body))
-    access_token  = access_data.get("oauth_token", "")
-    access_secret = access_data.get("oauth_token_secret", "")
+    if resp.status_code != 200:
+        detail = urllib.parse.quote(resp.text[:200])
+        return RedirectResponse(
+            f"{FRONTEND_URL}/me?error=fatsecret_token_failed&detail={detail}"
+        )
+
+    data         = resp.json()
+    access_token = data.get("access_token", "")
+    expires_in   = data.get("expires_in", 86400)
 
     token = db.query(models.OAuthToken).filter_by(user_id=user_id, service="fatsecret").first()
     if not token:
         token = models.OAuthToken(user_id=user_id, service="fatsecret")
         db.add(token)
     token.access_token  = security.encrypt(access_token)
-    token.refresh_token = security.encrypt(access_secret)   # OAuth 1.0a token_secret
-    token.expires_at    = None                              # None = OAuth 1.0a
+    token.refresh_token = security.encrypt(data.get("refresh_token", ""))
+    token.expires_at    = datetime.utcnow() + timedelta(seconds=expires_in)
     db.commit()
 
     return RedirectResponse(f"{FRONTEND_URL}/me?connected=fatsecret")
