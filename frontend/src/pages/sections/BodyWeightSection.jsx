@@ -124,11 +124,17 @@ export default function BodyWeightSection() {
     scales: { y: { beginAtZero: false } },
   };
 
+  const sleepLabels = (sleepData || []).map(s => {
+    const d = new Date(s.date);
+    return `${d.getMonth() + 1}/${d.getDate()}`;
+  });
+  // 30日表示時はラベル間引き（7本程度に）
+  const sleepTickInterval = sleepLabels.length > 14
+    ? Math.ceil(sleepLabels.length / 7)
+    : 1;
+
   const sleepChartData = {
-    labels: (sleepData || []).map(s => {
-      const d = new Date(s.date);
-      return `${d.getMonth() + 1}/${d.getDate()}`;
-    }),
+    labels: sleepLabels,
     datasets: [
       {
         label: '睡眠時間 (h)',
@@ -151,6 +157,13 @@ export default function BodyWeightSection() {
     responsive: true,
     plugins: { legend: { display: true, position: 'top' } },
     scales: {
+      x: {
+        ticks: {
+          maxTicksLimit: 7,
+          maxRotation: 0,
+          callback: (_val, index) => index % sleepTickInterval === 0 ? sleepLabels[index] : '',
+        },
+      },
       y: { beginAtZero: false, title: { display: true, text: '睡眠時間 (h)' } },
       y1: { beginAtZero: false, position: 'right', title: { display: true, text: 'スコア' }, grid: { drawOnChartArea: false } },
     },

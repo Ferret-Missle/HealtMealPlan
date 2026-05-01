@@ -382,6 +382,7 @@ function StepsGraph({ steps, history, period, onBulkSync, isSyncing }) {
   const data = (history ?? [])
     .filter(d => d.steps != null)
     .map(d => ({ d: fmtShort(d.date), v: d.steps }));
+  const xInterval = data.length > 14 ? Math.ceil(data.length / 7) - 1 : 0;
 
   return (
     <div>
@@ -390,7 +391,7 @@ function StepsGraph({ steps, history, period, onBulkSync, isSyncing }) {
         : (
           <ResponsiveContainer width="100%" height={90}>
             <BarChart data={data} margin={{ top: 4, right: 4, left: -28, bottom: 0 }}>
-              <XAxis dataKey="d" tick={{ fontSize: 9, fill: 'var(--text-3)' }} axisLine={false} tickLine={false} />
+              <XAxis dataKey="d" interval={xInterval} tick={{ fontSize: 9, fill: 'var(--text-3)' }} axisLine={false} tickLine={false} />
               <YAxis tick={{ fontSize: 9, fill: 'var(--text-3)' }} axisLine={false} tickLine={false} />
               <Tooltip contentStyle={tipStyle} formatter={v => [`${v?.toLocaleString()} 歩`, '歩数']} />
               <ReferenceLine y={STEP_GOAL} stroke="#f59e0b" strokeDasharray="3 3" strokeWidth={1} />
@@ -431,6 +432,7 @@ function SleepGraph({ history, onBulkSync, isSyncing }) {
   const data    = isEmpty ? [] : history
     .filter(d => d.sleep_hours)
     .map(d => ({ d: fmtShort(d.date), v: d.sleep_hours }));
+  const xInterval = data.length > 14 ? Math.ceil(data.length / 7) - 1 : 0;
 
   return (
     <div>
@@ -445,7 +447,7 @@ function SleepGraph({ history, onBulkSync, isSyncing }) {
                   <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
                 </linearGradient>
               </defs>
-              <XAxis dataKey="d" tick={{ fontSize: 9, fill: 'var(--text-3)' }} axisLine={false} tickLine={false} />
+              <XAxis dataKey="d" interval={xInterval} tick={{ fontSize: 9, fill: 'var(--text-3)' }} axisLine={false} tickLine={false} />
               <YAxis domain={[0, 'auto']} tick={{ fontSize: 9, fill: 'var(--text-3)' }} axisLine={false} tickLine={false} />
               <Tooltip contentStyle={tipStyle} formatter={v => [`${v} h`, '睡眠']} />
               {/* 目標ライン 7h */}
