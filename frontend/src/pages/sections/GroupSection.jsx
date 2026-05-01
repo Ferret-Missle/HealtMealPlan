@@ -28,6 +28,15 @@ export default function GroupSection() {
     onError: (e) => setError(e.response?.data?.detail || e.message),
   });
 
+  const transferMutation = useMutation({
+    mutationFn: (targetUserId) => groupApi.transferOwner(group.id, targetUserId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['my-group'] });
+      setSuccess('オーナー権限を移譲しました');
+    },
+    onError: (e) => setError(e.response?.data?.detail || e.message),
+  });
+
   const cancelInviteMutation = useMutation({
     mutationFn: (inviteId) => groupApi.cancelInvitation(group.id, inviteId),
     onSuccess: () => {
@@ -88,13 +97,30 @@ export default function GroupSection() {
                   <div>
                     <div style={{ fontSize: 14, fontWeight: 500 }}>{m.name}</div>
                     <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
-                      {m.role === 'owner' ? 'オーナー' : 'メンバー'}
+                      {m.role === 'owner' ? '👑 オーナー' : 'メンバー'}
                       {!m.privacy_public && ' · データ非公開'}
                     </div>
                   </div>
-                  {m.user_id === user.uid && (
-                    <span className="tag tag-gray">あなた</span>
-                  )}
+                  <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                    {m.user_id === user.uid && (
+                      <span className="tag tag-gray">あなた</span>
+                    )}
+                    {/* オーナーが他のメンバーに権限を移譲 */}
+                    {group.role === 'owner' && m.user_id !== user.uid && m.role !== 'owner' && (
+                      <button
+                        className="btn btn-outline"
+                        style={{ fontSize: 11, padding: '3px 8px' }}
+                        disabled={transferMutation.isPending}
+                        onClick={() => {
+                          if (window.confirm(`${m.name} さんにオーナー権限を移譲しますか？\nあなたはメンバーになります。`)) {
+                            transferMutation.mutate(m.user_id);
+                          }
+                        }}
+                      >
+                        👑 移譲
+                      </button>
+                    )}
+                  </div>
                 </div>
               ))}
               {group.pending_invitation_list?.length > 0 && (
@@ -224,7 +250,7 @@ export default function GroupSection() {
               </button>
               {group.role === 'owner' && group.members.length > 1 && (
                 <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4, textAlign: 'center' }}>
-                  ※ 脱退前にオーナー権限を移譲してください
+                  ※ メンバー一覧の「👑 移譲」ボタンで先に権限を移譲してください
                 </div>
               )}
             </div>

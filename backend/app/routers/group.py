@@ -159,6 +159,37 @@ async def join_group(
     return {"joined_group_id": invite.group_id}
 
 
+@router.put("/{group_id}/transfer-owner/{target_user_id}")
+async def transfer_ownership(
+    group_id: str,
+    target_user_id: str,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """オーナー権限を別のメンバーに移譲する。"""
+    # 現在のユーザーがオーナーであることを確認
+    my_member = db.query(models.GroupMember).filter_by(
+        group_id=group_id, user_id=current_user.id, role="owner"
+    ).first()
+    if not my_member:
+        raise HTTPException(403, "Only group owner can transfer ownership")
+
+    # 移譲先がグループメンバーであることを確認
+    target_member = db.query(models.GroupMember).filter_by(
+        group_id=group_id, user_id=target_user_id
+    ).first()
+    if not target_member:
+        raise HTTPException(404, "Target user is not a member of this group")
+    if target_user_id == current_user.id:
+        raise HTTPException(400, "Cannot transfer ownership to yourself")
+
+    # 権限を入れ替える
+    my_member.role = "member"
+    target_member.role = "owner"
+    db.commit()
+    return {"transferred_to": target_user_id}
+
+
 @router.delete("/{group_id}/invitations/{invite_id}")
 async def cancel_invitation(
     group_id: str,

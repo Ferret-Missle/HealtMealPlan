@@ -100,6 +100,8 @@ export const groupApi = {
   invite: (groupId, data) => api.post(`/api/groups/${groupId}/invite`, data),
   cancelInvitation: (groupId, inviteId) =>
     api.delete(`/api/groups/${groupId}/invitations/${inviteId}`),
+  transferOwner: (groupId, targetUserId) =>
+    api.put(`/api/groups/${groupId}/transfer-owner/${targetUserId}`),
   join: (token) => api.post(`/api/groups/join/${token}`),
   leave: (groupId) => api.delete(`/api/groups/${groupId}/leave`),
 };
