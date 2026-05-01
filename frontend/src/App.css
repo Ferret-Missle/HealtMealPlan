@@ -335,7 +335,7 @@ img { max-width: 100%; height: auto; display: block; }
 /* ── Dashboard date nav sticky bar ─────────────────────────── */
 .dash-date-nav {
   position: sticky;
-  top: 56px;
+  top: 0;
   z-index: 80;
   display: flex;
   align-items: center;
