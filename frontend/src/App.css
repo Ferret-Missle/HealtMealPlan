@@ -123,15 +123,39 @@ img { max-width: 100%; height: auto; display: block; }
   padding-bottom: calc(72px + env(safe-area-inset-bottom, 8px));
   -webkit-overflow-scrolling: touch;
   overscroll-behavior-y: contain;
+  width: 100%;
+  /* max-width は段階的に拡大。margin: 0 auto は中央寄せ */
+  max-width: 1440px;
+  margin: 0 auto;
+  box-sizing: border-box;
 }
 
-@media (min-width: 1024px) {
+/* Tablet S 以上 */
+@media (min-width: 480px) {
+  .app-main { padding: var(--sp-5); }
+}
+
+/* Tablet L 以上: ボトムナビ消えるためpadding-bottom縮小 */
+@media (min-width: 768px) {
   .app-main {
     padding: var(--sp-6);
-    padding-bottom: var(--sp-6);
-    max-width: 720px;
-    margin: 0 auto;
-    width: 100%;
+    padding-bottom: var(--sp-8);
+  }
+}
+
+/* Desktop 以上: padding を更に拡大、最大幅は維持 */
+@media (min-width: 1024px) {
+  .app-main {
+    padding: var(--sp-8);
+    padding-bottom: var(--sp-8);
+  }
+}
+
+/* Wide Desktop: パディング更に拡大、最大幅引き上げ */
+@media (min-width: 1600px) {
+  .app-main {
+    padding: var(--sp-10);
+    max-width: 1600px;
   }
 }
 
@@ -896,12 +920,23 @@ select.form-input {
 @keyframes spin { to { transform: rotate(360deg); } }
 
 /* ── 25. Dashboard / Widgets ───────────────────────────────── */
+/* コンテナ実幅に応じて自動で 1〜4 列に切り替わる auto-fit grid。
+   viewport 基準ではないため、DPIスケーリング・ズーム・サイドバー幅
+   などの影響を受けない。各カード最小幅 240px を確保。
+     - container 240–479px:  1列
+     - container 480–719px:  2列
+     - container 720–959px:  3列
+     - container 960px+:     4列 (Wide Desktop) */
 .widget-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
   gap: var(--sp-3);
   margin-bottom: var(--sp-3);
 }
+@media (min-width: 768px)  { .widget-grid { gap: var(--sp-4); } }
+@media (min-width: 1280px) { .widget-grid { gap: var(--sp-5); } }
+@media (min-width: 1600px) { .widget-grid { gap: var(--sp-6); } }
+
 .widget-card {
   background: var(--surface);
   border-radius: var(--r-lg);
@@ -911,8 +946,16 @@ select.form-input {
   display: flex;
   flex-direction: column;
   gap: var(--sp-2);
+  min-width: 0;  /* grid内での溢れ防止 */
 }
+@media (min-width: 1024px) {
+  .widget-card { padding: var(--sp-5); }
+}
+
+/* full: 全列占有（リスト表示の食事記録など） */
 .widget-card.full { grid-column: 1 / -1; }
+/* span-2: 2列占有（時系列グラフを横長に） */
+.widget-card.span-2 { grid-column: span 2; }
 
 .widget-header {
   display: flex;
@@ -1166,19 +1209,11 @@ select.form-input {
 @media (max-width: 359px) {
   .page-title { font-size: 20px; }
 }
-/* スマホ（〜 479px）: ウィジェットは1列 */
+/* スマホ（〜 479px）: grid-2 も 1 列に潰す */
 @media (max-width: 479px) {
-  .grid-2      { grid-template-columns: 1fr; }
-  .widget-grid { grid-template-columns: 1fr; }
+  .grid-2 { grid-template-columns: 1fr; }
 }
-
+/* Tablet S 以上: カードpadding 拡大 */
 @media (min-width: 480px) {
-  .widget-grid { gap: var(--sp-4); }
   .card { padding: var(--sp-5); }
-}
-
-@media (min-width: 768px) {
-  .app-main {
-    padding-bottom: var(--sp-8);
-  }
 }

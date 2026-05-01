@@ -128,15 +128,17 @@ function NotConnectedOverlay({ label }) {
 }
 
 // ── ソータブル ウィジェットシェル ─────────────────────────────
-function WidgetShell({ id, vis, period, onPeriodChange, valueContent, graphContent, graphSupport, fullWidth, needsConnection, requirementLabel }) {
+function WidgetShell({ id, vis, period, onPeriodChange, valueContent, graphContent, graphSupport, span, needsConnection, requirementLabel }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
   const { label, Icon } = WIDGET_META[id];
   const showBoth = vis.value && vis.graph;
+  // span: 'full' | 'span-2' | undefined
+  const spanClass = span === 'full' ? ' full' : span === 'span-2' ? ' span-2' : '';
 
   return (
     <div
       ref={setNodeRef}
-      className={`widget-card${fullWidth ? ' full' : ''}`}
+      className={`widget-card${spanClass}`}
       style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.35 : 1 }}
     >
       {/* ヘッダー */}
@@ -881,7 +883,15 @@ export default function DashboardPage() {
                       valueContent={def.value}
                       graphContent={def.graph}
                       graphSupport={def.support}
-                      fullWidth={(id === 'weight' || id === 'sleep' || id === 'meals' || (id === 'steps' && periods.steps !== '1d')) && v.graph}
+                      span={
+                        v.graph
+                          ? id === 'meals'
+                            ? 'full'
+                            : id === 'weight' || id === 'sleep' || (id === 'steps' && periods.steps !== '1d')
+                              ? 'span-2'
+                              : null
+                          : null
+                      }
                       needsConnection={!isServiceConnected(WIDGET_REQUIREMENTS[id], summary?.connected_services)}
                       requirementLabel={WIDGET_REQUIREMENTS[id]?.label}
                     />
