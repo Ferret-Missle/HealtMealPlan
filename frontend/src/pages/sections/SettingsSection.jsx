@@ -8,7 +8,7 @@ import {
 	Wifi,
 	WifiOff,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../../hooks/useAuth";
 import { authApi, bodyApi, settingsApi } from "../../services/api";
@@ -87,14 +87,62 @@ export default function SettingsSection() {
 		connected ? `${connected} を連携しました！` : "",
 	);
 
-	// OAuth リダイレクト直後 (?connected=xxx) はキャッシュを無効化して
-	// connected_services を最新化する
+	const refreshConnectedState = useCallback(async () => {
+		await Promise.allSettled([
+			refreshProfile(),
+			qc.invalidateQueries({ queryKey: ["settings"] }),
+			qc.invalidateQueries({ queryKey: ["dashboard"] }),
+			qc.invalidateQueries({ queryKey: ["weight-history"] }),
+			qc.invalidateQueries({ queryKey: ["activity-history"] }),
+		]);
+	}, [qc, refreshProfile]);
+
+	// OAuth リダイレクト直後は接続状態を再取得し、
+	// HealthPlanet の場合は体重履歴も取り込んでから URL を整える。
 	useEffect(() => {
-		if (connected) {
-			qc.invalidateQueries({ queryKey: ["settings"] });
-			qc.invalidateQueries({ queryKey: ["dashboard"] });
-		}
-	}, [connected, qc]);
+		if (!connected && !oauthError) return;
+
+		let active = true;
+
+		const handleOAuthRedirect = async () => {
+			if (connected) {
+				await refreshConnectedState();
+
+				if (connected === "healthplanet") {
+					try {
+						const res = await bodyApi.syncWeightHistory(30);
+						const saved = res.data?.saved ?? 0;
+						await refreshConnectedState();
+						if (active && saved > 0) {
+							setSuccessMsg(
+								`HealthPlanet を連携しました。体重データを ${saved} 件同期しました`,
+							);
+						}
+					} catch (e) {
+						if (active) {
+							const detail =
+								e.response?.data?.detail ||
+								e.message ||
+								"体重データの同期に失敗しました";
+							setErrorMsg(
+								`HealthPlanet は連携済みですが、データ反映に失敗しました: ${detail}`,
+							);
+						}
+					}
+				}
+			}
+
+			if (active) {
+				navigate("/me", { replace: true });
+			}
+		};
+
+		void handleOAuthRedirect();
+
+		return () => {
+			active = false;
+		};
+	}, [connected, oauthError, navigate, refreshConnectedState]);
 
 	// 健康目標
 	const [goalForm, setGoalForm] = useState(null); // null = not loaded yet
@@ -161,10 +209,7 @@ export default function SettingsSection() {
 
 	const disconnectMutation = useMutation({
 		mutationFn: (service) => authApi.disconnect(service),
-		onSuccess: () => {
-			qc.invalidateQueries({ queryKey: ["settings"] });
-			refreshProfile();
-		},
+		onSuccess: () => refreshConnectedState(),
 	});
 
 	const deleteAccountMutation = useMutation({
