@@ -152,7 +152,8 @@ async def _generate_slot_menu(
     adapter = get_adapter(plan_type, byok_provider, api_key)
 
     try:
-        raw = await adapter.complete(SYSTEM_PROMPT, user_prompt)
+        result = await adapter.complete(SYSTEM_PROMPT, user_prompt)
+        raw = result.text if hasattr(result, "text") else str(result)
         data = _parse_json_response(raw)
     except Exception:
         data = _fallback_menu(meal_name_jp, source_type)

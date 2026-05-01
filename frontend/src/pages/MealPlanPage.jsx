@@ -372,6 +372,15 @@ export default function MealPlanPage() {
     },
   });
 
+  const deleteMutation = useMutation({
+    mutationFn: (planId) => mealPlanApi.delete(planId),
+    onSuccess: (_, planId) => {
+      qc.invalidateQueries({ queryKey: ['meal-plans'] });
+      if (selectedPlan === planId) setSelectedPlan(null);
+    },
+    onError: (e) => setError(e.response?.data?.detail || '削除に失敗しました'),
+  });
+
   const handleGenerate = async (days) => {
     setError('');
     setGenerating(true);
@@ -488,8 +497,8 @@ export default function MealPlanPage() {
                 setShowShopping(false);
               }}
             >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontWeight: 600, fontSize: 14 }}>
                     {plan.start_date}
                     {plan.start_date !== plan.end_date ? ` 〜 ${plan.end_date}` : ''}
@@ -502,7 +511,6 @@ export default function MealPlanPage() {
                       minute: '2-digit',
                     })}
                   </div>
-                  {/* Conditions badges */}
                   {plan.conditions && Object.keys(plan.conditions).length > 0 && (
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 4 }}>
                       {plan.conditions.light_breakfast && (
@@ -516,9 +524,25 @@ export default function MealPlanPage() {
                     </div>
                   )}
                 </div>
-                <span className={`tag ${plan.status === 'confirmed' ? 'tag-green' : 'tag-orange'}`}>
-                  {plan.status === 'confirmed' ? '確定済み' : '下書き'}
-                </span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                  <span className={`tag ${plan.status === 'confirmed' ? 'tag-green' : 'tag-orange'}`}>
+                    {plan.status === 'confirmed' ? '確定済み' : '下書き'}
+                  </span>
+                  <button
+                    className="btn-icon"
+                    style={{ fontSize: 16, color: 'var(--text-secondary)', padding: 4 }}
+                    title="削除"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (window.confirm('この献立を削除しますか？')) {
+                        deleteMutation.mutate(plan.id);
+                      }
+                    }}
+                    disabled={deleteMutation.isPending}
+                  >
+                    🗑️
+                  </button>
+                </div>
               </div>
             </div>
           ))}

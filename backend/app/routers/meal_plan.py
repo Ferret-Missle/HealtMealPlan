@@ -154,6 +154,26 @@ async def generate_meal_plan(
     return _plan_detail(plan)
 
 
+@router.delete("/{plan_id}")
+async def delete_meal_plan(
+    plan_id: str,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    plan = db.query(models.MealPlan).filter_by(id=plan_id).first()
+    if not plan:
+        raise HTTPException(404, "Plan not found")
+    # グループメンバーであることを確認
+    member = db.query(models.GroupMember).filter_by(
+        group_id=plan.group_id, user_id=current_user.id
+    ).first()
+    if not member:
+        raise HTTPException(403, "Not authorized")
+    db.delete(plan)  # cascade: days → slots → items, shopping_lists
+    db.commit()
+    return {"deleted": plan_id}
+
+
 @router.put("/{plan_id}/confirm")
 async def confirm_meal_plan(
     plan_id: str,

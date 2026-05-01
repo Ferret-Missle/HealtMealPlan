@@ -46,20 +46,23 @@ async def chat(
     plan_type = _get_plan_type(current_user.id, db)
     _check_usage_limit(current_user.id, "chat", plan_type, db)
 
-    # Get user context (anonymized)
+    # Get user context (anonymized) — preferences are stored in UserGoals
     goals = db.query(models.UserGoals).filter_by(user_id=current_user.id).first()
-    prefs = db.query(models.UserPreferences).filter_by(user_id=current_user.id).first()
 
     context_parts = []
     if goals:
-        context_parts.append(f"目標カロリー: {goals.target_kcal}kcal/日")
+        if goals.target_kcal:
+            context_parts.append(f"目標カロリー: {goals.target_kcal}kcal/日")
         if goals.goal_type:
             context_parts.append(f"目標タイプ: {goals.goal_type}")
-    if prefs:
-        if prefs.diet_styles:
-            context_parts.append(f"食事スタイル: {', '.join(prefs.diet_styles)}")
-        if prefs.excluded_foods:
-            context_parts.append(f"除外食材: {', '.join(prefs.excluded_foods)}")
+        prefs = goals.preferences_json or {}
+        if prefs.get("diet_style"):
+            styles = prefs["diet_style"]
+            if isinstance(styles, list):
+                context_parts.append(f"食事スタイル: {', '.join(styles)}")
+        excluded = goals.excluded_foods_json or []
+        if excluded:
+            context_parts.append(f"除外食材: {', '.join(excluded)}")
 
     user_context = "\n".join(context_parts)
     system = SYSTEM_PROMPT
@@ -90,7 +93,8 @@ async def chat(
     adapter = get_adapter(plan_type, byok_provider, api_key)
 
     try:
-        reply = await adapter.complete(system, messages_text)
+        result = await adapter.complete(system, messages_text)
+        reply = result.text if hasattr(result, "text") else str(result)
     except Exception as e:
         raise HTTPException(500, f"LLM error: {str(e)}")
 
