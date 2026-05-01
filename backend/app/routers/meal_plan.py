@@ -154,7 +154,7 @@ async def generate_meal_plan(
     return _plan_detail(plan)
 
 
-@router.delete("/{plan_id}")
+@router.delete("/{plan_id}/delete")
 async def delete_meal_plan(
     plan_id: str,
     current_user: models.User = Depends(get_current_user),
