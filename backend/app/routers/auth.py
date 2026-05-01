@@ -161,12 +161,14 @@ async def fitbit_callback(code: str, state: str, db: Session = Depends(get_db)):
 
 @router.get("/healthplanet/login")
 async def healthplanet_login(user_id: str):
+    # HealthPlanet は state パラメータを callback に返さないため、
+    # user_id をリダイレクト URI のパスに埋め込む
+    redirect_uri = f"{BACKEND_URL}/api/auth/healthplanet/callback/{user_id}"
     params = {
         "client_id": HEALTHPLANET_CLIENT_ID,
-        "redirect_uri": HEALTHPLANET_REDIRECT_URI,
+        "redirect_uri": redirect_uri,
         "response_type": "code",
         "scope": "innerscan,sphygmomanometer,pedometer",
-        "state": user_id,
     }
     url = "https://www.healthplanet.jp/oauth/auth?" + urllib.parse.urlencode(params)
     return {"url": url}
@@ -211,22 +213,35 @@ async def healthplanet_exchange(req: HealthPlanetCodeRequest, db: Session = Depe
 
 
 @router.get("/healthplanet/callback")
-async def healthplanet_callback(code: str, state: str, db: Session = Depends(get_db)):
-    """Legacy callback - kept for compatibility but not used with success.html redirect."""
-    user_id = state
+async def healthplanet_callback_legacy(code: str, state: str | None = None, db: Session = Depends(get_db)):
+    """旧コールバック（state経由のuser_id取得）— 後方互換用。"""
+    if not state:
+        return RedirectResponse(f"{FRONTEND_URL}/me?error=healthplanet_no_state")
+    return await _healthplanet_exchange(state, code, HEALTHPLANET_REDIRECT_URI, db)
+
+
+@router.get("/healthplanet/callback/{user_id}")
+async def healthplanet_callback(user_id: str, code: str, db: Session = Depends(get_db)):
+    """新コールバック — user_id をパスに埋め込む方式（state不要）。"""
+    redirect_uri = f"{BACKEND_URL}/api/auth/healthplanet/callback/{user_id}"
+    return await _healthplanet_exchange(user_id, code, redirect_uri, db)
+
+
+async def _healthplanet_exchange(user_id: str, code: str, redirect_uri: str, db):
     async with httpx.AsyncClient() as client:
         resp = await client.post(
             "https://www.healthplanet.jp/oauth/token",
             data={
                 "client_id": HEALTHPLANET_CLIENT_ID,
                 "client_secret": HEALTHPLANET_CLIENT_SECRET,
-                "redirect_uri": HEALTHPLANET_REDIRECT_URI,
+                "redirect_uri": redirect_uri,
                 "code": code,
                 "grant_type": "authorization_code",
             },
         )
     if resp.status_code != 200:
-        raise HTTPException(400, f"HealthPlanet token error: {resp.text}")
+        detail = urllib.parse.quote(resp.text[:200])
+        return RedirectResponse(f"{FRONTEND_URL}/me?error=healthplanet_token_{resp.status_code}&detail={detail}")
 
     data = resp.json()
     expires_at = datetime.utcnow() + timedelta(days=30)
