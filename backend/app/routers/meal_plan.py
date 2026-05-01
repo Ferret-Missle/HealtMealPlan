@@ -41,9 +41,40 @@ async def get_meal_plan(
     return _plan_detail(plan)
 
 
+class MealConditions(BaseModel):
+    light_breakfast: bool = False
+    # "breakfast" / "lunch" / "dinner" → "conbini" | "homecook" | "auto"
+    meal_sources: dict = {}
+    # specific dates where ALL meals = conbini (e.g. ["2025-05-03"])
+    special_dates: list[str] = []
+
+
 class GeneratePlanRequest(BaseModel):
     start_date: str
     days: int = 1  # 1 or 7
+    conditions: MealConditions = MealConditions()
+
+
+def _resolve_source(meal_type: str, day_date: str, conditions: MealConditions) -> str:
+    """Determine source_type (conbini/homecook) for a given slot."""
+    if day_date in conditions.special_dates:
+        return "conbini"
+    src = conditions.meal_sources.get(meal_type, "auto")
+    if src == "auto":
+        # Default: dinner = homecook, breakfast/lunch = conbini
+        return "homecook" if meal_type == "dinner" else "conbini"
+    return src  # "conbini" or "homecook"
+
+
+def _calc_kcal_budget(meal_type: str, target_kcal: int | None, light_breakfast: bool) -> float | None:
+    """Distribute daily kcal budget across meals."""
+    if not target_kcal:
+        return None
+    if light_breakfast:
+        ratios = {"breakfast": 0.20, "lunch": 0.35, "dinner": 0.45}
+    else:
+        ratios = {"breakfast": 0.25, "lunch": 0.35, "dinner": 0.40}
+    return round(target_kcal * ratios.get(meal_type, 0.33))
 
 
 @router.post("/generate")
@@ -67,6 +98,12 @@ async def generate_meal_plan(
         dt_date.fromisoformat(payload.start_date) + timedelta(days=payload.days - 1)
     )
 
+    conditions = payload.conditions
+
+    # Get representative member's target_kcal for budget calculation
+    goals = db.query(models.UserGoals).filter_by(user_id=current_user.id).first()
+    target_kcal = goals.target_kcal if goals else None
+
     plan_id = str(uuid.uuid4())
     plan = models.MealPlan(
         id=plan_id,
@@ -74,6 +111,7 @@ async def generate_meal_plan(
         start_date=payload.start_date,
         end_date=end_date,
         status=models.PlanStatus.draft,
+        conditions_json=conditions.model_dump(),
     )
     db.add(plan)
 
@@ -86,12 +124,20 @@ async def generate_meal_plan(
 
         for meal_type in ["breakfast", "lunch", "dinner"]:
             slot_id = str(uuid.uuid4())
-            sharing = "shared" if meal_type == "dinner" else "individual"
+            source = _resolve_source(meal_type, day_date, conditions)
+            # dinner = shared homecook; breakfast/lunch = individual; conbini = always individual
+            if meal_type == "dinner" and source == "homecook":
+                sharing = "shared"
+            else:
+                sharing = "individual"
+
             slot = models.MealPlanSlot(
                 id=slot_id,
                 meal_plan_day_id=day_id,
                 meal_type=meal_type,
                 sharing_type=sharing,
+                source_type=source,
+                kcal_budget=_calc_kcal_budget(meal_type, target_kcal, conditions.light_breakfast),
             )
             db.add(slot)
 
@@ -99,8 +145,8 @@ async def generate_meal_plan(
 
     # Generate menu via LLM
     try:
-        await meal_planner.generate_menus(plan_id, current_user.id, db)
-    except Exception as e:
+        await meal_planner.generate_menus(plan_id, current_user.id, db, conditions.model_dump())
+    except Exception:
         pass  # Plan is created as empty draft if LLM fails
 
     _record_usage(current_user.id, feature, plan_type, db)
@@ -307,6 +353,7 @@ def _plan_summary(plan: models.MealPlan) -> dict:
         "start_date": plan.start_date,
         "end_date": plan.end_date,
         "status": plan.status,
+        "conditions": plan.conditions_json or {},
         "created_at": plan.created_at.isoformat(),
     }
 
@@ -330,12 +377,16 @@ def _plan_detail(plan: models.MealPlan) -> dict:
                     "ingredients": item.ingredients_json,
                     "cooking_summary": item.cooking_summary,
                 })
+            total_kcal = sum(it["kcal"] for it in items if it.get("kcal")) if items else None
             slots.append({
                 "id": slot.id,
                 "meal_type": slot.meal_type,
                 "sharing_type": slot.sharing_type,
                 "is_dining_out": getattr(slot, "is_dining_out", False),
                 "dining_out_kcal": getattr(slot, "dining_out_kcal", None),
+                "source_type": getattr(slot, "source_type", None),
+                "kcal_budget": getattr(slot, "kcal_budget", None),
+                "total_kcal": round(total_kcal) if total_kcal else None,
                 "items": items,
             })
         days.append({"id": day.id, "date": day.date, "slots": slots})

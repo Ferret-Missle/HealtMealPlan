@@ -15,9 +15,37 @@ load_dotenv()
 limiter = Limiter(key_func=get_remote_address)
 
 
+def _run_migrations():
+    """create_all では既存テーブルへのカラム追加ができないため、ALTER TABLE で補完する。"""
+    from sqlalchemy import text
+    with engine.connect() as conn:
+        # meal_plans.conditions_json
+        try:
+            conn.execute(text(
+                "ALTER TABLE meal_plans ADD COLUMN IF NOT EXISTS conditions_json JSON"
+            ))
+        except Exception:
+            pass
+        # meal_plan_slots.source_type / kcal_budget
+        try:
+            conn.execute(text(
+                "ALTER TABLE meal_plan_slots ADD COLUMN IF NOT EXISTS source_type VARCHAR"
+            ))
+        except Exception:
+            pass
+        try:
+            conn.execute(text(
+                "ALTER TABLE meal_plan_slots ADD COLUMN IF NOT EXISTS kcal_budget FLOAT"
+            ))
+        except Exception:
+            pass
+        conn.commit()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
+    _run_migrations()
     yield
 
 

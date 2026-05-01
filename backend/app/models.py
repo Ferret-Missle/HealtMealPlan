@@ -225,6 +225,7 @@ class MealPlan(Base):
     start_date = Column(String, nullable=False)
     end_date = Column(String, nullable=False)
     status = Column(SAEnum(PlanStatus), default=PlanStatus.draft)
+    conditions_json = Column(JSON, nullable=True)   # generation conditions
     created_at = Column(DateTime, default=datetime.utcnow)
 
     group = relationship("Group", back_populates="meal_plans")
@@ -250,6 +251,8 @@ class MealPlanSlot(Base):
     sharing_type = Column(SAEnum(SharingType), default=SharingType.shared)
     is_dining_out = Column(Boolean, default=False)   # S2: 外食フラグ
     dining_out_kcal = Column(Float, nullable=True)    # S2: 外食時の手動入力カロリー
+    source_type = Column(String, nullable=True)       # conbini / homecook (生成条件から設定)
+    kcal_budget = Column(Float, nullable=True)        # この食事の目標カロリー
 
     day = relationship("MealPlanDay", back_populates="slots")
     items = relationship("MealPlanItem", back_populates="slot", cascade="all, delete-orphan")
