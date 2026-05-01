@@ -1178,7 +1178,15 @@ select.form-input {
 
 .meal-widget-group,
 .meal-widget-actions {
-  max-width: 560px;
+  width: 100%;
+  max-width: none;
+}
+
+@media (min-width: 1024px) {
+  .meal-widget-group,
+  .meal-widget-actions {
+    max-width: 560px;
+  }
 }
 
 .meal-widget-group-label {
