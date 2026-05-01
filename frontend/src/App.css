@@ -642,6 +642,64 @@ select.form-input {
 .alert-error   { background: var(--red-pale);    color: var(--red-text);   border-color: #fecaca; }
 .alert-warn    { background: var(--orange-pale); color: var(--orange-text); border-color: #fdba74; }
 
+.invite-notice {
+  margin-bottom: var(--sp-4);
+  padding: var(--sp-4);
+  border-radius: var(--r-xl);
+  border: 1px solid #fdba74;
+  background: linear-gradient(180deg, #fff7ed 0%, #ffffff 100%);
+  box-shadow: 0 10px 24px rgba(249, 115, 22, 0.08);
+}
+.invite-notice-heading {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--orange-text);
+}
+.invite-notice-copy {
+  margin: 6px 0 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-2);
+}
+.invite-notice-list {
+  display: grid;
+  gap: var(--sp-3);
+  margin-top: var(--sp-4);
+}
+.invite-notice-item {
+  padding: var(--sp-3);
+  border-radius: var(--r-lg);
+  border: 1px solid #fed7aa;
+  background: rgba(255, 255, 255, 0.92);
+}
+.invite-notice-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+}
+.invite-notice-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+.invite-notice-url {
+  display: block;
+  margin-top: var(--sp-2);
+  font-size: 12px;
+  line-height: 1.5;
+  word-break: break-all;
+  color: var(--brand-text);
+  text-decoration: underline;
+}
+.invite-notice-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: var(--sp-3);
+}
+
 /* ── 16. Modal / Bottom Sheet ──────────────────────────────── */
 .modal-overlay {
   position: fixed; inset: 0;

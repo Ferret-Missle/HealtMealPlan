@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
-import { Outlet, NavLink, useLocation } from 'react-router-dom';
+import { Link, Outlet, NavLink, useLocation } from 'react-router-dom';
 import { LayoutDashboard, CalendarDays, ListChecks, UserCircle2, Leaf, Menu, X } from 'lucide-react';
+import { useAuth } from '../hooks/useAuth';
 
 const NAV_ITEMS = [
   { to: '/',      label: 'ダッシュボード', Icon: LayoutDashboard, end: true },
@@ -11,7 +12,15 @@ const NAV_ITEMS = [
 
 export default function Layout({ children }) {
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const { pendingInvitations } = useAuth();
   const location = useLocation();
+
+  const formatExpiresAt = (expiresAt) => new Date(expiresAt).toLocaleString('ja-JP', {
+    month: 'numeric',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
 
   // ルート遷移時に自動でドロワーを閉じる
   useEffect(() => {
@@ -85,6 +94,33 @@ export default function Layout({ children }) {
       {/* ── Main content ── */}
       <div className="app-body">
         <main className="app-main">
+          {pendingInvitations.length > 0 && (
+            <section className="invite-notice" aria-label="グループ招待のお知らせ">
+              <div className="invite-notice-heading">グループ招待があります</div>
+              <p className="invite-notice-copy">
+                ログイン中のメールアドレス宛に未処理の招待が届いています。下の URL から招待ページへ進めます。
+              </p>
+              <div className="invite-notice-list">
+                {pendingInvitations.map((invitation) => (
+                  <article key={invitation.id} className="invite-notice-item">
+                    <div className="invite-notice-title">{invitation.group_name} への招待</div>
+                    <div className="invite-notice-meta">
+                      {invitation.inviter_name} さんから招待されています
+                      <span>有効期限: {formatExpiresAt(invitation.expires_at)}</span>
+                    </div>
+                    <a className="invite-notice-url" href={invitation.invite_url}>
+                      {invitation.invite_url}
+                    </a>
+                    <div className="invite-notice-actions">
+                      <Link className="btn btn-primary" to={`/invite/${invitation.token}`}>
+                        招待を確認
+                      </Link>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            </section>
+          )}
           <Outlet />
         </main>
         {children}

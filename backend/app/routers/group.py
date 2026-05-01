@@ -1,6 +1,8 @@
+import os
 import uuid
 from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 
@@ -94,6 +96,51 @@ class InviteCreate(BaseModel):
     email: str
 
 
+@router.get("/invitations/pending")
+async def get_my_pending_invitations(
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    frontend_url = os.getenv("FRONTEND_URL", "http://localhost:5173")
+    now = datetime.utcnow()
+
+    invitations = (
+        db.query(models.GroupInvitation, models.Group, models.User)
+        .join(models.Group, models.Group.id == models.GroupInvitation.group_id)
+        .join(models.User, models.User.id == models.GroupInvitation.inviter_user_id)
+        .filter(
+            func.lower(models.GroupInvitation.invited_email) == current_user.email.lower(),
+            models.GroupInvitation.status == "pending",
+        )
+        .order_by(models.GroupInvitation.created_at.desc())
+        .all()
+    )
+
+    active_invitations = []
+    expired_invitations = []
+
+    for invitation, group, inviter in invitations:
+        if invitation.expires_at <= now:
+            invitation.status = "expired"
+            expired_invitations.append(invitation)
+            continue
+
+        active_invitations.append({
+            "id": invitation.id,
+            "token": invitation.token,
+            "invite_url": f"{frontend_url}/invite/{invitation.token}",
+            "group_id": group.id,
+            "group_name": group.name,
+            "inviter_name": inviter.name,
+            "expires_at": invitation.expires_at.isoformat(),
+        })
+
+    if expired_invitations:
+        db.commit()
+
+    return {"invitations": active_invitations}
+
+
 @router.post("/{group_id}/invite")
 async def invite_member(
     group_id: str,
@@ -124,7 +171,7 @@ async def invite_member(
     db.add(invite)
     db.commit()
 
-    frontend_url = __import__("os").getenv("FRONTEND_URL", "http://localhost:5173")
+    frontend_url = os.getenv("FRONTEND_URL", "http://localhost:5173")
     return {
         "invite_url": f"{frontend_url}/invite/{token}",
         "expires_at": invite.expires_at.isoformat(),

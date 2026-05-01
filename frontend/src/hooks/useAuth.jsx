@@ -1,4 +1,4 @@
-import { useState, useEffect, createContext, useContext } from 'react';
+import { useState, useEffect, useCallback, createContext, useContext } from 'react';
 import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
@@ -8,14 +8,38 @@ import {
   onAuthStateChanged,
 } from 'firebase/auth';
 import { auth } from '../firebase';
-import { authApi } from '../services/api';
+import { authApi, groupApi } from '../services/api';
 
 const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [profile, setProfile] = useState(null);
+  const [pendingInvitations, setPendingInvitations] = useState([]);
   const [loading, setLoading] = useState(true);
+
+  const loadPendingInvitations = useCallback(async () => {
+    if (!auth.currentUser) {
+      setPendingInvitations([]);
+      return [];
+    }
+
+    const res = await groupApi.pendingInvitations();
+    const invitations = res.data?.invitations || [];
+    setPendingInvitations(invitations);
+    return invitations;
+  }, []);
+
+  const applyAuthenticatedProfile = useCallback(async (nextProfile) => {
+    setProfile(nextProfile);
+    try {
+      await loadPendingInvitations();
+    } catch (inviteErr) {
+      console.error('Failed to load pending invitations', inviteErr);
+      setPendingInvitations([]);
+    }
+    return nextProfile;
+  }, [loadPendingInvitations]);
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (firebaseUser) => {
@@ -23,7 +47,7 @@ export function AuthProvider({ children }) {
       if (firebaseUser) {
         try {
           const res = await authApi.me();
-          setProfile(res.data);
+          await applyAuthenticatedProfile(res.data);
         } catch (err) {
           // /me が 401/404 の場合 → DBにユーザー未登録。自動登録を試みる。
           // （メール登録後のDB再構築時や、別デバイス初回ログイン時に発生）
@@ -42,21 +66,24 @@ export function AuthProvider({ children }) {
                 privacy_version: '1.0',
               });
               const res2 = await authApi.me();
-              setProfile(res2.data);
+              await applyAuthenticatedProfile(res2.data);
             } catch {
               setProfile(null);
+              setPendingInvitations([]);
             }
           } else {
             setProfile(null);
+            setPendingInvitations([]);
           }
         }
       } else {
         setProfile(null);
+        setPendingInvitations([]);
       }
       setLoading(false);
     });
     return unsub;
-  }, []);
+  }, [applyAuthenticatedProfile]);
 
   const loginEmail = (email, password) =>
     signInWithEmailAndPassword(auth, email, password);
@@ -71,7 +98,7 @@ export function AuthProvider({ children }) {
       privacy_version: '1.0',
     });
     const res = await authApi.me();
-    setProfile(res.data);
+    await applyAuthenticatedProfile(res.data);
     return cred;
   };
 
@@ -88,19 +115,43 @@ export function AuthProvider({ children }) {
       });
     } catch { /* already registered */ }
     const res = await authApi.me();
-    setProfile(res.data);
+    await applyAuthenticatedProfile(res.data);
     return cred;
   };
 
   const logout = () => signOut(auth);
 
-  const refreshProfile = async () => {
+  const refreshProfile = useCallback(async () => {
     const res = await authApi.me();
     setProfile(res.data);
-  };
+    return res.data;
+  }, []);
+
+  const refreshPendingInvitations = useCallback(async () => {
+    try {
+      return await loadPendingInvitations();
+    } catch (inviteErr) {
+      console.error('Failed to refresh pending invitations', inviteErr);
+      setPendingInvitations([]);
+      throw inviteErr;
+    }
+  }, [loadPendingInvitations]);
 
   return (
-    <AuthContext.Provider value={{ user, profile, loading, loginEmail, registerEmail, loginGoogle, logout, refreshProfile }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        profile,
+        pendingInvitations,
+        loading,
+        loginEmail,
+        registerEmail,
+        loginGoogle,
+        logout,
+        refreshProfile,
+        refreshPendingInvitations,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );

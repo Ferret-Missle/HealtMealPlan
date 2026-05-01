@@ -96,6 +96,7 @@ export const settingsApi = {
 // Group
 export const groupApi = {
   myGroup: () => api.get('/api/groups/my'),
+  pendingInvitations: () => api.get('/api/groups/invitations/pending'),
   create: (data) => api.post('/api/groups/create', data),
   invite: (groupId, data) => api.post(`/api/groups/${groupId}/invite`, data),
   cancelInvitation: (groupId, inviteId) =>

@@ -7,7 +7,7 @@ export const INVITE_TOKEN_KEY = 'pending_invite_token';
 
 export default function InvitePage() {
   const { token } = useParams();
-  const { user, loading } = useAuth();
+  const { user, loading, refreshProfile, refreshPendingInvitations } = useAuth();
   const navigate = useNavigate();
   const [status, setStatus] = useState('idle'); // idle | joining | success | error
   const [errorMsg, setErrorMsg] = useState('');
@@ -24,8 +24,9 @@ export default function InvitePage() {
     setStatus('joining');
     groupApi
       .join(token)
-      .then(() => {
+      .then(async () => {
         sessionStorage.removeItem(INVITE_TOKEN_KEY);
+        await Promise.allSettled([refreshProfile(), refreshPendingInvitations()]);
         setStatus('success');
         // 少し待ってからホームへ
         setTimeout(() => navigate('/', { replace: true }), 1800);
@@ -35,7 +36,7 @@ export default function InvitePage() {
         setStatus('error');
         setErrorMsg(e.response?.data?.detail || 'グループへの参加に失敗しました');
       });
-  }, [loading, user, status, token, navigate]);
+  }, [loading, user, status, token, navigate, refreshProfile, refreshPendingInvitations]);
 
   // ─── ローディング中 ───────────────────────────────────────────────
   if (loading || status === 'joining') {
