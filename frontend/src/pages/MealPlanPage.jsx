@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { mealPlanApi, shoppingApi, groupApi } from '../services/api';
+import { addJstDays, formatJstDate, isWeekendJst, toJstDateString } from '../utils/date';
 
 // ─── 定数 ────────────────────────────────────────────────────────────────────
 const MEAL_JP = { breakfast: '朝', lunch: '昼', dinner: '夕' };
@@ -8,27 +9,16 @@ const MEAL_FULL = { breakfast: '朝食', lunch: '昼食', dinner: '夕食' };
 const SOURCE_CYCLE = ['conbini', 'bento', 'homecook'];
 const SOURCE_LABEL = { conbini: '🏪', bento: '🍱', homecook: '🍳' };
 const SOURCE_JP = { conbini: 'コンビニ', bento: '自作弁当', homecook: '自炊' };
-const DOW_JP = ['日', '月', '火', '水', '木', '金', '土'];
-
 // ─── 汎用ヘルパー ─────────────────────────────────────────────────────────────
 function nextSource(s) {
   return SOURCE_CYCLE[(SOURCE_CYCLE.indexOf(s) + 1) % SOURCE_CYCLE.length];
 }
-function formatDate(d) {
-  return d.toISOString().split('T')[0];
-}
-function addDays(d, n) {
-  const r = new Date(d);
-  r.setDate(r.getDate() + n);
-  return r;
-}
 function isWeekend(dateStr) {
-  const day = new Date(dateStr).getDay();
-  return day === 0 || day === 6;
+  return isWeekendJst(dateStr);
 }
 function dateLabel(dateStr) {
-  const d = new Date(dateStr);
-  return `${d.getMonth() + 1}/${d.getDate()}(${DOW_JP[d.getDay()]})`;
+  const weekday = formatJstDate(dateStr, { weekday: 'short' });
+  return `${formatJstDate(dateStr, { month: 'numeric', day: 'numeric' })}(${weekday})`;
 }
 
 // ─── localStorage フック ──────────────────────────────────────────────────────
@@ -64,7 +54,7 @@ function getMemberDefaults(settings, userId, dayType) {
 
 function buildDayConditions(startDate, days, settings, members) {
   return Array.from({ length: days }, (_, i) => {
-    const dateStr = formatDate(addDays(new Date(startDate), i));
+    const dateStr = addJstDays(startDate, i);
     const weekend = isWeekend(dateStr);
     return {
       date: dateStr,
@@ -440,7 +430,7 @@ function SlotEditPanel({ planId, slot, onClose }) {
 // ─── メインページ ─────────────────────────────────────────────────────────────
 export default function MealPlanPage() {
   const qc = useQueryClient();
-  const today = formatDate(new Date());
+  const today = toJstDateString();
 
   // ステップ管理
   const [step, setStep] = useState(null); // null | 'settings' | 'configure'
@@ -583,7 +573,7 @@ export default function MealPlanPage() {
             onChange={(e) => setStartDate(e.target.value)}
           />
           <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 6 }}>
-            {startDate} 〜 {formatDate(addDays(new Date(startDate), 6))} の7日間
+            {startDate} 〜 {addJstDays(startDate, 6)} の7日間
           </div>
         </div>
 

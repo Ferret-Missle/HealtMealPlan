@@ -7,6 +7,7 @@ import {
 } from 'chart.js';
 import { RefreshCw, Target, Plus, X } from 'lucide-react';
 import { bodyApi, dashboardApi } from '../../services/api';
+import { formatJstDate, toJstDateString } from '../../utils/date';
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend, Filler);
 
@@ -20,7 +21,7 @@ export default function BodyWeightSection() {
   const [days, setDays] = useState(30);
   const [subTab, setSubTab] = useState('weight');
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ date: new Date().toISOString().split('T')[0], weight: '', body_fat: '', muscle_mass: '' });
+  const [form, setForm] = useState({ date: toJstDateString(), weight: '', body_fat: '', muscle_mass: '' });
   const [showGoalForm, setShowGoalForm] = useState(false);
   const [goalForm, setGoalForm] = useState({ target_weight: '', target_kcal: '', goal_type: 'loss', deadline: '' });
 
@@ -43,7 +44,7 @@ export default function BodyWeightSection() {
       target_weight: d.target_weight || '',
       target_kcal: d.target_kcal || '',
       goal_type: d.goal_type || 'loss',
-      deadline: d.deadline ? d.deadline.split('T')[0] : '',
+      deadline: d.deadline ? toJstDateString(d.deadline) : '',
     })),
   });
 
@@ -88,8 +89,7 @@ export default function BodyWeightSection() {
     : null;
 
   const chartLabels = history.map((h) => {
-    const d = new Date(h.date);
-    return `${d.getMonth() + 1}/${d.getDate()}`;
+    return formatJstDate(h.date, { month: 'numeric', day: 'numeric' });
   });
 
   const weightChartData = {
@@ -125,8 +125,7 @@ export default function BodyWeightSection() {
   };
 
   const sleepLabels = (sleepData || []).map(s => {
-    const d = new Date(s.date);
-    return `${d.getMonth() + 1}/${d.getDate()}`;
+    return formatJstDate(s.date, { month: 'numeric', day: 'numeric' });
   });
   // 30日表示時はラベル間引き（7本程度に）
   const sleepTickInterval = sleepLabels.length > 14

@@ -12,6 +12,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../../hooks/useAuth";
 import { authApi, bodyApi, settingsApi } from "../../services/api";
+import { addJstMonths, daysUntilJst, formatJstDate } from "../../utils/date";
 
 const SERVICES = [
 	{ key: "fitbit", label: "Fitbit", desc: "歩数・睡眠・心拍・体重" },
@@ -54,16 +55,12 @@ const GOAL_TYPES = [
 
 // "あと X 日" を計算
 function daysRemaining(dateStr) {
-	if (!dateStr) return null;
-	const diff = Math.ceil((new Date(dateStr) - new Date()) / 86400000);
-	return diff > 0 ? diff : 0;
+	return daysUntilJst(dateStr);
 }
 
 // 今日から N ヶ月後の日付文字列
 function addMonths(n) {
-	const d = new Date();
-	d.setMonth(d.getMonth() + n);
-	return d.toISOString().split("T")[0];
+	return addJstMonths(n);
 }
 
 export default function SettingsSection() {
@@ -429,8 +426,7 @@ export default function SettingsSection() {
 							<div className="deadline-display">
 								<div className="deadline-date">
 									{(() => {
-										const d = new Date(goalsData.deadline.split("T")[0] + "T00:00:00");
-										return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`;
+										return formatJstDate(goalsData.deadline, { year: "numeric", month: "long", day: "numeric" });
 									})()}
 								</div>
 								<div

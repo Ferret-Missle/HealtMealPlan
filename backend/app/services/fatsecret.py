@@ -274,7 +274,7 @@ async def get_food_entries(user_id: str, date: str, db: Session) -> list:
 
 
 async def sync_food_diary(user_id: str, date: str, db: Session) -> int:
-    """FatSecretの食事日記を指定日付でDBに同期する（有料プランのみ）。既存のFatSecretログは再同期で更新する。"""
+    """FatSecretの食事日記を指定日付でDBに同期する（有料プランのみ）。"""
     from .. import models
     try:
         entries = await get_food_entries(user_id, date, db)
@@ -282,6 +282,16 @@ async def sync_food_diary(user_id: str, date: str, db: Session) -> int:
         raise ValueError(str(e))
     except Exception as e:
         raise ValueError(f"FatSecret diary sync requires a paid plan: {e}")
+
+    # FatSecret同期分は日次スナップショットとして扱い、その日の最新状態で置き換える。
+    existing_fatsecret_logs = (
+        db.query(models.MealLog)
+        .filter_by(user_id=user_id, date=date, source="fatsecret")
+        .all()
+    )
+    for log in existing_fatsecret_logs:
+        db.delete(log)
+
     synced = 0
     for entry in entries:
         food_id = str(entry.get("food_id", ""))
@@ -294,23 +304,6 @@ async def sync_food_diary(user_id: str, date: str, db: Session) -> int:
         fat_g = _to_float(entry.get("fat", nutrition.get("fat")))
         carb_g = _to_float(entry.get("carbohydrate", nutrition.get("carbohydrate")))
         serving_grams = _to_float(entry.get("metric_serving_amount"), default=0.0) or None
-
-        # 既存の FatSecret ログは更新し、手動ログは重複作成しない
-        exists = (
-            db.query(models.MealLog)
-            .filter_by(user_id=user_id, date=date, food_id=food_id, meal_type=meal_type)
-            .first()
-        )
-        if exists:
-            if exists.source == "fatsecret":
-                exists.food_name = entry.get("food_entry_name", exists.food_name)
-                exists.kcal = kcal
-                exists.protein_g = protein_g
-                exists.fat_g = fat_g
-                exists.carb_g = carb_g
-                exists.serving_grams = serving_grams
-                synced += 1
-            continue
         log = models.MealLog(
             user_id=user_id,
             date=date,
@@ -327,7 +320,7 @@ async def sync_food_diary(user_id: str, date: str, db: Session) -> int:
         db.add(log)
         synced += 1
 
-    if synced > 0:
+    if synced > 0 or existing_fatsecret_logs:
         db.commit()
     return synced
 

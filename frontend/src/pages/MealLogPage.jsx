@@ -9,6 +9,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Sun, CloudSun, Moon, Cookie, ChevronLeft, ChevronRight, RefreshCw, ExternalLink } from 'lucide-react';
 import { mealsApi } from '../services/api';
 import PFCChart from '../components/PFCChart';
+import { addJstDays, formatJstDate, isTodayJst, toJstDateString } from '../utils/date';
 
 const MEAL_TYPES = [
   { key: 'breakfast', label: '朝食', Icon: Sun },
@@ -17,15 +18,13 @@ const MEAL_TYPES = [
   { key: 'snack',     label: '間食', Icon: Cookie },
 ];
 
-function isoDate(d) { return d.toISOString().split('T')[0]; }
-function fmt(date) {
-  return date.toLocaleDateString('ja-JP', { month: 'long', day: 'numeric', weekday: 'short' });
+function fmt(dateStr) {
+  return formatJstDate(dateStr, { month: 'long', day: 'numeric', weekday: 'short' });
 }
 
 export default function MealLogPage() {
   const qc = useQueryClient();
-  const [date, setDate] = useState(new Date());
-  const dateStr = isoDate(date);
+  const [dateStr, setDateStr] = useState(toJstDateString());
 
   const { data: logs = [], isLoading } = useQuery({
     queryKey: ['meals', dateStr],
@@ -37,9 +36,9 @@ export default function MealLogPage() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['meals', dateStr] }),
   });
 
-  const prev = () => setDate(d => { const n = new Date(d); n.setDate(n.getDate() - 1); return n; });
-  const next = () => setDate(d => { const n = new Date(d); n.setDate(n.getDate() + 1); return n; });
-  const isToday = isoDate(date) === isoDate(new Date());
+  const prev = () => setDateStr(d => addJstDays(d, -1));
+  const next = () => setDateStr(d => addJstDays(d, 1));
+  const isToday = isTodayJst(dateStr);
 
   const totals = logs.reduce((acc, log) => ({
     kcal:    acc.kcal    + (log.kcal     || 0),
@@ -72,7 +71,7 @@ export default function MealLogPage() {
       {/* Date nav */}
       <div className="date-nav">
         <button className="btn-icon" onClick={prev}><ChevronLeft size={20} strokeWidth={2} /></button>
-        <span className="date-display">{fmt(date)}</span>
+        <span className="date-display">{fmt(dateStr)}</span>
         <button className="btn-icon" onClick={next} disabled={isToday} style={{ opacity: isToday ? 0.25 : 1 }}>
           <ChevronRight size={20} strokeWidth={2} />
         </button>

@@ -22,30 +22,16 @@ import {
 } from 'lucide-react';
 import { dashboardApi, bodyApi, mealsApi } from '../services/api';
 import { Link } from 'react-router-dom';
+import { addJstDays, formatJstDate, isTodayJst, toJstDateString } from '../utils/date';
 
 // ── 日付ユーティリティ ────────────────────────────────────────
-// ※ toISOString() は UTC を返すためタイムゾーンがズレる → ローカル日付を使う
-function localDateStr(d = new Date()) {
-  const y  = d.getFullYear();
-  const m  = String(d.getMonth() + 1).padStart(2, '0');
-  const dd = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${dd}`;
-}
-function todayStr() { return localDateStr(); }
-function offsetDate(base, days) {
-  const d = new Date(base + 'T00:00:00'); // ローカル0時として解釈
-  d.setDate(d.getDate() + days);
-  return localDateStr(d);                 // ローカル日付で文字列化
-}
+function todayStr() { return toJstDateString(); }
+function offsetDate(base, days) { return addJstDays(base, days); }
 function fmtDate(dateStr) {
-  return new Date(dateStr + 'T00:00:00').toLocaleDateString('ja-JP', {
-    month: 'long', day: 'numeric', weekday: 'short',
-  });
+  return formatJstDate(dateStr, { month: 'long', day: 'numeric', weekday: 'short' });
 }
 function fmtShort(dateStr) {
-  return new Date(dateStr + 'T00:00:00').toLocaleDateString('ja-JP', {
-    month: 'numeric', day: 'numeric',
-  });
+  return formatJstDate(dateStr, { month: 'numeric', day: 'numeric' });
 }
 
 // ── localStorage ─────────────────────────────────────────────
@@ -629,7 +615,7 @@ export default function DashboardPage() {
 
   // 日付
   const [dateStr, setDateStr] = useState(todayStr);
-  const isToday = dateStr === todayStr();
+  const isToday = isTodayJst(dateStr);
 
   // ウィジェット設定（localStorage 永続化）
   const [order,        setOrder]        = useState(() => lsGet('db-order',   DEFAULT_ORDER));
@@ -695,7 +681,10 @@ export default function DashboardPage() {
 
   const syncFatSecretMutation = useMutation({
     mutationFn: () => mealsApi.syncFatSecret(dateStr),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['meals', dateStr] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['meals', dateStr] });
+      qc.invalidateQueries({ queryKey: ['dashboard', dateStr] });
+    },
   });
 
   const syncMutation = useMutation({
