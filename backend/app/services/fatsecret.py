@@ -1,13 +1,11 @@
 import os
 import uuid
-import hashlib
 import hmac
 import base64
 import time
 import urllib.parse
 import httpx
 from cachetools import TTLCache
-from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
 from .. import models, security
 
@@ -15,118 +13,197 @@ from .. import models, security
 CONSUMER_KEY    = os.getenv("FATSECRET_CONSUMER_KEY", "")
 CONSUMER_SECRET = os.getenv("FATSECRET_CONSUMER_SECRET", "")
 
-# OAuth 2.0（ユーザー認証 Authorization Code 用）
-CLIENT_ID     = os.getenv("FATSECRET_CLIENT_ID",     CONSUMER_KEY)
-CLIENT_SECRET = os.getenv("FATSECRET_CLIENT_SECRET", CONSUMER_SECRET)
-
-API_URL   = "https://platform.fatsecret.com/rest/server.api"
-TOKEN_URL = "https://oauth.fatsecret.com/connect/token"
+# OAuth 2.0 はアプリレベルの signed request 用のみ。
+# ユーザー委任（食事日記など）は OAuth 1.0a 3-legged を使う。
+API_URL           = "https://platform.fatsecret.com/rest/server.api"
+REQUEST_TOKEN_URL = "https://authentication.fatsecret.com/oauth/request_token"
+AUTHORIZE_URL     = "https://authentication.fatsecret.com/oauth/authorize"
+ACCESS_TOKEN_URL  = "https://authentication.fatsecret.com/oauth/access_token"
 
 _search_cache: TTLCache = TTLCache(maxsize=500, ttl=3600)
+_pending_oauth_tokens: TTLCache = TTLCache(maxsize=500, ttl=900)
 
 
-# ── OAuth 1.0a 2-legged（食品検索 — IP制限なし）────────────────────────
+# ── OAuth 1.0a helpers ───────────────────────────────────────────────
 
-def _oauth1_header_public(extra_params: dict) -> str:
-    """Consumer Key/Secret のみで署名（ユーザートークンなし）。"""
-    params = {
-        "oauth_consumer_key":     CONSUMER_KEY,
-        "oauth_nonce":            uuid.uuid4().hex,
+def _percent_encode(value: str) -> str:
+    return urllib.parse.quote(str(value), safe="~")
+
+
+def _normalize_params(params: dict) -> str:
+    encoded_items: list[tuple[str, str]] = []
+    for key, value in params.items():
+        if value is None:
+            continue
+        if isinstance(value, (list, tuple)):
+            for item in value:
+                encoded_items.append((_percent_encode(key), _percent_encode(item)))
+        else:
+            encoded_items.append((_percent_encode(key), _percent_encode(value)))
+    encoded_items.sort()
+    return "&".join(f"{k}={v}" for k, v in encoded_items)
+
+
+def _build_oauth1_header(
+    method: str,
+    url: str,
+    *,
+    request_params: dict | None = None,
+    token: str = "",
+    token_secret: str = "",
+    callback: str | None = None,
+    verifier: str | None = None,
+) -> str:
+    oauth_params = {
+        "oauth_consumer_key": CONSUMER_KEY,
+        "oauth_nonce": uuid.uuid4().hex,
         "oauth_signature_method": "HMAC-SHA1",
-        "oauth_timestamp":        str(int(time.time())),
-        "oauth_version":          "1.0",
+        "oauth_timestamp": str(int(time.time())),
+        "oauth_version": "1.0",
     }
-    all_params = {**params, **extra_params}
-    sorted_params = "&".join(
-        f"{urllib.parse.quote(k, safe='')}={urllib.parse.quote(str(v), safe='')}"
-        for k, v in sorted(all_params.items())
+    if token:
+        oauth_params["oauth_token"] = token
+    if callback:
+        oauth_params["oauth_callback"] = callback
+    if verifier:
+        oauth_params["oauth_verifier"] = verifier
+
+    signature_params = {**oauth_params, **(request_params or {})}
+    signature_base = "&".join(
+        [
+            method.upper(),
+            _percent_encode(url),
+            _percent_encode(_normalize_params(signature_params)),
+        ]
     )
-    base_string = "&".join([
-        "POST",
-        urllib.parse.quote(API_URL, safe=""),
-        urllib.parse.quote(sorted_params, safe=""),
-    ])
-    signing_key = f"{urllib.parse.quote(CONSUMER_SECRET, safe='')}&"
-    sig = base64.b64encode(
-        hmac.new(signing_key.encode(), base_string.encode(), hashlib.sha1).digest()
+    signing_key = f"{_percent_encode(CONSUMER_SECRET)}&{_percent_encode(token_secret)}"
+    oauth_signature = base64.b64encode(
+        hmac.digest(signing_key.encode(), signature_base.encode(), "sha1")
     ).decode()
-    params["oauth_signature"] = sig
+    oauth_params["oauth_signature"] = oauth_signature
     return "OAuth " + ", ".join(
-        f'{k}="{urllib.parse.quote(str(v), safe="")}"'
-        for k, v in sorted(params.items())
-        if k.startswith("oauth_")
+        f'{key}="{_percent_encode(value)}"'
+        for key, value in sorted(oauth_params.items())
     )
+
+
+async def _signed_oauth1_request(
+    method: str,
+    url: str,
+    *,
+    data: dict | None = None,
+    token: str = "",
+    token_secret: str = "",
+    callback: str | None = None,
+    verifier: str | None = None,
+) -> httpx.Response:
+    payload = data or {}
+    auth_header = _build_oauth1_header(
+        method,
+        url,
+        request_params=payload,
+        token=token,
+        token_secret=token_secret,
+        callback=callback,
+        verifier=verifier,
+    )
+    request_kwargs = {"headers": {"Authorization": auth_header}}
+    if method.upper() == "GET":
+        request_kwargs["params"] = payload
+    else:
+        request_kwargs["data"] = payload
+
+    async with httpx.AsyncClient() as client:
+        return await client.request(method.upper(), url, **request_kwargs)
+
+
+def _parse_form_encoded(text: str) -> dict[str, str]:
+    parsed = urllib.parse.parse_qs(text, keep_blank_values=True)
+    return {key: values[0] for key, values in parsed.items()}
 
 
 async def _api_call_public(params: dict) -> dict:
     """食品検索など、ユーザー認証不要の API 呼び出し（OAuth 1.0a 2-legged）。"""
-    auth_header = _oauth1_header_public(params)
-    async with httpx.AsyncClient() as client:
-        resp = await client.post(
-            API_URL,
-            data=params,
-            headers={"Authorization": auth_header},
-        )
+    resp = await _signed_oauth1_request("POST", API_URL, data=params)
     resp.raise_for_status()
     return resp.json()
 
 
-# ── OAuth 2.0 ユーザートークン（食事日記用）──────────────────────────
+# ── OAuth 1.0a 3-legged（ユーザー委任 — 食事日記用）─────────────────
 
-async def _refresh_user_token(token: models.OAuthToken, db: Session) -> str:
-    """リフレッシュトークンで新しいアクセストークンを取得して DB を更新する。"""
-    refresh_token = security.decrypt(token.refresh_token) if token.refresh_token else ""
-    if not refresh_token:
-        raise ValueError("リフレッシュトークンがありません。FatSecretを再連携してください。")
-
-    async with httpx.AsyncClient() as client:
-        resp = await client.post(
-            TOKEN_URL,
-            data={"grant_type": "refresh_token", "refresh_token": refresh_token},
-            auth=(CLIENT_ID, CLIENT_SECRET),
-        )
+async def begin_user_authorization(callback_url: str, user_id: str) -> str:
+    """FatSecret 3-legged OAuth を開始し、認可 URL を返す。"""
+    resp = await _signed_oauth1_request(
+        "POST",
+        REQUEST_TOKEN_URL,
+        callback=callback_url,
+    )
     if resp.status_code != 200:
-        raise ValueError(f"トークンリフレッシュ失敗: {resp.text}")
+        raise ValueError(f"FatSecret request token error: {resp.text}")
 
-    data = resp.json()
-    token.access_token = security.encrypt(data["access_token"])
-    if data.get("refresh_token"):
-        token.refresh_token = security.encrypt(data["refresh_token"])
-    token.expires_at = datetime.utcnow() + timedelta(seconds=data.get("expires_in", 86400))
-    db.commit()
-    return data["access_token"]
+    data = _parse_form_encoded(resp.text)
+    request_token = data.get("oauth_token", "")
+    request_token_secret = data.get("oauth_token_secret", "")
+    if not request_token or not request_token_secret:
+        raise ValueError("FatSecret request token response was incomplete")
+
+    _pending_oauth_tokens[request_token] = {
+        "user_id": user_id,
+        "request_token_secret": request_token_secret,
+    }
+    return AUTHORIZE_URL + "?" + urllib.parse.urlencode({"oauth_token": request_token})
+
+
+async def complete_user_authorization(
+    request_token: str,
+    verifier: str,
+) -> dict[str, str]:
+    pending = _pending_oauth_tokens.get(request_token)
+    if not pending:
+        raise ValueError("FatSecret authorization expired. Please start the connection again.")
+
+    resp = await _signed_oauth1_request(
+        "GET",
+        ACCESS_TOKEN_URL,
+        token=request_token,
+        token_secret=pending["request_token_secret"],
+        verifier=verifier,
+    )
+    if resp.status_code != 200:
+        raise ValueError(f"FatSecret access token error: {resp.text}")
+
+    data = _parse_form_encoded(resp.text)
+    access_token = data.get("oauth_token", "")
+    access_token_secret = data.get("oauth_token_secret", "")
+    if not access_token or not access_token_secret:
+        raise ValueError("FatSecret access token response was incomplete")
+
+    _pending_oauth_tokens.pop(request_token, None)
+    return {
+        "user_id": pending["user_id"],
+        "access_token": access_token,
+        "access_token_secret": access_token_secret,
+    }
 
 
 async def _api_call_user(user_id: str, db: Session, params: dict) -> dict:
-    """食事記録など、ユーザートークンが必要な API 呼び出し（OAuth 2.0 Bearer）。"""
+    """食事記録など、ユーザートークンが必要な API 呼び出し（OAuth 1.0a delegated）。"""
     token = db.query(models.OAuthToken).filter_by(user_id=user_id, service="fatsecret").first()
     if not token:
         raise ValueError("FatSecretが連携されていません。設定画面から連携してください。")
 
-    # トークン期限チェック（5分前にリフレッシュ）
-    now = datetime.utcnow()
-    if token.expires_at and token.expires_at < now + timedelta(minutes=5):
-        access_token = await _refresh_user_token(token, db)
-    else:
-        access_token = security.decrypt(token.access_token)
+    access_token = security.decrypt(token.access_token)
+    access_token_secret = security.decrypt(token.refresh_token) if token.refresh_token else ""
+    if not access_token_secret:
+        raise ValueError("FatSecretトークンシークレットがありません。再連携してください。")
 
-    async with httpx.AsyncClient() as client:
-        resp = await client.post(
-            API_URL,
-            data=params,
-            headers={"Authorization": f"Bearer {access_token}"},
-        )
-
-    # 401 の場合はリフレッシュして再試行
-    if resp.status_code == 401:
-        access_token = await _refresh_user_token(token, db)
-        async with httpx.AsyncClient() as client:
-            resp = await client.post(
-                API_URL,
-                data=params,
-                headers={"Authorization": f"Bearer {access_token}"},
-            )
-
+    resp = await _signed_oauth1_request(
+        "POST",
+        API_URL,
+        data=params,
+        token=access_token,
+        token_secret=access_token_secret,
+    )
     resp.raise_for_status()
     return resp.json()
 
@@ -244,7 +321,7 @@ async def search_by_barcode(user_id: str, barcode: str, db: Session) -> dict | N
         "barcode": barcode,
         "format":  "json",
     }
-    data = await _api_call_public(params, scope="basic barcode")
+    data = await _api_call_public(params)
     food_id = data.get("food_id", {}).get("value")
     if not food_id:
         return None
