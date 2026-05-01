@@ -54,6 +54,57 @@ async def health():
     return {"status": "ok"}
 
 
+@app.get("/debug/firebase-key")
+async def debug_firebase_key():
+    """Firebase private_key の形式を診断するエンドポイント。鍵の初期化は行わない。"""
+    import base64 as _base64
+    import json as _json
+
+    result: dict = {}
+
+    sa_b64 = os.getenv("FIREBASE_SERVICE_ACCOUNT_BASE64", "").strip()
+    sa_json_raw = os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON", "")
+
+    result["BASE64_set"] = bool(sa_b64)
+    result["JSON_set"] = bool(sa_json_raw)
+
+    sa_json = ""
+    if sa_b64:
+        try:
+            clean = sa_b64.replace(" ", "").replace("\n", "").replace("\r", "")
+            result["BASE64_cleaned_length"] = len(clean)
+            sa_json = _base64.b64decode(clean).decode("utf-8")
+            result["decoded_json_length"] = len(sa_json)
+            result["source"] = "BASE64"
+        except Exception as e:
+            result["BASE64_decode_error"] = str(e)
+            return result
+    elif sa_json_raw:
+        sa_json = sa_json_raw
+        result["source"] = "JSON_raw"
+
+    if not sa_json:
+        result["error"] = "No credential env var found"
+        return result
+
+    try:
+        sa_dict = _json.loads(sa_json)
+        pk = sa_dict.get("private_key", "")
+        result["private_key_length"] = len(pk)
+        result["private_key_repr_first80"] = repr(pk[:80])
+        backslash_n = "\\" + "n"
+        result["has_literal_backslash_n"] = backslash_n in pk
+        result["has_real_newlines"] = "\n" in pk
+        result["starts_with_begin"] = pk.strip().startswith("-----BEGIN")
+        result["ends_with_end"] = pk.strip().endswith("-----")
+        result["project_id"] = sa_dict.get("project_id")
+        result["client_email_preview"] = sa_dict.get("client_email", "")[:40]
+    except Exception as e:
+        result["json_parse_error"] = str(e)
+
+    return result
+
+
 @app.get("/debug/env")
 async def debug_env():
     """環境変数の登録状態を確認するためのデバッグエンドポイント。値は秘匿。"""
