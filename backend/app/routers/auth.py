@@ -325,7 +325,7 @@ async def fatsecret_login(user_id: str):
         "response_type": "code",
         "client_id":     FATSECRET_CONSUMER_KEY,
         "redirect_uri":  FATSECRET_REDIRECT_URI,
-        "scope":         "basic",
+        "scope":         "basic premier",
         "state":         user_id,
     }
     url = FATSECRET_AUTH_URL + "?" + urllib.parse.urlencode(params)

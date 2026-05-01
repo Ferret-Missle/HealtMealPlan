@@ -1,12 +1,8 @@
 import os
-import uuid
-import hashlib
-import hmac
-import base64
 import time
-import urllib.parse
 import httpx
 from cachetools import TTLCache
+from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
 from .. import models, security
 
@@ -55,58 +51,62 @@ async def _api_call_public(params: dict, scope: str = "basic barcode") -> dict:
     return resp.json()
 
 
-# ── OAuth 1.0a（ユーザー食事日記用）──────────────────────────────────
+# ── OAuth 2.0 ユーザートークン（食事日記用）──────────────────────────
 
-def _oauth1_header(access_token: str, token_secret: str, extra_params: dict) -> str:
-    """ユーザーの OAuth 1.0a トークンで署名した Authorization ヘッダーを返す。"""
-    params = {
-        "oauth_consumer_key":     CONSUMER_KEY,
-        "oauth_nonce":            uuid.uuid4().hex,
-        "oauth_signature_method": "HMAC-SHA1",
-        "oauth_timestamp":        str(int(time.time())),
-        "oauth_token":            access_token,
-        "oauth_version":          "1.0",
-    }
-    # 署名ベースに API パラメータも含める
-    all_params = {**params, **extra_params}
-    sorted_params = "&".join(
-        f"{urllib.parse.quote(k, safe='')}={urllib.parse.quote(str(v), safe='')}"
-        for k, v in sorted(all_params.items())
-    )
-    base_string = "&".join([
-        "POST",
-        urllib.parse.quote(API_URL, safe=""),
-        urllib.parse.quote(sorted_params, safe=""),
-    ])
-    signing_key = (
-        f"{urllib.parse.quote(CONSUMER_SECRET, safe='')}"
-        f"&{urllib.parse.quote(token_secret, safe='')}"
-    )
-    sig = base64.b64encode(
-        hmac.new(signing_key.encode(), base_string.encode(), hashlib.sha1).digest()
-    ).decode()
-    params["oauth_signature"] = sig
-    return "OAuth " + ", ".join(
-        f'{k}="{urllib.parse.quote(str(v), safe="")}"'
-        for k, v in sorted(params.items())
-        if k.startswith("oauth_")
-    )
+async def _refresh_user_token(token: models.OAuthToken, db: Session) -> str:
+    """リフレッシュトークンで新しいアクセストークンを取得して DB を更新する。"""
+    refresh_token = security.decrypt(token.refresh_token) if token.refresh_token else ""
+    if not refresh_token:
+        raise ValueError("リフレッシュトークンがありません。FatSecretを再連携してください。")
+
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(
+            TOKEN_URL,
+            data={"grant_type": "refresh_token", "refresh_token": refresh_token},
+            auth=(CONSUMER_KEY, CONSUMER_SECRET),
+        )
+    if resp.status_code != 200:
+        raise ValueError(f"トークンリフレッシュ失敗: {resp.text}")
+
+    data = resp.json()
+    token.access_token = security.encrypt(data["access_token"])
+    if data.get("refresh_token"):
+        token.refresh_token = security.encrypt(data["refresh_token"])
+    token.expires_at = datetime.utcnow() + timedelta(seconds=data.get("expires_in", 86400))
+    db.commit()
+    return data["access_token"]
 
 
 async def _api_call_user(user_id: str, db: Session, params: dict) -> dict:
-    """食事記録など、ユーザートークンが必要な API 呼び出し（OAuth 1.0a 3-legged）。"""
+    """食事記録など、ユーザートークンが必要な API 呼び出し（OAuth 2.0 Bearer）。"""
     token = db.query(models.OAuthToken).filter_by(user_id=user_id, service="fatsecret").first()
     if not token:
         raise ValueError("FatSecretが連携されていません。設定画面から連携してください。")
-    access_token  = security.decrypt(token.access_token)
-    token_secret  = security.decrypt(token.refresh_token) if token.refresh_token else ""
-    auth_header   = _oauth1_header(access_token, token_secret, params)
+
+    # トークン期限チェック（5分前にリフレッシュ）
+    now = datetime.utcnow()
+    if token.expires_at and token.expires_at < now + timedelta(minutes=5):
+        access_token = await _refresh_user_token(token, db)
+    else:
+        access_token = security.decrypt(token.access_token)
+
     async with httpx.AsyncClient() as client:
         resp = await client.post(
             API_URL,
             data=params,
-            headers={"Authorization": auth_header},
+            headers={"Authorization": f"Bearer {access_token}"},
         )
+
+    # 401 の場合はリフレッシュして再試行
+    if resp.status_code == 401:
+        access_token = await _refresh_user_token(token, db)
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                API_URL,
+                data=params,
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+
     resp.raise_for_status()
     return resp.json()
 
