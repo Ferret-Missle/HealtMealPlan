@@ -379,6 +379,32 @@ img { max-width: 100%; height: auto; display: block; }
   margin-bottom: var(--sp-3);
 }
 
+/* ── 達成期限 表示 ─────────────────────────────────────────── */
+.deadline-display {
+  background: var(--brand-pale);
+  border: 1px solid var(--brand-light);
+  border-radius: var(--r-md);
+  padding: var(--sp-3) var(--sp-4);
+  margin-bottom: var(--sp-3);
+  text-align: center;
+}
+.deadline-date {
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--text);
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+}
+.deadline-days {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--brand);
+  margin-top: 4px;
+}
+.deadline-days--expired {
+  color: var(--text-3);
+}
+
 /* ── 8. Buttons ────────────────────────────────────────────── */
 .btn {
   display: inline-flex;

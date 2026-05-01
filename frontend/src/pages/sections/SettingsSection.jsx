@@ -420,6 +420,31 @@ export default function SettingsSection() {
 					{/* 期限プリセット */}
 					<div className="form-group">
 						<label className="form-label">達成期限</label>
+
+						{/* ── 保存済み期限の大きな表示 ── */}
+						{goalsData?.deadline && (
+							<div className="deadline-display">
+								<div className="deadline-date">
+									{(() => {
+										const d = new Date(goalsData.deadline.split("T")[0] + "T00:00:00");
+										return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`;
+									})()}
+								</div>
+								<div
+									className={`deadline-days${
+										daysRemaining(goalsData.deadline) === 0
+											? " deadline-days--expired"
+											: ""
+									}`}
+								>
+									{daysRemaining(goalsData.deadline) > 0
+										? `あと ${daysRemaining(goalsData.deadline).toLocaleString()} 日`
+										: "期限日"}
+								</div>
+							</div>
+						)}
+
+						{/* ── 期限の再設定 ── */}
 						<div
 							style={{
 								display: "flex",
@@ -457,7 +482,7 @@ export default function SettingsSection() {
 							}
 							style={{ maxWidth: 180 }}
 						/>
-						{goalForm.deadline && (
+						{goalForm.deadline && goalForm.deadline !== goalsData?.deadline && (
 							<div
 								style={{
 									fontSize: 12,
@@ -466,7 +491,7 @@ export default function SettingsSection() {
 									fontWeight: 600,
 								}}
 							>
-								あと {daysRemaining(goalForm.deadline).toLocaleString()} 日
+								設定後: あと {daysRemaining(goalForm.deadline).toLocaleString()} 日
 							</div>
 						)}
 					</div>
