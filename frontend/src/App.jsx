@@ -4,6 +4,8 @@ import { AuthProvider, useAuth } from './hooks/useAuth';
 import Layout from './components/Layout';
 import LoginPage from './pages/LoginPage';
 import RegisterPage from './pages/RegisterPage';
+import TermsPage from './pages/TermsPage';
+import PrivacyPage from './pages/PrivacyPage';
 import DashboardPage from './pages/DashboardPage';
 import MealPlanPage from './pages/MealPlanPage';
 import ShoppingListPage from './pages/ShoppingListPage';
@@ -36,6 +38,9 @@ export default function App() {
           <Routes>
             <Route path="/login"    element={<PublicRoute><LoginPage /></PublicRoute>} />
             <Route path="/register" element={<PublicRoute><RegisterPage /></PublicRoute>} />
+            {/* 利用規約・プライバシーポリシーはログイン不要で常にアクセス可能 */}
+            <Route path="/terms"    element={<TermsPage />} />
+            <Route path="/privacy"  element={<PrivacyPage />} />
             <Route path="/" element={<PrivateRoute><Layout><ChatWidget /></Layout></PrivateRoute>}>
               {/* ── 3 main modes ── */}
               <Route index         element={<DashboardPage />} />

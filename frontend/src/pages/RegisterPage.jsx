@@ -54,11 +54,11 @@ export default function RegisterPage() {
           <div style={{ marginBottom: 16, fontSize: 13 }}>
             <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 8 }}>
               <input type="checkbox" checked={form.terms} onChange={set('terms')} style={{ marginTop: 3 }} />
-              <span><a href="#" style={{ color: 'var(--primary-dark)' }}>利用規約</a>に同意します</span>
+              <span><Link to="/terms" target="_blank" rel="noopener" style={{ color: 'var(--primary-dark)' }}>利用規約</Link>に同意します</span>
             </label>
             <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
               <input type="checkbox" checked={form.privacy} onChange={set('privacy')} style={{ marginTop: 3 }} />
-              <span><a href="#" style={{ color: 'var(--primary-dark)' }}>プライバシーポリシー</a>に同意します（健康データはアプリ内のみ使用）</span>
+              <span><Link to="/privacy" target="_blank" rel="noopener" style={{ color: 'var(--primary-dark)' }}>プライバシーポリシー</Link>に同意します（健康データはアプリ内のみ使用）</span>
             </label>
           </div>
 

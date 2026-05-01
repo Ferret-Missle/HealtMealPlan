@@ -82,6 +82,12 @@ export default function LoginPage() {
           アカウントをお持ちでない方は{' '}
           <Link to="/register" style={{ color: 'var(--primary-dark)' }}>新規登録</Link>
         </p>
+
+        <div className="auth-legal-links">
+          <Link to="/terms">利用規約</Link>
+          <span aria-hidden="true">·</span>
+          <Link to="/privacy">プライバシーポリシー</Link>
+        </div>
       </div>
     </div>
   );
