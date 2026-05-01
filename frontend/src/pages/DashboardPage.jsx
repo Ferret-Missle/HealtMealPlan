@@ -78,6 +78,7 @@ const DEFAULT_PERIODS = Object.fromEntries(WIDGET_IDS.map(id => [id, '7d']));
 
 const BRAND      = '#16a34a';
 const PFC_COLORS = ['#16a34a', '#f59e0b', '#3b82f6'];
+const widgetSyncButtonStyle = { marginTop: 6, marginBottom: 0, width: '100%', fontSize: 11 };
 const tipStyle   = { fontSize: 11, padding: '4px 8px', borderRadius: 6, border: '1px solid #e2e8f0' };
 
 // ── 共通パーツ ────────────────────────────────────────────────
@@ -217,7 +218,7 @@ function WeightGraph({ history, onBulkSync, isSyncing }) {
       {/* 一括同期ボタン */}
       <button
         className="btn btn-outline btn-sm"
-        style={{ marginTop: 6, width: '100%', fontSize: 11 }}
+        style={widgetSyncButtonStyle}
         onClick={onBulkSync}
         disabled={isSyncing}
       >
@@ -388,7 +389,7 @@ function StepsGraph({ steps, history, period, onBulkSync, isSyncing }) {
       }
       <button
         className="btn btn-outline btn-sm"
-        style={{ marginTop: 6, width: '100%', fontSize: 11 }}
+        style={widgetSyncButtonStyle}
         onClick={onBulkSync}
         disabled={isSyncing}
       >
@@ -425,7 +426,7 @@ function SleepGraph({ history, onBulkSync, isSyncing }) {
       {data.length < 2
         ? <EmptyGraph msg="データなし — 右の一括同期で取得できます" />
         : (
-          <ResponsiveContainer width="100%" height={88}>
+          <ResponsiveContainer width="100%" height={90}>
             <AreaChart data={data} margin={{ top: 4, right: 4, left: -28, bottom: 0 }}>
               <defs>
                 <linearGradient id="sleepGrad" x1="0" y1="0" x2="0" y2="1">
@@ -445,7 +446,7 @@ function SleepGraph({ history, onBulkSync, isSyncing }) {
       }
       <button
         className="btn btn-outline btn-sm"
-        style={{ marginTop: 6, width: '100%', fontSize: 11 }}
+        style={widgetSyncButtonStyle}
         onClick={onBulkSync}
         disabled={isSyncing}
       >
@@ -476,7 +477,7 @@ function MealsValue({ logs }) {
   );
 }
 
-function MealsList({ logs, dateStr, onSync, isSyncing }) {
+function MealsList({ logs, onSync, isSyncing }) {
   // meal_type ごとにグルーピング
   const grouped = MEAL_TYPE_ORDER.reduce((acc, t) => {
     const items = logs.filter(l => l.meal_type === t);
@@ -485,20 +486,20 @@ function MealsList({ logs, dateStr, onSync, isSyncing }) {
   }, {});
 
   return (
-    <div>
+    <div className="meal-widget-list">
       {logs.length === 0
         ? <EmptyGraph msg="食事記録なし — FatSecret 同期か食事ログから追加してください" />
         : Object.entries(grouped).map(([type, items]) => (
-          <div key={type} style={{ marginBottom: 8 }}>
-            <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-2)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 3 }}>
+          <div key={type} className="meal-widget-group">
+            <div className="meal-widget-group-label">
               {MEAL_TYPE_LABEL[type] || type}
             </div>
             {items.map(item => (
-              <div key={item.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, padding: '2px 0', borderBottom: '1px solid var(--border-light)' }}>
-                <span style={{ color: 'var(--text)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginRight: 8 }}>
+              <div key={item.id} className="meal-widget-row">
+                <span className="meal-widget-name">
                   {item.food_name}
                 </span>
-                <span style={{ color: 'var(--text-2)', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
+                <span className="meal-widget-kcal">
                   {Math.round(item.kcal)} kcal
                 </span>
               </div>
@@ -506,10 +507,10 @@ function MealsList({ logs, dateStr, onSync, isSyncing }) {
           </div>
         ))
       }
-      <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+      <div className="meal-widget-actions">
         <button
           className="btn btn-outline btn-sm"
-          style={{ flex: 1, fontSize: 11 }}
+          style={{ flex: 1, fontSize: 11, marginBottom: 0 }}
           onClick={onSync}
           disabled={isSyncing}
         >
@@ -517,7 +518,7 @@ function MealsList({ logs, dateStr, onSync, isSyncing }) {
             style={isSyncing ? { animation: 'spin 0.65s linear infinite', marginRight: 4 } : { marginRight: 4 }} />
           {isSyncing ? '同期中…' : 'FatSecret 同期'}
         </button>
-        <Link to="/meals" className="btn btn-outline btn-sm" style={{ fontSize: 11, textDecoration: 'none' }}>
+        <Link to="/meals" className="btn btn-outline btn-sm" style={{ fontSize: 11, textDecoration: 'none', marginBottom: 0 }}>
           食事記録へ
         </Link>
       </div>
@@ -712,7 +713,7 @@ export default function DashboardPage() {
   const calIntake    = nut.kcal ? Math.round(nut.kcal) : null;
   const calTarget    = goals.target_kcal || null;
   const calPct       = calIntake && calTarget ? Math.round(calIntake / calTarget * 100) : null;
-  const calRemaining = calIntake && calTarget ? Math.max(0, calTarget - calIntake) : null;
+  const calRemaining = calIntake != null && calTarget != null ? calTarget - calIntake : null;
 
   // DnD（長押し 300ms）
   const sensors = useSensors(
@@ -773,7 +774,6 @@ export default function DashboardPage() {
       value:   <MealsValue logs={mealLogs} />,
       graph:   <MealsList
                  logs={mealLogs}
-                 dateStr={dateStr}
                  onSync={() => syncFatSecretMutation.mutate()}
                  isSyncing={syncFatSecretMutation.isPending}
                />,
@@ -810,7 +810,7 @@ export default function DashboardPage() {
       {showSettings && <SettingsPanel vis={vis} onToggle={toggleVis} />}
 
       {/* 日付ナビゲーション */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, marginBottom: 'var(--sp-4)' }}>
+      <div className="dash-date-nav">
         <button
           className="btn-ghost"
           style={{ padding: '6px 10px', borderRadius: 8 }}
@@ -877,7 +877,7 @@ export default function DashboardPage() {
                       span={
                         v.graph
                           ? id === 'meals'
-                            ? 'full'
+                            ? 'span-2'
                             : id === 'weight' || id === 'sleep' || (id === 'steps' && periods.steps !== '1d')
                               ? 'span-2'
                               : null
