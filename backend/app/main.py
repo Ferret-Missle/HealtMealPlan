@@ -1,16 +1,16 @@
 import os
 from contextlib import asynccontextmanager
+from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
-from dotenv import load_dotenv
+
+load_dotenv()
 
 from .database import engine, Base
 from .routers import auth, dashboard, meals, body, settings, meal_plan, group, shopping, chat
-
-load_dotenv()
 
 limiter = Limiter(key_func=get_remote_address)
 
@@ -140,12 +140,15 @@ async def debug_env():
     keys_to_check = [
         "FIREBASE_SERVICE_ACCOUNT_JSON",
         "FRONTEND_URL",
+        "BACKEND_URL",
         "FITBIT_CLIENT_ID",
         "FITBIT_REDIRECT_URI",
         "HEALTHPLANET_CLIENT_ID",
         "HEALTHPLANET_REDIRECT_URI",
         "GOOGLE_CLIENT_ID",
         "GOOGLE_REDIRECT_URI",
+        "FATSECRET_CONSUMER_KEY",
+        "FATSECRET_REDIRECT_URI",
     ]
     result = {}
     for k in keys_to_check:
