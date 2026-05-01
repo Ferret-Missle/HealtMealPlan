@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 import httpx
@@ -14,6 +15,7 @@ import httpx
 from ..database import get_db
 from .. import models, security
 from ..auth_deps import get_current_user, require_firebase_admin
+from ..services.user_identity import register_or_reconcile_user
 
 router = APIRouter()
 
@@ -51,33 +53,27 @@ class RegisterRequest(BaseModel):
 
 @router.post("/register")
 async def register(req: RegisterRequest, db: Session = Depends(get_db)):
-    existing = db.query(models.User).filter(models.User.id == req.uid).first()
-    if existing:
-        return {"user_id": existing.id}
+    try:
+        user, group_id, action = register_or_reconcile_user(
+            uid=req.uid,
+            email=req.email,
+            name=req.name,
+            terms_version=req.terms_version,
+            privacy_version=req.privacy_version,
+            db=db,
+        )
+        db.commit()
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="User registration conflict detected. Please retry after reloading.",
+        ) from exc
 
-    user = models.User(id=req.uid, email=req.email, name=req.name)
-    db.add(user)
-
-    plan = models.UserPlan(user_id=req.uid, plan_type=models.PlanType.free)
-    db.add(plan)
-
-    goals = models.UserGoals(user_id=req.uid)
-    db.add(goals)
-
-    # Record consents
-    for doc_type, version in [("terms", req.terms_version), ("privacy", req.privacy_version)]:
-        consent = models.UserConsent(user_id=req.uid, document_type=doc_type, version=version)
-        db.add(consent)
-
-    # Create personal group
-    group_id = str(uuid.uuid4())
-    group = models.Group(id=group_id, name=f"{req.name}の個人グループ", type=models.GroupType.personal)
-    db.add(group)
-    member = models.GroupMember(group_id=group_id, user_id=req.uid, role="owner")
-    db.add(member)
-
-    db.commit()
-    return {"user_id": req.uid, "group_id": group_id}
+    return {"user_id": user.id, "group_id": group_id, "status": action}
 
 
 @router.get("/me")

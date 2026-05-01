@@ -97,6 +97,24 @@ export default function SettingsSection() {
 		]);
 	}, [qc, refreshProfile]);
 
+	const ensureCurrentUserRegistration = useCallback(async () => {
+		if (!user?.uid) {
+			throw new Error("ログインユーザー情報を取得できません");
+		}
+
+		await authApi.register({
+			uid: user.uid,
+			email: user.email || `${user.uid}@unknown.local`,
+			name:
+				profile?.name ||
+				user.displayName ||
+				user.email?.split("@")[0] ||
+				"ユーザー",
+			terms_version: "1.0",
+			privacy_version: "1.0",
+		});
+	}, [profile?.name, user]);
+
 	// OAuth リダイレクト直後は接続状態を再取得し、
 	// HealthPlanet の場合は体重履歴も取り込んでから URL を整える。
 	useEffect(() => {
@@ -242,6 +260,8 @@ export default function SettingsSection() {
 
 	const handleConnect = async (service) => {
 		try {
+			await ensureCurrentUserRegistration();
+
 			if (service === "fitbit") {
 				const res = await authApi.fitbitLoginUrl(user.uid);
 				window.location.href = res.data.url;
