@@ -1,4 +1,6 @@
 import os
+import base64
+import hashlib
 import urllib.parse
 from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Request
