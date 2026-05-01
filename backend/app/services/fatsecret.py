@@ -44,7 +44,7 @@ def _normalize_params(params: dict) -> str:
     return "&".join(f"{k}={v}" for k, v in encoded_items)
 
 
-def _build_oauth1_header(
+def _build_oauth1_params(
     method: str,
     url: str,
     *,
@@ -53,7 +53,7 @@ def _build_oauth1_header(
     token_secret: str = "",
     callback: str | None = None,
     verifier: str | None = None,
-) -> str:
+) -> dict[str, str]:
     oauth_params = {
         "oauth_consumer_key": CONSUMER_KEY,
         "oauth_nonce": uuid.uuid4().hex,
@@ -81,10 +81,7 @@ def _build_oauth1_header(
         hmac.digest(signing_key.encode(), signature_base.encode(), "sha1")
     ).decode()
     oauth_params["oauth_signature"] = oauth_signature
-    return "OAuth " + ", ".join(
-        f'{key}="{_percent_encode(value)}"'
-        for key, value in sorted(oauth_params.items())
-    )
+    return oauth_params
 
 
 async def _signed_oauth1_request(
@@ -97,8 +94,8 @@ async def _signed_oauth1_request(
     callback: str | None = None,
     verifier: str | None = None,
 ) -> httpx.Response:
-    payload = data or {}
-    auth_header = _build_oauth1_header(
+    payload = dict(data or {})
+    oauth_params = _build_oauth1_params(
         method,
         url,
         request_params=payload,
@@ -107,11 +104,12 @@ async def _signed_oauth1_request(
         callback=callback,
         verifier=verifier,
     )
-    request_kwargs = {"headers": {"Authorization": auth_header}}
+    signed_payload = {**payload, **oauth_params}
+    request_kwargs: dict[str, dict[str, str]] = {}
     if method.upper() == "GET":
-        request_kwargs["params"] = payload
+        request_kwargs["params"] = signed_payload
     else:
-        request_kwargs["data"] = payload
+        request_kwargs["data"] = signed_payload
 
     async with httpx.AsyncClient() as client:
         return await client.request(method.upper(), url, **request_kwargs)
