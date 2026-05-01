@@ -52,3 +52,39 @@ app.include_router(chat.router, prefix="/api/chat", tags=["chat"])
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+
+
+@app.get("/debug/env")
+async def debug_env():
+    """環境変数の登録状態を確認するためのデバッグエンドポイント。値は秘匿。"""
+    sa = os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON", "")
+    keys_to_check = [
+        "FIREBASE_SERVICE_ACCOUNT_JSON",
+        "FRONTEND_URL",
+        "FITBIT_CLIENT_ID",
+        "FITBIT_REDIRECT_URI",
+        "HEALTHPLANET_CLIENT_ID",
+        "HEALTHPLANET_REDIRECT_URI",
+        "GOOGLE_CLIENT_ID",
+        "GOOGLE_REDIRECT_URI",
+    ]
+    result = {}
+    for k in keys_to_check:
+        v = os.getenv(k, "")
+        result[k] = {
+            "set": bool(v),
+            "length": len(v),
+            "first_chars": v[:20] if v else "(empty)",
+        }
+    # FIREBASE JSON の中身もチェック
+    if sa:
+        try:
+            import json as _json
+            parsed = _json.loads(sa)
+            result["FIREBASE_SERVICE_ACCOUNT_JSON"]["project_id"] = parsed.get("project_id")
+            result["FIREBASE_SERVICE_ACCOUNT_JSON"]["client_email"] = parsed.get("client_email", "")[:30] + "..."
+            result["FIREBASE_SERVICE_ACCOUNT_JSON"]["json_valid"] = True
+        except Exception as e:
+            result["FIREBASE_SERVICE_ACCOUNT_JSON"]["json_valid"] = False
+            result["FIREBASE_SERVICE_ACCOUNT_JSON"]["parse_error"] = str(e)
+    return result
