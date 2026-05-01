@@ -1217,3 +1217,80 @@ select.form-input {
 @media (min-width: 480px) {
   .card { padding: var(--sp-5); }
 }
+
+/* ── 30. Auth Pages (Login / Register) ─────────────────────── */
+.auth-page {
+  min-height: 100svh;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--sp-5);
+  box-sizing: border-box;
+  background:
+    radial-gradient(circle at 20% 10%, rgba(76, 175, 80, 0.12), transparent 55%),
+    radial-gradient(circle at 80% 90%, rgba(33, 150, 243, 0.10), transparent 55%),
+    var(--bg, #f5f7fa);
+}
+
+.auth-card {
+  width: 100%;
+  max-width: 420px;
+  background: var(--surface, #fff);
+  border-radius: var(--r-xl, 16px);
+  padding: var(--sp-7, 32px) var(--sp-6, 24px);
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.04),
+    0 8px 24px rgba(0, 0, 0, 0.08);
+  box-sizing: border-box;
+}
+
+.auth-logo {
+  text-align: center;
+  margin-bottom: var(--sp-6, 24px);
+}
+
+.auth-logo h1 {
+  margin: 0 0 var(--sp-2, 8px);
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--text-h, #1a1a1a);
+  letter-spacing: -0.01em;
+}
+
+.auth-logo p {
+  margin: 0;
+  font-size: 14px;
+  color: var(--text-secondary, #6b7280);
+  line-height: 1.5;
+}
+
+.auth-card .form-group { margin-bottom: var(--sp-4, 16px); }
+
+.auth-card .btn-full { margin-top: var(--sp-2, 8px); }
+
+.auth-divider {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3, 12px);
+  margin: var(--sp-5, 20px) 0;
+  font-size: 12px;
+  color: var(--text-secondary, #9ca3af);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.auth-divider::before,
+.auth-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border, #e5e7eb);
+}
+
+/* Tablet 以上: パディング拡大 */
+@media (min-width: 480px) {
+  .auth-card {
+    padding: var(--sp-8, 40px) var(--sp-7, 32px);
+  }
+  .auth-logo h1 { font-size: 32px; }
+}
