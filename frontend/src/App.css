@@ -253,7 +253,11 @@ img { max-width: 100%; height: auto; display: block; }
   display: flex;
   align-items: center;
   gap: var(--sp-2);
+  text-decoration: none;
+  cursor: pointer;
 }
+.app-header-brand:hover .app-header-title { color: var(--brand); }
+.app-header-brand:hover .app-header-logo { opacity: 0.8; }
 .app-header-logo { color: var(--brand); }
 .app-header-title {
   font-size: 16px;

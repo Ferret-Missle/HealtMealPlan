@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Link, Outlet, NavLink, useLocation } from 'react-router-dom';
+
 import { LayoutDashboard, CalendarDays, ListChecks, UserCircle2, Leaf, Menu, X } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 
@@ -54,10 +55,10 @@ export default function Layout({ children }) {
         >
           {drawerOpen ? <X size={22} strokeWidth={2} /> : <Menu size={22} strokeWidth={2} />}
         </button>
-        <div className="app-header-brand">
+        <Link to="/" className="app-header-brand">
           <Leaf size={18} strokeWidth={2.5} className="app-header-logo" />
           <span className="app-header-title">健康ナビ</span>
-        </div>
+        </Link>
       </header>
 
       {/* ── Drawer overlay ── */}
