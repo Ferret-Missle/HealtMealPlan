@@ -23,14 +23,33 @@ def _init_firebase():
     global _firebase_initialized, _firebase_init_error
     if _firebase_initialized:
         return
+
+    # 1) Base64エンコード版を優先（Renderなど環境変数で改行が壊れる対策）
+    sa_b64 = os.getenv("FIREBASE_SERVICE_ACCOUNT_BASE64", "")
     sa_json = os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON", "")
+
+    if sa_b64:
+        try:
+            import base64
+            sa_json = base64.b64decode(sa_b64).decode("utf-8")
+            logger.info("Loaded Firebase credentials from BASE64 env var")
+        except Exception as e:
+            _firebase_init_error = f"Failed to decode BASE64: {e}"
+            logger.error(_firebase_init_error)
+            _firebase_initialized = True
+            return
+
     if not sa_json:
-        _firebase_init_error = "FIREBASE_SERVICE_ACCOUNT_JSON env var is empty"
+        _firebase_init_error = "Neither FIREBASE_SERVICE_ACCOUNT_BASE64 nor FIREBASE_SERVICE_ACCOUNT_JSON is set"
         logger.warning(_firebase_init_error)
         _firebase_initialized = True
         return
+
     try:
         sa_dict = json.loads(sa_json)
+        # private_key の \n が文字列 \n のままの場合、実際の改行に置換
+        if "private_key" in sa_dict and "\\n" in sa_dict["private_key"]:
+            sa_dict["private_key"] = sa_dict["private_key"].replace("\\n", "\n")
         cred = credentials.Certificate(sa_dict)
         firebase_admin.initialize_app(cred)
         logger.info(f"Firebase initialized for project: {sa_dict.get('project_id')}")
