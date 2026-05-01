@@ -294,30 +294,6 @@ export default function SettingsSection() {
 				</div>
 			</div>
 
-			<div className="card" style={{ borderColor: "#fecaca", background: "#fff7f7" }}>
-				<div className="card-title" style={{ color: "var(--red-text)" }}>
-					アカウント削除
-				</div>
-				<p style={{ fontSize: 13, color: "var(--text-secondary)", lineHeight: 1.6 }}>
-					アカウントを削除すると、Firebase の認証情報、保存済みの記録、連携設定、APIキー、所属情報が削除され、元に戻せません。
-				</p>
-				<button
-					className="btn btn-danger"
-					style={{ marginTop: 12 }}
-					disabled={deleteAccountMutation.isPending}
-					onClick={() => {
-						const confirmed = window.confirm(
-							"アカウントを削除すると、ログイン情報と保存データは元に戻せません。本当に削除しますか？",
-						);
-						if (!confirmed) return;
-						deleteAccountMutation.mutate();
-					}}
-				>
-					<Trash2 size={14} strokeWidth={2} style={{ marginRight: 4 }} />
-					{deleteAccountMutation.isPending ? "削除中…" : "アカウントを削除"}
-				</button>
-			</div>
-
 			{/* 健康目標 */}
 			<div
 				className="section-title"
@@ -690,6 +666,34 @@ export default function SettingsSection() {
 						追加
 					</button>
 				</div>
+			</div>
+
+			{/* 危険操作 */}
+			<div className="section-title" style={{ color: "var(--red-text)", marginTop: 24 }}>
+				危険な操作
+			</div>
+			<div className="card" style={{ borderColor: "#fecaca", background: "#fff7f7" }}>
+				<div className="card-title" style={{ color: "var(--red-text)" }}>
+					アカウント削除
+				</div>
+				<p style={{ fontSize: 13, color: "var(--text-secondary)", lineHeight: 1.6 }}>
+					アカウントを削除すると、Firebase の認証情報、保存済みの記録、連携設定、APIキー、所属情報が削除され、元に戻せません。
+				</p>
+				<button
+					className="btn btn-danger"
+					style={{ marginTop: 12 }}
+					disabled={deleteAccountMutation.isPending}
+					onClick={() => {
+						const confirmed = window.confirm(
+							"アカウントを削除すると、ログイン情報と保存データは元に戻せません。本当に削除しますか？",
+						);
+						if (!confirmed) return;
+						deleteAccountMutation.mutate();
+					}}
+				>
+					<Trash2 size={14} strokeWidth={2} style={{ marginRight: 4 }} />
+					{deleteAccountMutation.isPending ? "削除中…" : "アカウントを削除"}
+				</button>
 			</div>
 		</div>
 	);
