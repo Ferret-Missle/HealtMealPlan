@@ -24,8 +24,31 @@ export function AuthProvider({ children }) {
         try {
           const res = await authApi.me();
           setProfile(res.data);
-        } catch {
-          setProfile(null);
+        } catch (err) {
+          // /me が 401/404 の場合 → DBにユーザー未登録。自動登録を試みる。
+          // （メール登録後のDB再構築時や、別デバイス初回ログイン時に発生）
+          const status = err?.response?.status;
+          if (status === 401 || status === 404 || status === 422) {
+            try {
+              const name =
+                firebaseUser.displayName ||
+                firebaseUser.email?.split('@')[0] ||
+                'ユーザー';
+              await authApi.register({
+                uid: firebaseUser.uid,
+                email: firebaseUser.email || `${firebaseUser.uid}@unknown.local`,
+                name,
+                terms_version: '1.0',
+                privacy_version: '1.0',
+              });
+              const res2 = await authApi.me();
+              setProfile(res2.data);
+            } catch {
+              setProfile(null);
+            }
+          } else {
+            setProfile(null);
+          }
         }
       } else {
         setProfile(null);

@@ -126,6 +126,10 @@ async def fitbit_callback(code: str, state: str, db: Session = Depends(get_db)):
         raise HTTPException(400, "Invalid state")
     user_id, code_verifier = parts
 
+    # ユーザーがDBに存在しない場合は登録を促すエラーにリダイレクト
+    if not db.query(models.User).filter_by(id=user_id).first():
+        return RedirectResponse(f"{FRONTEND_URL}/login?error=please_register_first")
+
     async with httpx.AsyncClient() as client:
         resp = await client.post(
             "https://api.fitbit.com/oauth2/token",
@@ -230,6 +234,11 @@ async def healthplanet_callback(user_id: str, code: str, db: Session = Depends(g
 
 
 async def _healthplanet_exchange(user_id: str, code: str, redirect_uri: str, db):
+    # ユーザーがDBに存在しない場合は登録を促すエラーにリダイレクト
+    from .. import models as _m
+    if not db.query(_m.User).filter_by(id=user_id).first():
+        return RedirectResponse(f"{FRONTEND_URL}/login?error=please_register_first")
+
     async with httpx.AsyncClient() as client:
         resp = await client.post(
             "https://www.healthplanet.jp/oauth/token",
@@ -281,6 +290,11 @@ async def google_login(user_id: str):
 @router.get("/google/callback")
 async def google_callback(code: str, state: str, db: Session = Depends(get_db)):
     user_id = state
+
+    # ユーザーがDBに存在しない場合は登録を促すエラーにリダイレクト
+    if not db.query(models.User).filter_by(id=user_id).first():
+        return RedirectResponse(f"{FRONTEND_URL}/login?error=please_register_first")
+
     async with httpx.AsyncClient() as client:
         resp = await client.post(
             "https://oauth2.googleapis.com/token",
@@ -353,6 +367,10 @@ async def fatsecret_callback(
         return RedirectResponse(f"{FRONTEND_URL}/me?error=fatsecret_invalid_callback")
 
     user_id = state
+
+    # ユーザーがDBに存在しない場合は登録を促すエラーにリダイレクト
+    if not db.query(models.User).filter_by(id=user_id).first():
+        return RedirectResponse(f"{FRONTEND_URL}/login?error=please_register_first")
 
     async with httpx.AsyncClient() as client:
         resp = await client.post(
