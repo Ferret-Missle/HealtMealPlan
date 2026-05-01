@@ -5,13 +5,98 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
+import httpx
 
 from ..database import get_db
-from .. import models
+from .. import models, security
 from ..auth_deps import get_current_user
 
 router = APIRouter()
 MAX_MEMBERS = 7
+
+
+@router.get("/my/schedules")
+async def get_group_schedules(
+    start_date: str,
+    days: int = 7,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """全グループメンバーの Google Calendar 予定を取得する。"""
+    member = db.query(models.GroupMember).filter_by(user_id=current_user.id).first()
+    if not member:
+        raise HTTPException(404, "No group found")
+
+    members = db.query(models.GroupMember).filter_by(group_id=member.group_id).all()
+
+    start = datetime.strptime(start_date, "%Y-%m-%d")
+    end = start + timedelta(days=days)
+    time_min = start.strftime("%Y-%m-%dT00:00:00Z")
+    time_max = end.strftime("%Y-%m-%dT00:00:00Z")
+
+    result = {}
+    for m in members:
+        user = db.query(models.User).filter_by(id=m.user_id).first()
+        if not user:
+            continue
+
+        token_rec = db.query(models.OAuthToken).filter_by(user_id=m.user_id, service="google").first()
+        if not token_rec:
+            result[m.user_id] = {"name": user.name, "events": []}
+            continue
+
+        try:
+            access_token = security.decrypt(token_rec.access_token)
+
+            # 期限切れの場合はリフレッシュ
+            if token_rec.expires_at and token_rec.expires_at < datetime.utcnow() and token_rec.refresh_token:
+                refresh_token = security.decrypt(token_rec.refresh_token)
+                async with httpx.AsyncClient() as client:
+                    resp = await client.post(
+                        "https://oauth2.googleapis.com/token",
+                        data={
+                            "client_id": os.getenv("GOOGLE_CLIENT_ID"),
+                            "client_secret": os.getenv("GOOGLE_CLIENT_SECRET"),
+                            "refresh_token": refresh_token,
+                            "grant_type": "refresh_token",
+                        },
+                    )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    token_rec.access_token = security.encrypt(data["access_token"])
+                    token_rec.expires_at = datetime.utcnow() + timedelta(seconds=data.get("expires_in", 3600))
+                    db.commit()
+                    access_token = data["access_token"]
+
+            async with httpx.AsyncClient() as client:
+                resp = await client.get(
+                    "https://www.googleapis.com/calendar/v3/calendars/primary/events",
+                    headers={"Authorization": f"Bearer {access_token}"},
+                    params={
+                        "timeMin": time_min,
+                        "timeMax": time_max,
+                        "singleEvents": "true",
+                        "orderBy": "startTime",
+                        "maxResults": 30,
+                    },
+                )
+
+            events = []
+            if resp.status_code == 200:
+                for ev in resp.json().get("items", []):
+                    start_ev = ev.get("start", {})
+                    end_ev = ev.get("end", {})
+                    events.append({
+                        "summary": ev.get("summary", "(無題)"),
+                        "start": start_ev.get("dateTime", start_ev.get("date", "")),
+                        "end": end_ev.get("dateTime", end_ev.get("date", "")),
+                        "all_day": "date" in start_ev and "dateTime" not in start_ev,
+                    })
+            result[m.user_id] = {"name": user.name, "events": events}
+        except Exception:
+            result[m.user_id] = {"name": user.name, "events": []}
+
+    return result
 
 
 @router.get("/my")
