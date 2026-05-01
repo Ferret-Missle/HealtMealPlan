@@ -120,6 +120,15 @@ def _parse_form_encoded(text: str) -> dict[str, str]:
     return {key: values[0] for key, values in parsed.items()}
 
 
+def _to_float(value, default: float = 0.0) -> float:
+    if value in (None, ""):
+        return default
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
 async def _api_call_public(params: dict) -> dict:
     """食品検索など、ユーザー認証不要の API 呼び出し（OAuth 1.0a 2-legged）。"""
     resp = await _signed_oauth1_request("POST", API_URL, data=params)
@@ -265,7 +274,7 @@ async def get_food_entries(user_id: str, date: str, db: Session) -> list:
 
 
 async def sync_food_diary(user_id: str, date: str, db: Session) -> int:
-    """FatSecretの食事日記を指定日付でDBに同期する（有料プランのみ）。既存レコードは上書きしない。"""
+    """FatSecretの食事日記を指定日付でDBに同期する（有料プランのみ）。既存のFatSecretログは再同期で更新する。"""
     from .. import models
     try:
         entries = await get_food_entries(user_id, date, db)
@@ -276,32 +285,43 @@ async def sync_food_diary(user_id: str, date: str, db: Session) -> int:
     synced = 0
     for entry in entries:
         food_id = str(entry.get("food_id", ""))
-        meal_type_raw = entry.get("meal_name", "dinner").lower()
+        meal_type_raw = str(entry.get("meal") or entry.get("meal_name") or "dinner").lower()
         meal_map = {"breakfast": "breakfast", "lunch": "lunch", "dinner": "dinner", "snack": "snack"}
         meal_type = meal_map.get(meal_type_raw, "snack")
+        nutrition = entry.get("nutritional_content") if isinstance(entry.get("nutritional_content"), dict) else entry
+        kcal = _to_float(entry.get("calories", nutrition.get("calories")))
+        protein_g = _to_float(entry.get("protein", nutrition.get("protein")))
+        fat_g = _to_float(entry.get("fat", nutrition.get("fat")))
+        carb_g = _to_float(entry.get("carbohydrate", nutrition.get("carbohydrate")))
+        serving_grams = _to_float(entry.get("metric_serving_amount"), default=0.0) or None
 
-        # 重複チェック
+        # 既存の FatSecret ログは更新し、手動ログは重複作成しない
         exists = (
             db.query(models.MealLog)
             .filter_by(user_id=user_id, date=date, food_id=food_id, meal_type=meal_type)
             .first()
         )
         if exists:
+            if exists.source == "fatsecret":
+                exists.food_name = entry.get("food_entry_name", exists.food_name)
+                exists.kcal = kcal
+                exists.protein_g = protein_g
+                exists.fat_g = fat_g
+                exists.carb_g = carb_g
+                exists.serving_grams = serving_grams
+                synced += 1
             continue
-
-        # 栄養情報
-        nutrition = entry.get("nutritional_content", {})
         log = models.MealLog(
             user_id=user_id,
             date=date,
             meal_type=meal_type,
             food_name=entry.get("food_entry_name", ""),
             food_id=food_id,
-            kcal=float(nutrition.get("calories", 0) or 0),
-            protein_g=float(nutrition.get("protein", 0) or 0),
-            fat_g=float(nutrition.get("fat", 0) or 0),
-            carb_g=float(nutrition.get("carbohydrate", 0) or 0),
-            serving_grams=float(entry.get("metric_serving_amount", 0) or 0),
+            kcal=kcal,
+            protein_g=protein_g,
+            fat_g=fat_g,
+            carb_g=carb_g,
+            serving_grams=serving_grams,
             source="fatsecret",
         )
         db.add(log)
