@@ -27,9 +27,12 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
+# Vercel のプレビューデプロイ URL (xxx-git-branch-user.vercel.app, xxx-hash.vercel.app)
+# も許可するため正規表現で *.vercel.app を許可。
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[FRONTEND_URL, "http://localhost:5173"],
+    allow_origins=[FRONTEND_URL, "http://localhost:5173", "http://localhost:3000"],
+    allow_origin_regex=r"https://.*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
