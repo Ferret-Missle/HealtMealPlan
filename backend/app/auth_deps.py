@@ -31,8 +31,11 @@ def _init_firebase():
     if sa_b64:
         try:
             import base64
-            sa_json = base64.b64decode(sa_b64).decode("utf-8")
-            logger.info("Loaded Firebase credentials from BASE64 env var")
+            # Render等で改行/空白が混入した場合に備えてクリーニング
+            sa_b64_clean = sa_b64.strip().replace(" ", "").replace("\n", "").replace("\r", "")
+            logger.info(f"BASE64 env var length (cleaned): {len(sa_b64_clean)}")
+            sa_json = base64.b64decode(sa_b64_clean).decode("utf-8")
+            logger.info(f"Decoded JSON length: {len(sa_json)}")
         except Exception as e:
             _firebase_init_error = f"Failed to decode BASE64: {e}"
             logger.error(_firebase_init_error)
@@ -47,9 +50,20 @@ def _init_firebase():
 
     try:
         sa_dict = json.loads(sa_json)
+        pk = sa_dict.get("private_key", "")
+        # repr()で \n が実際の改行か文字列かを判別できるようログ出力
+        logger.info(f"private_key repr[:80]: {repr(pk[:80])}")
+
         # private_key の \n が文字列 \n のままの場合、実際の改行に置換
-        if "private_key" in sa_dict and "\\n" in sa_dict["private_key"]:
-            sa_dict["private_key"] = sa_dict["private_key"].replace("\\n", "\n")
+        backslash_n = "\\" + "n"
+        if backslash_n in pk:
+            sa_dict["private_key"] = pk.replace(backslash_n, "\n")
+            pk = sa_dict["private_key"]
+            logger.info("Applied backslash-n -> newline replacement")
+        else:
+            logger.info("private_key already has real newlines (no replacement needed)")
+
+        logger.info(f"private_key after fix repr[:80]: {repr(pk[:80])}")
         cred = credentials.Certificate(sa_dict)
         firebase_admin.initialize_app(cred)
         logger.info(f"Firebase initialized for project: {sa_dict.get('project_id')}")
