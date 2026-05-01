@@ -343,11 +343,8 @@ img { max-width: 100%; height: auto; display: block; }
   gap: 6px;
   margin-bottom: var(--sp-4);
   padding: 6px 0;
-  background: rgba(var(--bg-rgb, 245, 247, 250), 0.92);
-  backdrop-filter: saturate(180%) blur(12px);
-  -webkit-backdrop-filter: saturate(180%) blur(12px);
-  border-bottom: 1px solid transparent;
-  transition: border-color 0.15s;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
 }
 
 /* ── 6. Page Structure ─────────────────────────────────────── */
