@@ -35,7 +35,7 @@ const BYOK_PROVIDERS = [
 	{ key: "anthropic", label: "Anthropic (Claude)", vision: true },
 	{ key: "openai", label: "OpenAI (GPT-4o)", vision: true },
 	{ key: "gemini", label: "Google Gemini", vision: true },
-	{ key: "groq", label: "Groq (Llama 3.1)", vision: false },
+	{ key: "groq", label: "Groq (Llama 3.3)", vision: false },
 	{ key: "mistral", label: "Mistral AI", vision: false },
 ];
 
