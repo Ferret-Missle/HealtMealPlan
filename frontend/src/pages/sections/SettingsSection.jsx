@@ -180,11 +180,6 @@ export default function SettingsSection() {
 	const dietStyles = settings?.preferences?.diet_styles || [];
 	const excludedFoods = settings?.excluded_foods || [];
 
-	// HealthPlanet manual code entry state
-	const [hpPendingUserId, setHpPendingUserId] = useState(null);
-	const [hpCode, setHpCode] = useState("");
-	const [hpSubmitting, setHpSubmitting] = useState(false);
-
 	const handleConnect = async (service) => {
 		try {
 			if (service === "fitbit") {
@@ -192,48 +187,17 @@ export default function SettingsSection() {
 				window.location.href = res.data.url;
 			} else if (service === "healthplanet") {
 				const res = await authApi.healthplanetLoginUrl(user.uid);
-				// Open in new tab; user will land on healthplanet.jp/success.html
-				window.open(res.data.url, "_blank");
-				setHpPendingUserId(user.uid);
-				setHpCode("");
+				window.location.href = res.data.url;
 			} else if (service === "google") {
 				const res = await authApi.googleLoginUrl(user.uid);
 				window.location.href = res.data.url;
 			} else if (service === "fatsecret") {
-				// OAuth 2.0 Authorization Code（oauth.fatsecret.com/connect/authorize）
 				const res = await authApi.fatsecretLoginUrl(user.uid);
 				window.location.href = res.data.url;
 			}
 		} catch (e) {
 			const detail = e.response?.data?.detail || e.message;
 			setErrorMsg("連携の開始に失敗しました: " + detail);
-		}
-	};
-
-	const handleHealthPlanetCodeSubmit = async () => {
-		if (!hpCode.trim()) return;
-		// Accept full URL or just the code
-		let code = hpCode.trim();
-		try {
-			const urlObj = new URL(code);
-			code = urlObj.searchParams.get("code") || code;
-		} catch {
-			// Not a URL, use as-is
-		}
-		setHpSubmitting(true);
-		try {
-			await authApi.healthplanetExchange(hpPendingUserId, code);
-			qc.invalidateQueries({ queryKey: ["settings"] });
-			setSuccessMsg("HealthPlanet を連携しました！");
-			setHpPendingUserId(null);
-			setHpCode("");
-		} catch (e) {
-			setErrorMsg(
-				"コードの交換に失敗しました: " +
-					(e.response?.data?.detail || e.message),
-			);
-		} finally {
-			setHpSubmitting(false);
 		}
 	};
 
@@ -282,59 +246,6 @@ export default function SettingsSection() {
 			{errorMsg && (
 				<div className="alert alert-error" onClick={() => setErrorMsg("")}>
 					{errorMsg}
-				</div>
-			)}
-
-			{/* HealthPlanet manual code entry modal */}
-			{hpPendingUserId && (
-				<div
-					style={{
-						position: "fixed",
-						inset: 0,
-						background: "rgba(0,0,0,0.5)",
-						display: "flex",
-						alignItems: "center",
-						justifyContent: "center",
-						zIndex: 1000,
-					}}
-				>
-					<div
-						className="card"
-						style={{ maxWidth: 480, width: "90%", margin: 0 }}
-					>
-						<div className="card-title">HealthPlanet 連携コードの入力</div>
-						<p style={{ fontSize: 13, marginBottom: 12 }}>
-							新しいタブで HealthPlanet の認証ページが開きました。
-							<br />
-							許可すると <strong>healthplanet.jp/success.html</strong>{" "}
-							に移動します。
-							<br />
-							そのページのブラウザURLバーから <code>?code=</code>{" "}
-							以降のコード（または URL 全体）をコピーして貼り付けてください。
-						</p>
-						<input
-							className="input"
-							style={{ width: "100%", marginBottom: 8 }}
-							placeholder="コードまたはリダイレクト後のURL全体を貼り付け"
-							value={hpCode}
-							onChange={(e) => setHpCode(e.target.value)}
-						/>
-						<div style={{ display: "flex", gap: 8 }}>
-							<button
-								className="btn btn-primary"
-								onClick={handleHealthPlanetCodeSubmit}
-								disabled={hpSubmitting || !hpCode.trim()}
-							>
-								{hpSubmitting ? "処理中..." : "連携する"}
-							</button>
-							<button
-								className="btn btn-outline"
-								onClick={() => setHpPendingUserId(null)}
-							>
-								キャンセル
-							</button>
-						</div>
-					</div>
 				</div>
 			)}
 
