@@ -1,12 +1,11 @@
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 
 export default function PrivacyPage() {
-  const navigate = useNavigate();
   return (
     <div className="legal-page">
       <div className="legal-container">
+        <Link to="/login" className="legal-back-link">← ログイン画面に戻る</Link>
         <header className="legal-header">
-          <button className="legal-back" onClick={() => navigate(-1)} aria-label="戻る">←</button>
           <h1>プライバシーポリシー</h1>
           <p className="legal-meta">最終更新日: 2026年5月1日</p>
         </header>
@@ -94,6 +93,7 @@ export default function PrivacyPage() {
 
         <footer className="legal-footer">
           <Link to="/terms" className="legal-link">利用規約を見る →</Link>
+          <Link to="/login" className="btn btn-primary btn-full" style={{ marginTop: 16 }}>ログイン画面に戻る</Link>
         </footer>
       </div>
     </div>

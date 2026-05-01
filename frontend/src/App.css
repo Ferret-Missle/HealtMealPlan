@@ -1329,6 +1329,17 @@ select.form-input {
   box-sizing: border-box;
 }
 
+.legal-back-link {
+  display: inline-flex;
+  align-items: center;
+  font-size: 14px;
+  color: var(--primary-dark, #2e7d32);
+  text-decoration: none;
+  margin-bottom: var(--sp-4, 16px);
+  font-weight: 500;
+}
+.legal-back-link:hover { text-decoration: underline; }
+
 .legal-header {
   position: relative;
   padding-bottom: var(--sp-4, 16px);
