@@ -6,13 +6,14 @@ import urllib.parse
 from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 import httpx
 
 from ..database import get_db
 from .. import models, security
-from ..auth_deps import get_current_user
+from ..auth_deps import get_current_user, require_firebase_admin
 
 router = APIRouter()
 
@@ -95,6 +96,71 @@ async def me(current_user: models.User = Depends(get_current_user), db: Session 
         "group_id": member.group_id if member else None,
         "connected_services": oauth_services,
     }
+
+
+@router.delete("/me")
+async def delete_my_account(
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    firebase_auth = require_firebase_admin()
+    user_id = current_user.id
+    user_email = current_user.email
+
+    member = db.query(models.GroupMember).filter_by(user_id=user_id).first()
+    if member:
+        other_members = (
+            db.query(models.GroupMember)
+            .filter(
+                models.GroupMember.group_id == member.group_id,
+                models.GroupMember.user_id != user_id,
+            )
+            .order_by(models.GroupMember.user_id.asc())
+            .all()
+        )
+
+        if member.role == "owner" and other_members:
+            other_members[0].role = "owner"
+
+        group = db.query(models.Group).filter_by(id=member.group_id).first()
+        db.delete(member)
+        db.flush()
+
+        if group and not db.query(models.GroupMember).filter_by(group_id=group.id).first():
+            db.delete(group)
+
+    db.query(models.GroupInvitation).filter(
+        models.GroupInvitation.inviter_user_id == user_id
+    ).delete(synchronize_session=False)
+
+    db.query(models.GroupInvitation).filter(
+        func.lower(models.GroupInvitation.invited_email) == user_email.lower()
+    ).delete(synchronize_session=False)
+
+    db.query(models.MealPlanItem).filter(
+        models.MealPlanItem.user_id == user_id
+    ).update({"user_id": None}, synchronize_session=False)
+    db.query(models.ShoppingList).filter(
+        models.ShoppingList.user_id == user_id
+    ).update({"user_id": None}, synchronize_session=False)
+    db.query(models.UsageLog).filter(
+        models.UsageLog.user_id == user_id
+    ).delete(synchronize_session=False)
+
+    db.delete(current_user)
+    db.flush()
+
+    try:
+        firebase_auth.delete_user(user_id)
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=502,
+            detail=f"Failed to delete Firebase account: {type(exc).__name__}",
+        ) from exc
+
+    db.commit()
+    return {"deleted_user_id": user_id}
 
 
 # ---- Fitbit OAuth (Authorization Code + PKCE) ----

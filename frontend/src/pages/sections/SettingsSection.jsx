@@ -9,7 +9,7 @@ import {
 	WifiOff,
 } from "lucide-react";
 import { useEffect, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../../hooks/useAuth";
 import { authApi, bodyApi, settingsApi } from "../../services/api";
 
@@ -69,6 +69,7 @@ function addMonths(n) {
 export default function SettingsSection() {
 	const { user, profile, logout, refreshProfile } = useAuth();
 	const qc = useQueryClient();
+	const navigate = useNavigate();
 	const [searchParams] = useSearchParams();
 	const connected = searchParams.get("connected");
 	const oauthError = searchParams.get("error");
@@ -164,6 +165,20 @@ export default function SettingsSection() {
 			qc.invalidateQueries({ queryKey: ["settings"] });
 			refreshProfile();
 		},
+	});
+
+	const deleteAccountMutation = useMutation({
+		mutationFn: () => authApi.deleteAccount(),
+		onSuccess: async () => {
+			sessionStorage.removeItem("pending_invite_token");
+			qc.clear();
+			await logout();
+			navigate("/login", { replace: true });
+		},
+		onError: (e) =>
+			setErrorMsg(
+				e.response?.data?.detail || e.message || "アカウント削除に失敗しました",
+			),
 	});
 
 	const syncCalMutation = useMutation({
@@ -277,6 +292,30 @@ export default function SettingsSection() {
 							: "無料プラン (Groq)"}
 					</span>
 				</div>
+			</div>
+
+			<div className="card" style={{ borderColor: "#fecaca", background: "#fff7f7" }}>
+				<div className="card-title" style={{ color: "var(--red-text)" }}>
+					アカウント削除
+				</div>
+				<p style={{ fontSize: 13, color: "var(--text-secondary)", lineHeight: 1.6 }}>
+					アカウントを削除すると、Firebase の認証情報、保存済みの記録、連携設定、APIキー、所属情報が削除され、元に戻せません。
+				</p>
+				<button
+					className="btn btn-danger"
+					style={{ marginTop: 12 }}
+					disabled={deleteAccountMutation.isPending}
+					onClick={() => {
+						const confirmed = window.confirm(
+							"アカウントを削除すると、ログイン情報と保存データは元に戻せません。本当に削除しますか？",
+						);
+						if (!confirmed) return;
+						deleteAccountMutation.mutate();
+					}}
+				>
+					<Trash2 size={14} strokeWidth={2} style={{ marginRight: 4 }} />
+					{deleteAccountMutation.isPending ? "削除中…" : "アカウントを削除"}
+				</button>
 			</div>
 
 			{/* 健康目標 */}

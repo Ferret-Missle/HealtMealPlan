@@ -30,6 +30,7 @@ api.interceptors.response.use(
 export const authApi = {
 	register: (data) => api.post("/api/auth/register", data),
 	me: () => api.get("/api/auth/me"),
+	deleteAccount: () => api.delete("/api/auth/me"),
 	disconnect: (service) => api.delete(`/api/auth/disconnect/${service}`),
 	fitbitLoginUrl: (userId) =>
 		api.get(`/api/auth/fitbit/login?user_id=${userId}`),
