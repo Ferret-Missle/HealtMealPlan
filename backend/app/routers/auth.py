@@ -154,17 +154,15 @@ async def fitbit_callback(code: str, state: str, db: Session = Depends(get_db)):
 
 
 # ---- HealthPlanet OAuth ----
-
-# HealthPlanet does not allow localhost as a host domain.
-# Use the officially permitted redirect_uri: https://www.healthplanet.jp/success.html
-HEALTHPLANET_FIXED_REDIRECT_URI = "https://www.healthplanet.jp/success.html"
+# 公開URL（Render等）が使える環境ではバックエンドの callback に直接リダイレクトさせる。
+# HealthPlanet開発者ポータルで HEALTHPLANET_REDIRECT_URI を事前登録しておくこと。
 
 
 @router.get("/healthplanet/login")
 async def healthplanet_login(user_id: str):
     params = {
         "client_id": HEALTHPLANET_CLIENT_ID,
-        "redirect_uri": HEALTHPLANET_FIXED_REDIRECT_URI,
+        "redirect_uri": HEALTHPLANET_REDIRECT_URI,
         "response_type": "code",
         "scope": "innerscan,sphygmomanometer,pedometer",
         "state": user_id,
@@ -180,14 +178,14 @@ class HealthPlanetCodeRequest(BaseModel):
 
 @router.post("/healthplanet/exchange")
 async def healthplanet_exchange(req: HealthPlanetCodeRequest, db: Session = Depends(get_db)):
-    """Exchange authorization code for access token (manual code entry flow)."""
+    """Exchange authorization code for access token (manual code entry flow / 旧手動方式)."""
     async with httpx.AsyncClient() as client:
         resp = await client.post(
             "https://www.healthplanet.jp/oauth/token",
             data={
                 "client_id": HEALTHPLANET_CLIENT_ID,
                 "client_secret": HEALTHPLANET_CLIENT_SECRET,
-                "redirect_uri": HEALTHPLANET_FIXED_REDIRECT_URI,
+                "redirect_uri": HEALTHPLANET_REDIRECT_URI,
                 "code": req.code,
                 "grant_type": "authorization_code",
             },
