@@ -28,9 +28,11 @@ GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
 GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI", "http://localhost:8000/api/auth/google/callback")
 
-# FatSecret OAuth 2.0
+# FatSecret OAuth 2.0 Authorization Code（CLIENT_ID/SECRET を優先、なければ CONSUMER_KEY/SECRET にフォールバック）
 FATSECRET_CONSUMER_KEY    = os.getenv("FATSECRET_CONSUMER_KEY", "")
 FATSECRET_CONSUMER_SECRET = os.getenv("FATSECRET_CONSUMER_SECRET", "")
+FATSECRET_CLIENT_ID       = os.getenv("FATSECRET_CLIENT_ID",     FATSECRET_CONSUMER_KEY)
+FATSECRET_CLIENT_SECRET   = os.getenv("FATSECRET_CLIENT_SECRET", FATSECRET_CONSUMER_SECRET)
 FATSECRET_REDIRECT_URI    = os.getenv("FATSECRET_REDIRECT_URI", "http://localhost:8000/api/auth/fatsecret/callback")
 
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
@@ -323,7 +325,7 @@ async def fatsecret_login(user_id: str):
     """OAuth 2.0 認可 URL を組み立てて返す（サーバーリクエストなし）。"""
     params = {
         "response_type": "code",
-        "client_id":     FATSECRET_CONSUMER_KEY,
+        "client_id":     FATSECRET_CLIENT_ID,
         "redirect_uri":  FATSECRET_REDIRECT_URI,
         "scope":         "basic premier",
         "state":         user_id,
@@ -360,7 +362,7 @@ async def fatsecret_callback(
                 "code":         code,
                 "redirect_uri": FATSECRET_REDIRECT_URI,
             },
-            auth=(FATSECRET_CONSUMER_KEY, FATSECRET_CONSUMER_SECRET),
+            auth=(FATSECRET_CLIENT_ID, FATSECRET_CLIENT_SECRET),
         )
 
     if resp.status_code != 200:

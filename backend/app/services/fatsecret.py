@@ -1,51 +1,71 @@
 import os
+import uuid
+import hashlib
+import hmac
+import base64
 import time
+import urllib.parse
 import httpx
 from cachetools import TTLCache
 from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
 from .. import models, security
 
+# OAuth 1.0a（食品検索用 — IP ホワイトリスト不要）
 CONSUMER_KEY    = os.getenv("FATSECRET_CONSUMER_KEY", "")
 CONSUMER_SECRET = os.getenv("FATSECRET_CONSUMER_SECRET", "")
-API_URL         = "https://platform.fatsecret.com/rest/server.api"
-TOKEN_URL       = "https://oauth.fatsecret.com/connect/token"
+
+# OAuth 2.0（ユーザー認証 Authorization Code 用）
+CLIENT_ID     = os.getenv("FATSECRET_CLIENT_ID",     CONSUMER_KEY)
+CLIENT_SECRET = os.getenv("FATSECRET_CLIENT_SECRET", CONSUMER_SECRET)
+
+API_URL   = "https://platform.fatsecret.com/rest/server.api"
+TOKEN_URL = "https://oauth.fatsecret.com/connect/token"
 
 _search_cache: TTLCache = TTLCache(maxsize=500, ttl=3600)
 
-# ── OAuth 2.0 Client Credentials（食品検索用）─────────────────────────
 
-# Bearer token キャッシュ（24時間有効）
-_bearer: dict = {"token": None, "expires_at": 0.0}
+# ── OAuth 1.0a 2-legged（食品検索 — IP制限なし）────────────────────────
+
+def _oauth1_header_public(extra_params: dict) -> str:
+    """Consumer Key/Secret のみで署名（ユーザートークンなし）。"""
+    params = {
+        "oauth_consumer_key":     CONSUMER_KEY,
+        "oauth_nonce":            uuid.uuid4().hex,
+        "oauth_signature_method": "HMAC-SHA1",
+        "oauth_timestamp":        str(int(time.time())),
+        "oauth_version":          "1.0",
+    }
+    all_params = {**params, **extra_params}
+    sorted_params = "&".join(
+        f"{urllib.parse.quote(k, safe='')}={urllib.parse.quote(str(v), safe='')}"
+        for k, v in sorted(all_params.items())
+    )
+    base_string = "&".join([
+        "POST",
+        urllib.parse.quote(API_URL, safe=""),
+        urllib.parse.quote(sorted_params, safe=""),
+    ])
+    signing_key = f"{urllib.parse.quote(CONSUMER_SECRET, safe='')}&"
+    sig = base64.b64encode(
+        hmac.new(signing_key.encode(), base_string.encode(), hashlib.sha1).digest()
+    ).decode()
+    params["oauth_signature"] = sig
+    return "OAuth " + ", ".join(
+        f'{k}="{urllib.parse.quote(str(v), safe="")}"'
+        for k, v in sorted(params.items())
+        if k.startswith("oauth_")
+    )
 
 
-async def _get_bearer_token(scope: str = "basic barcode") -> str:
-    """Client Credentials フローで Bearer token を取得（24時間キャッシュ）。"""
-    now = time.time()
-    if _bearer["token"] and _bearer["expires_at"] > now + 60:
-        return _bearer["token"]
-
-    async with httpx.AsyncClient() as client:
-        resp = await client.post(
-            TOKEN_URL,
-            data={"grant_type": "client_credentials", "scope": scope},
-            auth=(CONSUMER_KEY, CONSUMER_SECRET),
-        )
-    resp.raise_for_status()
-    data = resp.json()
-    _bearer["token"]      = data["access_token"]
-    _bearer["expires_at"] = now + data.get("expires_in", 86400)
-    return _bearer["token"]
-
-
-async def _api_call_public(params: dict, scope: str = "basic barcode") -> dict:
-    """食品検索など、ユーザー認証不要の API 呼び出し（OAuth 2.0 Bearer）。"""
-    token = await _get_bearer_token(scope)
+async def _api_call_public(params: dict) -> dict:
+    """食品検索など、ユーザー認証不要の API 呼び出し（OAuth 1.0a 2-legged）。"""
+    auth_header = _oauth1_header_public(params)
     async with httpx.AsyncClient() as client:
         resp = await client.post(
             API_URL,
             data=params,
-            headers={"Authorization": f"Bearer {token}"},
+            headers={"Authorization": auth_header},
         )
     resp.raise_for_status()
     return resp.json()
@@ -63,7 +83,7 @@ async def _refresh_user_token(token: models.OAuthToken, db: Session) -> str:
         resp = await client.post(
             TOKEN_URL,
             data={"grant_type": "refresh_token", "refresh_token": refresh_token},
-            auth=(CONSUMER_KEY, CONSUMER_SECRET),
+            auth=(CLIENT_ID, CLIENT_SECRET),
         )
     if resp.status_code != 200:
         raise ValueError(f"トークンリフレッシュ失敗: {resp.text}")
