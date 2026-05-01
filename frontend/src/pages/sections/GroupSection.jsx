@@ -28,6 +28,15 @@ export default function GroupSection() {
     onError: (e) => setError(e.response?.data?.detail || e.message),
   });
 
+  const cancelInviteMutation = useMutation({
+    mutationFn: (inviteId) => groupApi.cancelInvitation(group.id, inviteId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['my-group'] });
+      setSuccess('招待を取り消しました');
+    },
+    onError: (e) => setError(e.response?.data?.detail || e.message),
+  });
+
   const leaveMutation = useMutation({
     mutationFn: () => groupApi.leave(group.id),
     onSuccess: () => {
@@ -88,9 +97,39 @@ export default function GroupSection() {
                   )}
                 </div>
               ))}
-              {group.pending_invitations > 0 && (
-                <div style={{ fontSize: 12, color: 'var(--text-secondary)', padding: '8px 0' }}>
-                  招待中: {group.pending_invitations}人
+              {group.pending_invitation_list?.length > 0 && (
+                <div style={{ marginTop: 8 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 4 }}>
+                    招待中（{group.pending_invitation_list.length}人）
+                  </div>
+                  {group.pending_invitation_list.map((inv) => (
+                    <div
+                      key={inv.id}
+                      className="list-item"
+                      style={{ background: 'var(--bg)', borderRadius: 8, padding: '6px 10px', marginBottom: 4 }}
+                    >
+                      <div>
+                        <div style={{ fontSize: 13, fontWeight: 500 }}>{inv.email}</div>
+                        <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>
+                          有効期限: {new Date(inv.expires_at).toLocaleString('ja-JP', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                        </div>
+                      </div>
+                      {group.role === 'owner' && (
+                        <button
+                          className="btn btn-danger"
+                          style={{ fontSize: 12, padding: '3px 10px' }}
+                          onClick={() => {
+                            if (window.confirm(`${inv.email} への招待を取り消しますか？`)) {
+                              cancelInviteMutation.mutate(inv.id);
+                            }
+                          }}
+                          disabled={cancelInviteMutation.isPending}
+                        >
+                          取り消し
+                        </button>
+                      )}
+                    </div>
+                  ))}
                 </div>
               )}
             </div>

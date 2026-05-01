@@ -98,6 +98,8 @@ export const groupApi = {
   myGroup: () => api.get('/api/groups/my'),
   create: (data) => api.post('/api/groups/create', data),
   invite: (groupId, data) => api.post(`/api/groups/${groupId}/invite`, data),
+  cancelInvitation: (groupId, inviteId) =>
+    api.delete(`/api/groups/${groupId}/invitations/${inviteId}`),
   join: (token) => api.post(`/api/groups/join/${token}`),
   leave: (groupId) => api.delete(`/api/groups/${groupId}/leave`),
 };

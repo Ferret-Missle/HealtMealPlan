@@ -40,6 +40,15 @@ async def get_my_group(
                 "privacy_public": user.privacy_public,
             })
 
+    pending_invite_list = [
+        {
+            "id": inv.id,
+            "email": inv.invited_email,
+            "expires_at": inv.expires_at.isoformat(),
+        }
+        for inv in pending_invites
+    ]
+
     return {
         "id": group.id,
         "name": group.name,
@@ -47,6 +56,7 @@ async def get_my_group(
         "role": member.role,
         "members": member_details,
         "pending_invitations": len(pending_invites),
+        "pending_invitation_list": pending_invite_list,
         "total_slots_used": len(members) + len(pending_invites),
     }
 
@@ -147,6 +157,30 @@ async def join_group(
     invite.status = "accepted"
     db.commit()
     return {"joined_group_id": invite.group_id}
+
+
+@router.delete("/{group_id}/invitations/{invite_id}")
+async def cancel_invitation(
+    group_id: str,
+    invite_id: str,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    member = db.query(models.GroupMember).filter_by(
+        group_id=group_id, user_id=current_user.id, role="owner"
+    ).first()
+    if not member:
+        raise HTTPException(403, "Only group owner can cancel invitations")
+
+    invite = db.query(models.GroupInvitation).filter_by(
+        id=invite_id, group_id=group_id, status="pending"
+    ).first()
+    if not invite:
+        raise HTTPException(404, "Invitation not found or already used")
+
+    invite.status = "cancelled"
+    db.commit()
+    return {"cancelled": True}
 
 
 @router.delete("/{group_id}/leave")
