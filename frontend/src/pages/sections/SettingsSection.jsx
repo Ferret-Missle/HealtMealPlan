@@ -86,6 +86,15 @@ export default function SettingsSection() {
 		connected ? `${connected} を連携しました！` : "",
 	);
 
+	// OAuth リダイレクト直後 (?connected=xxx) はキャッシュを無効化して
+	// connected_services を最新化する
+	useEffect(() => {
+		if (connected) {
+			qc.invalidateQueries({ queryKey: ["settings"] });
+			qc.invalidateQueries({ queryKey: ["dashboard"] });
+		}
+	}, [connected, qc]);
+
 	// 健康目標
 	const [goalForm, setGoalForm] = useState(null); // null = not loaded yet
 
