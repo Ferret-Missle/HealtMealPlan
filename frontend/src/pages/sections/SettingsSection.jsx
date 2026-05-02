@@ -310,10 +310,6 @@ export default function SettingsSection() {
 
 	return (
 		<div>
-			<div className="page-header">
-				<h1 className="page-title">設定</h1>
-			</div>
-
 			{successMsg && (
 				<div className="alert alert-success" onClick={() => setSuccessMsg("")}>
 					{successMsg}

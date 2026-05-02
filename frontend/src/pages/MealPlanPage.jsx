@@ -810,7 +810,7 @@ export default function MealPlanPage() {
 		return (
 			<div>
 				<div className="page-header">
-					<h1 className="page-title">📋 新しい献立を作成</h1>
+					<h1 className="page-title">プランを作成</h1>
 					<div className="page-header-actions">
 						<button
 							className="btn btn-outline btn-sm"
@@ -895,7 +895,7 @@ export default function MealPlanPage() {
 		return (
 			<div>
 				<div className="page-header">
-					<h1 className="page-title">📋 食事スタイルを設定</h1>
+					<h1 className="page-title">プランを設定</h1>
 					<div className="page-header-actions">
 						<button
 							className="btn btn-outline btn-sm"
@@ -963,7 +963,7 @@ export default function MealPlanPage() {
 	return (
 		<div>
 			<div className="page-header">
-				<h1 className="page-title">📋 AI献立</h1>
+				<h1 className="page-title">プラン</h1>
 				<div className="page-header-actions">
 					<button
 						className="btn btn-primary btn-sm"
