@@ -387,17 +387,25 @@ function WeightGraph({ history, onBulkSync, isSyncing }) {
 }
 
 // ── カロリー ──────────────────────────────────────────────────
-function CaloriesValue({ intake, target, pct, remaining, yesterdayKcal }) {
+function CaloriesValue({ intake, target, pct, remaining, yesterdayKcal, avgKcal7 }) {
 	const fill = `progress-fill${pct > 100 ? " over" : pct > 75 ? " warn" : ""}`;
+	const hasComparison = yesterdayKcal != null || avgKcal7 != null;
 	return (
 		<>
-			<div style={{ lineHeight: 1.1, marginTop: 2 }}>
-				<span className="widget-value">{intake?.toLocaleString() ?? "—"}</span>
-				<span className="widget-unit">kcal</span>
-				{yesterdayKcal != null && (
-					<span style={{ fontSize: 11, color: "var(--text-2)", marginLeft: 6 }}>
-						昨日 {yesterdayKcal.toLocaleString()}
-					</span>
+			<div style={{ display: "flex", alignItems: "flex-end", gap: 10, marginTop: 2 }}>
+				<div style={{ lineHeight: 1.1 }}>
+					<span className="widget-value">{intake?.toLocaleString() ?? "—"}</span>
+					<span className="widget-unit">kcal</span>
+				</div>
+				{hasComparison && (
+					<div style={{ fontSize: 11, color: "var(--text-2)", lineHeight: 1.7, paddingBottom: 2 }}>
+						{yesterdayKcal != null && (
+							<div>昨日 <span style={{ color: "var(--text)", fontWeight: 600 }}>{yesterdayKcal.toLocaleString()}</span></div>
+						)}
+						{avgKcal7 != null && (
+							<div>7日平均 <span style={{ color: "var(--text)", fontWeight: 600 }}>{avgKcal7.toLocaleString()}</span></div>
+						)}
+					</div>
 				)}
 			</div>
 			{remaining != null ? (
@@ -881,7 +889,7 @@ const MEAL_TYPE_LABEL = {
 };
 const MEAL_TYPE_ORDER = ["breakfast", "lunch", "dinner", "snack"];
 
-function MealsValue({ logs, yesterdayKcal, avgKcal7 }) {
+function MealsValue({ logs }) {
 	const total = logs.reduce((s, l) => s + (l.kcal || 0), 0);
 	return (
 		<>
@@ -892,16 +900,6 @@ function MealsValue({ logs, yesterdayKcal, avgKcal7 }) {
 				<span className="widget-unit">kcal</span>
 			</div>
 			<div className="widget-sub">{logs.length} 件の食事記録</div>
-			{(yesterdayKcal != null || avgKcal7 != null) && (
-				<div style={{ fontSize: 11, color: "var(--text-2)", marginTop: 4, lineHeight: 1.7 }}>
-					{yesterdayKcal != null && (
-						<div>昨日 <span style={{ color: "var(--text)", fontWeight: 600 }}>{yesterdayKcal.toLocaleString()}</span> kcal</div>
-					)}
-					{avgKcal7 != null && (
-						<div>7日平均 <span style={{ color: "var(--text)", fontWeight: 600 }}>{avgKcal7.toLocaleString()}</span> kcal</div>
-					)}
-				</div>
-			)}
 		</>
 	);
 }
@@ -1351,6 +1349,7 @@ export default function DashboardPage() {
 					pct={calPct}
 					remaining={calRemaining}
 					yesterdayKcal={yesterdayNutrition?.total_kcal ?? null}
+					avgKcal7={avgKcal7}
 				/>
 			),
 			graph: (
@@ -1412,7 +1411,7 @@ export default function DashboardPage() {
 		},
 		meals: {
 			support: ["1d"],
-			value: <MealsValue logs={mealLogs} yesterdayKcal={yesterdayKcal} avgKcal7={avgKcal7} />,
+			value: <MealsValue logs={mealLogs} />,
 			graph: (
 				<MealsList
 					logs={mealLogs}
