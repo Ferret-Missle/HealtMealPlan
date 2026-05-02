@@ -66,6 +66,48 @@ _MEAL_KEYWORDS = ["外食", "ランチ", "ディナー", "夕食", "昼食", "�
 _EXERCISE_KEYWORDS = ["筋トレ", "ジム", "ランニング", "ウォーキング", "ヨガ", "運動", "トレーニング"]
 
 
+async def get_user_events(user_id: str, date: str, db: Session) -> list:
+    """ユーザー自身のカレンダー予定を（タイトルそのまま）一覧で返す。ダッシュボード表示用。"""
+    settings = (
+        db.query(models.CalendarSetting)
+        .filter_by(user_id=user_id, use_for_meal_plan=True)
+        .all()
+    )
+    calendar_ids = [s.calendar_id for s in settings] if settings else ["primary"]
+
+    access_token = await _get_access_token(user_id, db)
+    time_min = f"{date}T00:00:00Z"
+    time_max = f"{date}T23:59:59Z"
+
+    events = []
+    async with httpx.AsyncClient() as client:
+        for cal_id in calendar_ids:
+            resp = await client.get(
+                f"https://www.googleapis.com/calendar/v3/calendars/{cal_id}/events",
+                headers={"Authorization": f"Bearer {access_token}"},
+                params={
+                    "timeMin": time_min,
+                    "timeMax": time_max,
+                    "singleEvents": "true",
+                    "orderBy": "startTime",
+                    "maxResults": 50,
+                },
+            )
+            if resp.status_code != 200:
+                continue
+            for ev in resp.json().get("items", []):
+                start_ev = ev.get("start", {})
+                end_ev = ev.get("end", {})
+                events.append({
+                    "summary": ev.get("summary", "(無題)"),
+                    "start": start_ev.get("dateTime", start_ev.get("date", "")),
+                    "end": end_ev.get("dateTime", end_ev.get("date", "")),
+                    "all_day": "date" in start_ev and "dateTime" not in start_ev,
+                })
+
+    return events
+
+
 async def get_daily_events(user_id: str, date: str, db: Session) -> dict:
     """Fetch calendar events and categorize as meal/exercise. Strips titles/locations for privacy."""
     settings = (

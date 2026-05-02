@@ -127,6 +127,30 @@ async def today_summary(
     }
 
 
+@router.get("/calendar")
+async def get_calendar_events(
+    date: str | None = None,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """ダッシュボード用: 指定日のカレンダー予定一覧（タイトルそのまま）を返す。"""
+    target = date or str(dt_date.today())
+
+    connected = [
+        t.service
+        for t in db.query(models.OAuthToken).filter_by(user_id=current_user.id).all()
+    ]
+
+    if "google" not in connected:
+        return {"connected": False, "events": []}
+
+    try:
+        events = await gcal.get_user_events(current_user.id, target, db)
+        return {"connected": True, "events": events}
+    except Exception:
+        return {"connected": True, "events": []}
+
+
 @router.get("/sleep")
 async def get_sleep_history(
     days: int = Query(7, ge=1, le=30),

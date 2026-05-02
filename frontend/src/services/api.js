@@ -54,6 +54,7 @@ export const dashboardApi = {
   today: (date) => api.get('/api/dashboard/today', { params: date ? { target_date: date } : {} }),
   sleep: (days = 7) => api.get('/api/dashboard/sleep', { params: { days } }),
   exerciseComparison: (days = 7) => api.get('/api/dashboard/exercise-comparison', { params: { days } }),
+  calendar: (date) => api.get('/api/dashboard/calendar', { params: date ? { date } : {} }).then(r => r.data),
 };
 
 // Meals

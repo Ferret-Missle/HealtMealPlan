@@ -16,7 +16,7 @@ import {
 } from 'recharts';
 import {
   Scale, Flame, Layers, Footprints, Moon, UtensilsCrossed,
-  RefreshCw, Utensils, Dumbbell, CalendarClock,
+  RefreshCw, Utensils, Dumbbell, CalendarClock, Calendar,
   ChevronLeft, ChevronRight, GripVertical, Settings2,
   Link2Off,
 } from 'lucide-react';
@@ -510,7 +510,7 @@ function MealsList({ logs, onSync, isSyncing }) {
       <div className="meal-widget-actions">
         <button
           className="btn btn-outline btn-sm"
-          style={{ flex: 1, fontSize: 11, marginBottom: 0 }}
+          style={{ flex: 1, fontSize: 11, marginTop: 6, marginBottom: 0 }}
           onClick={onSync}
           disabled={isSyncing}
         >
@@ -518,7 +518,7 @@ function MealsList({ logs, onSync, isSyncing }) {
             style={isSyncing ? { animation: 'spin 0.65s linear infinite', marginRight: 4 } : { marginRight: 4 }} />
           {isSyncing ? '同期中…' : 'FatSecret 同期'}
         </button>
-        <Link to="/meals" className="btn btn-outline btn-sm" style={{ fontSize: 11, textDecoration: 'none', marginBottom: 0 }}>
+        <Link to="/meals" className="btn btn-outline btn-sm" style={{ fontSize: 11, textDecoration: 'none', marginTop: 6, marginBottom: 0 }}>
           食事記録へ
         </Link>
       </div>
@@ -527,9 +527,12 @@ function MealsList({ logs, onSync, isSyncing }) {
 }
 
 // ── 今日の予定（フルワイド固定） ─────────────────────────────
-function ScheduleCard({ cal, googleConnected }) {
+function ScheduleCard({ calendarData, dateStr }) {
+  const connected = calendarData?.connected;
+  const events    = calendarData?.events ?? [];
+
   // 未連携: 連携 CTA カードを表示
-  if (!googleConnected) {
+  if (!connected) {
     return (
       <div className="card">
         <div className="card-title" style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
@@ -539,7 +542,8 @@ function ScheduleCard({ cal, googleConnected }) {
         <div className="widget-not-connected" style={{ minHeight: 100 }}>
           <Link2Off size={22} strokeWidth={1.5} className="widget-not-connected-icon" />
           <div className="widget-not-connected-msg">
-            Googleカレンダー連携で<br />本日の予定を表示
+            Googleカレンダー未連携<br />
+            <span style={{ fontSize: 11, color: 'var(--text-2)' }}>連携すると本日の予定を表示できます</span>
           </div>
           <Link to="/me" className="btn btn-primary btn-sm widget-not-connected-cta">
             連携設定へ →
@@ -549,32 +553,41 @@ function ScheduleCard({ cal, googleConnected }) {
     );
   }
 
-  const events = [
-    ...(cal?.meal_events     || []).map(e => ({ ...e, type: 'meal' })),
-    ...(cal?.exercise_events || []).map(e => ({ ...e, type: 'ex' })),
-  ].sort((a, b) => (a.time || '') < (b.time || '') ? -1 : 1);
-  if (!events.length) return null;
   return (
     <div className="card">
       <div className="card-title" style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
         <CalendarClock size={12} strokeWidth={2} />
         今日の予定
+        <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text-2)', fontWeight: 400 }}>
+          {events.length} 件
+        </span>
       </div>
-      {events.map((ev, i) => (
-        <div key={i} className="list-item">
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            {ev.type === 'meal'
-              ? <Utensils size={14} strokeWidth={1.5} style={{ color: 'var(--text-2)' }} />
-              : <Dumbbell size={14} strokeWidth={1.5} style={{ color: 'var(--text-2)' }} />}
-            <span style={{ fontSize: 14 }}>{ev.category}</span>
-          </div>
-          {ev.time && (
-            <span style={{ fontSize: 12, color: 'var(--text-2)' }}>
-              {new Date(ev.time).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}
-            </span>
-          )}
-        </div>
-      ))}
+      {events.length === 0 ? (
+        <div style={{ fontSize: 13, color: 'var(--text-2)', padding: '8px 0' }}>予定なし</div>
+      ) : (
+        events.map((ev, i) => {
+          const timeStr = ev.all_day
+            ? '終日'
+            : ev.start
+              ? new Date(ev.start).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })
+              : '';
+          return (
+            <div key={i} className="list-item">
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 }}>
+                <Calendar size={13} strokeWidth={1.5} style={{ color: 'var(--text-2)', flexShrink: 0 }} />
+                <span style={{ fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {ev.summary}
+                </span>
+              </div>
+              {timeStr && (
+                <span style={{ fontSize: 12, color: 'var(--text-2)', flexShrink: 0, marginLeft: 8 }}>
+                  {timeStr}
+                </span>
+              )}
+            </div>
+          );
+        })
+      )}
     </div>
   );
 }
@@ -688,18 +701,35 @@ export default function DashboardPage() {
     },
   });
 
+  // カレンダー予定（個別クエリ）
+  const { data: calendarData } = useQuery({
+    queryKey: ['dashboard-calendar', dateStr],
+    queryFn: () => dashboardApi.calendar(dateStr),
+    staleTime: 5 * 60 * 1000,
+  });
+
+  // 一括同期：すべてのデータソースをまとめて更新
   const syncMutation = useMutation({
-    mutationFn: () => bodyApi.sync(dateStr),
+    mutationFn: async () => {
+      await bodyApi.sync(dateStr);
+      await Promise.allSettled([
+        bodyApi.syncWeightHistory(weightDays),
+        bodyApi.syncActivityHistory(Math.max(sleepDays, stepsDays)),
+        mealsApi.syncFatSecret(dateStr),
+      ]);
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['dashboard'] });
       qc.invalidateQueries({ queryKey: ['weight-history'] });
+      qc.invalidateQueries({ queryKey: ['activity-history'] });
+      qc.invalidateQueries({ queryKey: ['meals', dateStr] });
+      qc.invalidateQueries({ queryKey: ['dashboard-calendar', dateStr] });
     },
   });
 
   // 派生値
   const nut   = summary?.nutrition || {};
   const goals = summary?.goals     || {};
-  const cal   = summary?.calendar  || {};
 
   const latestW  = weightHistory.at(-1)?.weight ?? summary?.weight;
   const oldestW  = weightHistory[0]?.weight;
@@ -798,10 +828,11 @@ export default function DashboardPage() {
             className="btn btn-outline btn-sm"
             onClick={() => syncMutation.mutate()}
             disabled={syncMutation.isPending}
+            title="体重・歩数・睡眠・食事をまとめて同期"
           >
             <RefreshCw size={13} strokeWidth={2}
               style={syncMutation.isPending ? { animation: 'spin 0.65s linear infinite' } : {}} />
-            {syncMutation.isPending ? '同期中…' : '同期'}
+            {syncMutation.isPending ? '同期中…' : '一括同期'}
           </button>
         </div>
       </div>
@@ -892,7 +923,7 @@ export default function DashboardPage() {
             </SortableContext>
           </DndContext>
 
-          <ScheduleCard cal={cal} googleConnected={summary?.connected_services?.includes('google')} />
+          <ScheduleCard calendarData={calendarData} dateStr={dateStr} />
 
           <Link to="/plan" className="btn btn-secondary btn-full"
             style={{ marginTop: 'var(--sp-2)', textDecoration: 'none' }}>

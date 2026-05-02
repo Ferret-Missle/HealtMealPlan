@@ -1,4 +1,5 @@
 import os
+import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -9,6 +10,7 @@ from slowapi.errors import RateLimitExceeded
 from .database import engine, Base
 from .routers import auth, dashboard, meals, body, settings, meal_plan, group, shopping, chat
 
+logger = logging.getLogger(__name__)
 limiter = Limiter(key_func=get_remote_address)
 
 
@@ -21,21 +23,21 @@ def _run_migrations():
             conn.execute(text(
                 "ALTER TABLE meal_plans ADD COLUMN IF NOT EXISTS conditions_json JSON"
             ))
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Migration conditions_json skipped: %s", e)
         # meal_plan_slots.source_type / kcal_budget
         try:
             conn.execute(text(
                 "ALTER TABLE meal_plan_slots ADD COLUMN IF NOT EXISTS source_type VARCHAR"
             ))
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Migration source_type skipped: %s", e)
         try:
             conn.execute(text(
                 "ALTER TABLE meal_plan_slots ADD COLUMN IF NOT EXISTS kcal_budget FLOAT"
             ))
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Migration kcal_budget skipped: %s", e)
         conn.commit()
 
 

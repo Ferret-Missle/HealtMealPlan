@@ -23,13 +23,18 @@ async def get_group_schedules(
     db: Session = Depends(get_db),
 ):
     """全グループメンバーの Google Calendar 予定を取得する。"""
+    # start_date 形式チェック
+    try:
+        start = datetime.strptime(start_date, "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(422, "start_date must be YYYY-MM-DD format")
+
     member = db.query(models.GroupMember).filter_by(user_id=current_user.id).first()
     if not member:
         raise HTTPException(404, "No group found")
 
     members = db.query(models.GroupMember).filter_by(group_id=member.group_id).all()
 
-    start = datetime.strptime(start_date, "%Y-%m-%d")
     end = start + timedelta(days=days)
     time_min = start.strftime("%Y-%m-%dT00:00:00Z")
     time_max = end.strftime("%Y-%m-%dT00:00:00Z")
@@ -42,8 +47,17 @@ async def get_group_schedules(
 
         token_rec = db.query(models.OAuthToken).filter_by(user_id=m.user_id, service="google").first()
         if not token_rec:
-            result[m.user_id] = {"name": user.name, "events": []}
+            # Google 未連携 — null で返して frontend が識別できるようにする
+            result[m.user_id] = {"name": user.name, "events": None}
             continue
+
+        # CalendarSetting で use_for_meal_plan=True のカレンダーを優先。なければ primary を使う
+        cal_settings = (
+            db.query(models.CalendarSetting)
+            .filter_by(user_id=m.user_id, use_for_meal_plan=True)
+            .all()
+        )
+        calendar_ids = [cs.calendar_id for cs in cal_settings] if cal_settings else ["primary"]
 
         try:
             access_token = security.decrypt(token_rec.access_token)
@@ -68,30 +82,31 @@ async def get_group_schedules(
                     db.commit()
                     access_token = data["access_token"]
 
-            async with httpx.AsyncClient() as client:
-                resp = await client.get(
-                    "https://www.googleapis.com/calendar/v3/calendars/primary/events",
-                    headers={"Authorization": f"Bearer {access_token}"},
-                    params={
-                        "timeMin": time_min,
-                        "timeMax": time_max,
-                        "singleEvents": "true",
-                        "orderBy": "startTime",
-                        "maxResults": 30,
-                    },
-                )
-
             events = []
-            if resp.status_code == 200:
-                for ev in resp.json().get("items", []):
-                    start_ev = ev.get("start", {})
-                    end_ev = ev.get("end", {})
-                    events.append({
-                        "summary": ev.get("summary", "(無題)"),
-                        "start": start_ev.get("dateTime", start_ev.get("date", "")),
-                        "end": end_ev.get("dateTime", end_ev.get("date", "")),
-                        "all_day": "date" in start_ev and "dateTime" not in start_ev,
-                    })
+            async with httpx.AsyncClient() as client:
+                for cal_id in calendar_ids:
+                    resp = await client.get(
+                        f"https://www.googleapis.com/calendar/v3/calendars/{cal_id}/events",
+                        headers={"Authorization": f"Bearer {access_token}"},
+                        params={
+                            "timeMin": time_min,
+                            "timeMax": time_max,
+                            "singleEvents": "true",
+                            "orderBy": "startTime",
+                            "maxResults": 30,
+                        },
+                    )
+                    if resp.status_code == 200:
+                        for ev in resp.json().get("items", []):
+                            start_ev = ev.get("start", {})
+                            end_ev = ev.get("end", {})
+                            events.append({
+                                "summary": ev.get("summary", "(無題)"),
+                                "start": start_ev.get("dateTime", start_ev.get("date", "")),
+                                "end": end_ev.get("dateTime", end_ev.get("date", "")),
+                                "all_day": "date" in start_ev and "dateTime" not in start_ev,
+                            })
+
             result[m.user_id] = {"name": user.name, "events": events}
         except Exception:
             result[m.user_id] = {"name": user.name, "events": []}

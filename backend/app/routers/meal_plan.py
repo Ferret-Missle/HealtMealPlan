@@ -405,7 +405,7 @@ def _plan_detail(plan: models.MealPlan) -> dict:
                     "ingredients": item.ingredients_json,
                     "cooking_summary": item.cooking_summary,
                 })
-            total_kcal = sum(it["kcal"] for it in items if it.get("kcal")) if items else None
+            total_kcal = sum(it["kcal"] for it in items if it["kcal"] is not None) if items else None
             slots.append({
                 "id": slot.id,
                 "meal_type": slot.meal_type,
