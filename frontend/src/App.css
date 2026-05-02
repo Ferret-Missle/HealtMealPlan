@@ -118,9 +118,10 @@ img { max-width: 100%; height: auto; display: block; }
 }
 
 .app-main {
+  --app-main-pad: var(--sp-4);
   flex: 1;
   overflow-y: auto;
-  padding: var(--sp-4);
+  padding: var(--app-main-pad);
   padding-bottom: calc(72px + env(safe-area-inset-bottom, 8px));
   -webkit-overflow-scrolling: touch;
   overscroll-behavior-y: contain;
@@ -133,13 +134,17 @@ img { max-width: 100%; height: auto; display: block; }
 
 /* Tablet S 以上 */
 @media (min-width: 480px) {
-  .app-main { padding: var(--sp-5); }
+  .app-main {
+    --app-main-pad: var(--sp-5);
+    padding: var(--app-main-pad);
+  }
 }
 
 /* Tablet L 以上: ボトムナビ消えるためpadding-bottom縮小 */
 @media (min-width: 768px) {
   .app-main {
-    padding: var(--sp-6);
+    --app-main-pad: var(--sp-6);
+    padding: var(--app-main-pad);
     padding-bottom: var(--sp-8);
   }
 }
@@ -147,7 +152,8 @@ img { max-width: 100%; height: auto; display: block; }
 /* Desktop 以上: padding を更に拡大、最大幅は維持 */
 @media (min-width: 1024px) {
   .app-main {
-    padding: var(--sp-8);
+    --app-main-pad: var(--sp-8);
+    padding: var(--app-main-pad);
     padding-bottom: var(--sp-8);
   }
 }
@@ -155,7 +161,8 @@ img { max-width: 100%; height: auto; display: block; }
 /* Wide Desktop: パディング更に拡大、最大幅引き上げ */
 @media (min-width: 1600px) {
   .app-main {
-    padding: var(--sp-10);
+    --app-main-pad: var(--sp-10);
+    padding: var(--app-main-pad);
     max-width: 1600px;
   }
 }
@@ -253,7 +260,11 @@ img { max-width: 100%; height: auto; display: block; }
   display: flex;
   align-items: center;
   gap: var(--sp-2);
+  text-decoration: none;
+  cursor: pointer;
 }
+.app-header-brand:hover .app-header-title { color: var(--brand); }
+.app-header-brand:hover .app-header-logo { opacity: 0.8; }
 .app-header-logo { color: var(--brand); }
 .app-header-title {
   font-size: 16px;
@@ -328,13 +339,101 @@ img { max-width: 100%; height: auto; display: block; }
 .drawer-item:hover  { background: var(--s100); color: var(--text); }
 .drawer-item.active { background: var(--brand-pale); color: var(--brand-text); font-weight: 600; }
 
+@media (min-width: 1024px) {
+  .app-layout {
+    display: grid;
+    grid-template-columns: 280px minmax(0, 1fr);
+    grid-template-rows: 56px minmax(0, 1fr);
+  }
+
+  .app-header {
+    grid-column: 1 / -1;
+    grid-row: 1;
+  }
+
+  .hamburger-btn,
+  .drawer-overlay {
+    display: none;
+  }
+
+  .drawer {
+    position: sticky;
+    top: 56px;
+    left: auto;
+    bottom: auto;
+    grid-column: 1;
+    grid-row: 2;
+    width: 280px;
+    max-width: none;
+    height: calc(100dvh - 56px);
+    box-shadow: none;
+    transform: none;
+    transition: none;
+    z-index: 80;
+  }
+
+  .app-body {
+    grid-column: 2;
+    grid-row: 2;
+    min-height: 0;
+  }
+}
+
+/* ── Dashboard date nav sticky bar ─────────────────────────── */
+.dash-date-nav {
+  position: sticky;
+  top: calc(var(--app-main-pad) * -1);
+  z-index: 80;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-bottom: var(--sp-4);
+  padding: 6px 0;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+}
+
 /* ── 6. Page Structure ─────────────────────────────────────── */
 .page-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: var(--sp-3);
   margin-bottom: var(--sp-5);
+}
+
+.page-header-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  margin-left: auto;
+}
+
+.page-header-actions .btn {
+  flex-shrink: 0;
+}
+
+.page-action-toggle.is-active {
+  background: var(--brand-pale);
+  color: var(--brand-text);
+  border-color: var(--brand-light);
+  box-shadow: none;
+}
+
+@media (min-width: 1024px) {
+  .page-header-actions {
+    gap: 6px;
+  }
+
+  .page-header-actions .btn.btn-sm {
+    min-height: 32px;
+    padding: 0 10px;
+    gap: 5px;
+  }
 }
 
 .page-title {
@@ -373,6 +472,32 @@ img { max-width: 100%; height: auto; display: block; }
   text-transform: uppercase;
   color: var(--text-3);
   margin-bottom: var(--sp-3);
+}
+
+/* ── 達成期限 表示 ─────────────────────────────────────────── */
+.deadline-display {
+  background: var(--brand-pale);
+  border: 1px solid var(--brand-light);
+  border-radius: var(--r-md);
+  padding: var(--sp-3) var(--sp-4);
+  margin-bottom: var(--sp-3);
+  text-align: center;
+}
+.deadline-date {
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--text);
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+}
+.deadline-days {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--brand);
+  margin-top: 4px;
+}
+.deadline-days--expired {
+  color: var(--text-3);
 }
 
 /* ── 8. Buttons ────────────────────────────────────────────── */
@@ -642,6 +767,64 @@ select.form-input {
 .alert-error   { background: var(--red-pale);    color: var(--red-text);   border-color: #fecaca; }
 .alert-warn    { background: var(--orange-pale); color: var(--orange-text); border-color: #fdba74; }
 
+.invite-notice {
+  margin-bottom: var(--sp-4);
+  padding: var(--sp-4);
+  border-radius: var(--r-xl);
+  border: 1px solid #fdba74;
+  background: linear-gradient(180deg, #fff7ed 0%, #ffffff 100%);
+  box-shadow: 0 10px 24px rgba(249, 115, 22, 0.08);
+}
+.invite-notice-heading {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--orange-text);
+}
+.invite-notice-copy {
+  margin: 6px 0 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-2);
+}
+.invite-notice-list {
+  display: grid;
+  gap: var(--sp-3);
+  margin-top: var(--sp-4);
+}
+.invite-notice-item {
+  padding: var(--sp-3);
+  border-radius: var(--r-lg);
+  border: 1px solid #fed7aa;
+  background: rgba(255, 255, 255, 0.92);
+}
+.invite-notice-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+}
+.invite-notice-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+.invite-notice-url {
+  display: block;
+  margin-top: var(--sp-2);
+  font-size: 12px;
+  line-height: 1.5;
+  word-break: break-all;
+  color: var(--brand-text);
+  text-decoration: underline;
+}
+.invite-notice-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: var(--sp-3);
+}
+
 /* ── 16. Modal / Bottom Sheet ──────────────────────────────── */
 .modal-overlay {
   position: fixed; inset: 0;
@@ -776,6 +959,75 @@ select.form-input {
   justify-content: space-between;
   margin-bottom: var(--sp-3);
   gap: var(--sp-3);
+}
+.meal-summary-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-3);
+}
+.meal-summary-metrics {
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  gap: var(--sp-4);
+  margin-left: auto;
+  flex-wrap: wrap;
+}
+.meal-summary-current {
+  text-align: right;
+  white-space: nowrap;
+}
+.meal-summary-current-value {
+  color: var(--brand-text);
+}
+.meal-summary-side-stats {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  padding-top: 2px;
+}
+.meal-summary-side-stat {
+  display: flex;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: 6px;
+  font-size: 12px;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+.meal-summary-side-label,
+.meal-summary-side-unit {
+  color: var(--text-2);
+}
+.meal-summary-side-value {
+  font-weight: 700;
+}
+.meal-summary-side-value.is-yesterday {
+  color: var(--orange-text);
+}
+.meal-summary-side-value.is-average {
+  color: var(--blue-text);
+}
+@media (max-width: 479px) {
+  .meal-summary-header,
+  .meal-summary-metrics {
+    align-items: stretch;
+  }
+
+  .meal-summary-header,
+  .meal-summary-metrics,
+  .meal-summary-side-stats {
+    flex-direction: column;
+  }
+
+  .meal-summary-current,
+  .meal-summary-side-stats,
+  .meal-summary-side-stat {
+    align-items: flex-end;
+  }
 }
 .meal-slot-kcal {
   display: inline-flex;
@@ -1026,7 +1278,10 @@ select.form-input {
 /* full: 全列占有（リスト表示の食事記録など） */
 .widget-card.full { grid-column: 1 / -1; }
 /* span-2: 2列占有（時系列グラフを横長に） */
-.widget-card.span-2 { grid-column: span 2; }
+.widget-card.span-2 { grid-column: auto; }
+@media (min-width: 768px) {
+  .widget-card.span-2 { grid-column: span 2; }
+}
 
 .widget-header {
   display: flex;
@@ -1059,6 +1314,64 @@ select.form-input {
 .widget-sub {
   font-size: 12px;
   color: var(--text-2);
+}
+
+.meal-widget-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.meal-widget-group,
+.meal-widget-actions {
+  width: 100%;
+  max-width: none;
+}
+
+@media (min-width: 1024px) {
+  .meal-widget-group,
+  .meal-widget-actions {
+    max-width: 560px;
+  }
+}
+
+.meal-widget-group-label {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-2);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 3px;
+}
+
+.meal-widget-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 8px;
+  font-size: 12px;
+  padding: 2px 0;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.meal-widget-name {
+  min-width: 0;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.meal-widget-kcal {
+  color: var(--text-2);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.meal-widget-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
 }
 
 /* Widget inner divider (value ↔ graph) */

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 
 export default function LoginPage() {
@@ -8,6 +8,14 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [searchParams] = useSearchParams();
+
+  // OAuthコールバックからのエラー（ユーザーがDB未登録でサービス連携しようとした場合）
+  const callbackError = searchParams.get('error');
+  const callbackErrorMsg =
+    callbackError === 'please_register_first'
+      ? 'アカウントが未登録です。先に新規登録してください。'
+      : null;
 
   const handleEmail = async (e) => {
     e.preventDefault();
@@ -42,6 +50,7 @@ export default function LoginPage() {
           <p>AIパーソナライズ献立で健康的な毎日を</p>
         </div>
 
+        {callbackErrorMsg && <div className="alert alert-error">{callbackErrorMsg}</div>}
         {error && <div className="alert alert-error">{error}</div>}
 
         <form onSubmit={handleEmail}>

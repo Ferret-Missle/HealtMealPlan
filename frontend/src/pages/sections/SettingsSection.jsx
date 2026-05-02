@@ -8,10 +8,11 @@ import {
 	Wifi,
 	WifiOff,
 } from "lucide-react";
-import { useEffect, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useCallback, useEffect, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../../hooks/useAuth";
 import { authApi, bodyApi, settingsApi } from "../../services/api";
+import { addJstMonths, daysUntilJst, formatJstDate } from "../../utils/date";
 
 const SERVICES = [
 	{ key: "fitbit", label: "Fitbit", desc: "歩数・睡眠・心拍・体重" },
@@ -33,7 +34,7 @@ const BYOK_PROVIDERS = [
 	{ key: "anthropic", label: "Anthropic (Claude)", vision: true },
 	{ key: "openai", label: "OpenAI (GPT-4o)", vision: true },
 	{ key: "gemini", label: "Google Gemini", vision: true },
-	{ key: "groq", label: "Groq (Llama 3.1)", vision: false },
+	{ key: "groq", label: "Groq (Llama 3.3)", vision: false },
 	{ key: "mistral", label: "Mistral AI", vision: false },
 ];
 
@@ -54,24 +55,22 @@ const GOAL_TYPES = [
 
 // "あと X 日" を計算
 function daysRemaining(dateStr) {
-	if (!dateStr) return null;
-	const diff = Math.ceil((new Date(dateStr) - new Date()) / 86400000);
-	return diff > 0 ? diff : 0;
+	return daysUntilJst(dateStr);
 }
 
 // 今日から N ヶ月後の日付文字列
 function addMonths(n) {
-	const d = new Date();
-	d.setMonth(d.getMonth() + n);
-	return d.toISOString().split("T")[0];
+	return addJstMonths(n);
 }
 
 export default function SettingsSection() {
 	const { user, profile, logout, refreshProfile } = useAuth();
 	const qc = useQueryClient();
+	const navigate = useNavigate();
 	const [searchParams] = useSearchParams();
 	const connected = searchParams.get("connected");
 	const oauthError = searchParams.get("error");
+	const oauthDetail = searchParams.get("detail");
 
 	const [newApiKey, setNewApiKey] = useState({
 		provider: "anthropic",
@@ -80,20 +79,88 @@ export default function SettingsSection() {
 	const [showApiKeyForm, setShowApiKeyForm] = useState(false);
 	const [excludedInput, setExcludedInput] = useState("");
 	const [errorMsg, setErrorMsg] = useState(
-		oauthError ? `連携に失敗しました (${oauthError})` : "",
+		oauthError
+			? `連携に失敗しました (${oauthError}${oauthDetail ? `: ${oauthDetail}` : ""})`
+			: "",
 	);
 	const [successMsg, setSuccessMsg] = useState(
 		connected ? `${connected} を連携しました！` : "",
 	);
 
-	// OAuth リダイレクト直後 (?connected=xxx) はキャッシュを無効化して
-	// connected_services を最新化する
-	useEffect(() => {
-		if (connected) {
-			qc.invalidateQueries({ queryKey: ["settings"] });
-			qc.invalidateQueries({ queryKey: ["dashboard"] });
+	const refreshConnectedState = useCallback(async () => {
+		await Promise.allSettled([
+			refreshProfile(),
+			qc.invalidateQueries({ queryKey: ["settings"] }),
+			qc.invalidateQueries({ queryKey: ["dashboard"] }),
+			qc.invalidateQueries({ queryKey: ["weight-history"] }),
+			qc.invalidateQueries({ queryKey: ["activity-history"] }),
+		]);
+	}, [qc, refreshProfile]);
+
+	const ensureCurrentUserRegistration = useCallback(async () => {
+		if (!user?.uid) {
+			throw new Error("ログインユーザー情報を取得できません");
 		}
-	}, [connected, qc]);
+
+		await authApi.register({
+			uid: user.uid,
+			email: user.email || `${user.uid}@unknown.local`,
+			name:
+				profile?.name ||
+				user.displayName ||
+				user.email?.split("@")[0] ||
+				"ユーザー",
+			terms_version: "1.0",
+			privacy_version: "1.0",
+		});
+	}, [profile?.name, user]);
+
+	// OAuth リダイレクト直後は接続状態を再取得し、
+	// HealthPlanet の場合は体重履歴も取り込んでから URL を整える。
+	useEffect(() => {
+		if (!connected && !oauthError) return;
+
+		let active = true;
+
+		const handleOAuthRedirect = async () => {
+			if (connected) {
+				await refreshConnectedState();
+
+				if (connected === "healthplanet") {
+					try {
+						const res = await bodyApi.syncWeightHistory(30);
+						const saved = res.data?.saved ?? 0;
+						await refreshConnectedState();
+						if (active && saved > 0) {
+							setSuccessMsg(
+								`HealthPlanet を連携しました。体重データを ${saved} 件同期しました`,
+							);
+						}
+					} catch (e) {
+						if (active) {
+							const detail =
+								e.response?.data?.detail ||
+								e.message ||
+								"体重データの同期に失敗しました";
+							setErrorMsg(
+								`HealthPlanet は連携済みですが、データ反映に失敗しました: ${detail}`,
+							);
+						}
+					}
+				}
+			}
+
+			if (active) {
+				navigate("/me", { replace: true });
+			}
+		};
+
+		void handleOAuthRedirect();
+
+		return () => {
+			active = false;
+		};
+	}, [connected, oauthError, navigate, refreshConnectedState]);
 
 	// 健康目標
 	const [goalForm, setGoalForm] = useState(null); // null = not loaded yet
@@ -160,10 +227,21 @@ export default function SettingsSection() {
 
 	const disconnectMutation = useMutation({
 		mutationFn: (service) => authApi.disconnect(service),
-		onSuccess: () => {
-			qc.invalidateQueries({ queryKey: ["settings"] });
-			refreshProfile();
+		onSuccess: () => refreshConnectedState(),
+	});
+
+	const deleteAccountMutation = useMutation({
+		mutationFn: () => authApi.deleteAccount(),
+		onSuccess: async () => {
+			sessionStorage.removeItem("pending_invite_token");
+			qc.clear();
+			await logout();
+			navigate("/login", { replace: true });
 		},
+		onError: (e) =>
+			setErrorMsg(
+				e.response?.data?.detail || e.message || "アカウント削除に失敗しました",
+			),
 	});
 
 	const syncCalMutation = useMutation({
@@ -180,60 +258,26 @@ export default function SettingsSection() {
 	const dietStyles = settings?.preferences?.diet_styles || [];
 	const excludedFoods = settings?.excluded_foods || [];
 
-	// HealthPlanet manual code entry state
-	const [hpPendingUserId, setHpPendingUserId] = useState(null);
-	const [hpCode, setHpCode] = useState("");
-	const [hpSubmitting, setHpSubmitting] = useState(false);
-
 	const handleConnect = async (service) => {
 		try {
+			await ensureCurrentUserRegistration();
+
 			if (service === "fitbit") {
 				const res = await authApi.fitbitLoginUrl(user.uid);
 				window.location.href = res.data.url;
 			} else if (service === "healthplanet") {
 				const res = await authApi.healthplanetLoginUrl(user.uid);
-				// Open in new tab; user will land on healthplanet.jp/success.html
-				window.open(res.data.url, "_blank");
-				setHpPendingUserId(user.uid);
-				setHpCode("");
+				window.location.href = res.data.url;
 			} else if (service === "google") {
 				const res = await authApi.googleLoginUrl(user.uid);
 				window.location.href = res.data.url;
 			} else if (service === "fatsecret") {
-				// OAuth 2.0 Authorization Code（oauth.fatsecret.com/connect/authorize）
 				const res = await authApi.fatsecretLoginUrl(user.uid);
 				window.location.href = res.data.url;
 			}
 		} catch (e) {
 			const detail = e.response?.data?.detail || e.message;
 			setErrorMsg("連携の開始に失敗しました: " + detail);
-		}
-	};
-
-	const handleHealthPlanetCodeSubmit = async () => {
-		if (!hpCode.trim()) return;
-		// Accept full URL or just the code
-		let code = hpCode.trim();
-		try {
-			const urlObj = new URL(code);
-			code = urlObj.searchParams.get("code") || code;
-		} catch {
-			// Not a URL, use as-is
-		}
-		setHpSubmitting(true);
-		try {
-			await authApi.healthplanetExchange(hpPendingUserId, code);
-			qc.invalidateQueries({ queryKey: ["settings"] });
-			setSuccessMsg("HealthPlanet を連携しました！");
-			setHpPendingUserId(null);
-			setHpCode("");
-		} catch (e) {
-			setErrorMsg(
-				"コードの交換に失敗しました: " +
-					(e.response?.data?.detail || e.message),
-			);
-		} finally {
-			setHpSubmitting(false);
 		}
 	};
 
@@ -266,14 +310,6 @@ export default function SettingsSection() {
 
 	return (
 		<div>
-			<div className="page-header">
-				<h1 className="page-title">設定</h1>
-				<button className="btn btn-outline btn-sm" onClick={logout}>
-					<LogOut size={14} strokeWidth={2} style={{ marginRight: 4 }} />
-					ログアウト
-				</button>
-			</div>
-
 			{successMsg && (
 				<div className="alert alert-success" onClick={() => setSuccessMsg("")}>
 					{successMsg}
@@ -282,59 +318,6 @@ export default function SettingsSection() {
 			{errorMsg && (
 				<div className="alert alert-error" onClick={() => setErrorMsg("")}>
 					{errorMsg}
-				</div>
-			)}
-
-			{/* HealthPlanet manual code entry modal */}
-			{hpPendingUserId && (
-				<div
-					style={{
-						position: "fixed",
-						inset: 0,
-						background: "rgba(0,0,0,0.5)",
-						display: "flex",
-						alignItems: "center",
-						justifyContent: "center",
-						zIndex: 1000,
-					}}
-				>
-					<div
-						className="card"
-						style={{ maxWidth: 480, width: "90%", margin: 0 }}
-					>
-						<div className="card-title">HealthPlanet 連携コードの入力</div>
-						<p style={{ fontSize: 13, marginBottom: 12 }}>
-							新しいタブで HealthPlanet の認証ページが開きました。
-							<br />
-							許可すると <strong>healthplanet.jp/success.html</strong>{" "}
-							に移動します。
-							<br />
-							そのページのブラウザURLバーから <code>?code=</code>{" "}
-							以降のコード（または URL 全体）をコピーして貼り付けてください。
-						</p>
-						<input
-							className="input"
-							style={{ width: "100%", marginBottom: 8 }}
-							placeholder="コードまたはリダイレクト後のURL全体を貼り付け"
-							value={hpCode}
-							onChange={(e) => setHpCode(e.target.value)}
-						/>
-						<div style={{ display: "flex", gap: 8 }}>
-							<button
-								className="btn btn-primary"
-								onClick={handleHealthPlanetCodeSubmit}
-								disabled={hpSubmitting || !hpCode.trim()}
-							>
-								{hpSubmitting ? "処理中..." : "連携する"}
-							</button>
-							<button
-								className="btn btn-outline"
-								onClick={() => setHpPendingUserId(null)}
-							>
-								キャンセル
-							</button>
-						</div>
-					</div>
 				</div>
 			)}
 
@@ -429,6 +412,34 @@ export default function SettingsSection() {
 					{/* 期限プリセット */}
 					<div className="form-group">
 						<label className="form-label">達成期限</label>
+
+						{/* ── 保存済み期限の大きな表示 ── */}
+						{goalsData?.deadline && (
+							<div className="deadline-display">
+								<div className="deadline-date">
+									{(() => {
+										return formatJstDate(goalsData.deadline, {
+											year: "numeric",
+											month: "long",
+											day: "numeric",
+										});
+									})()}
+								</div>
+								<div
+									className={`deadline-days${
+										daysRemaining(goalsData.deadline) === 0
+											? " deadline-days--expired"
+											: ""
+									}`}
+								>
+									{daysRemaining(goalsData.deadline) > 0
+										? `あと ${daysRemaining(goalsData.deadline).toLocaleString()} 日`
+										: "期限日"}
+								</div>
+							</div>
+						)}
+
+						{/* ── 期限の再設定 ── */}
 						<div
 							style={{
 								display: "flex",
@@ -466,7 +477,7 @@ export default function SettingsSection() {
 							}
 							style={{ maxWidth: 180 }}
 						/>
-						{goalForm.deadline && (
+						{goalForm.deadline && goalForm.deadline !== goalsData?.deadline && (
 							<div
 								style={{
 									fontSize: 12,
@@ -475,7 +486,8 @@ export default function SettingsSection() {
 									fontWeight: 600,
 								}}
 							>
-								あと {daysRemaining(goalForm.deadline).toLocaleString()} 日
+								設定後: あと {daysRemaining(goalForm.deadline).toLocaleString()}{" "}
+								日
 							</div>
 						)}
 					</div>
@@ -513,7 +525,14 @@ export default function SettingsSection() {
 								<div className="service-card-name">{svc.label}</div>
 								<div className="service-card-desc">{svc.desc}</div>
 								{svc.note && (
-									<div style={{ fontSize: 11, color: "var(--text-secondary)", marginTop: 3, lineHeight: 1.4 }}>
+									<div
+										style={{
+											fontSize: 11,
+											color: "var(--text-secondary)",
+											marginTop: 3,
+											lineHeight: 1.4,
+										}}
+									>
 										{svc.note}
 									</div>
 								)}
@@ -521,14 +540,26 @@ export default function SettingsSection() {
 							<div className="service-card-action">
 								{svc.noConnect ? (
 									<span
-										style={{ fontSize: 11, color: "var(--text-secondary)", maxWidth: 180, textAlign: "right", lineHeight: 1.4 }}
+										style={{
+											fontSize: 11,
+											color: "var(--text-secondary)",
+											maxWidth: 180,
+											textAlign: "right",
+											lineHeight: 1.4,
+										}}
 										title={svc.note}
 									>
 										連携不要
 									</span>
 								) : svc.unavailable ? (
 									<span
-										style={{ fontSize: 11, color: "var(--text-2)", maxWidth: 160, textAlign: "right", lineHeight: 1.4 }}
+										style={{
+											fontSize: 11,
+											color: "var(--text-2)",
+											maxWidth: 160,
+											textAlign: "right",
+											lineHeight: 1.4,
+										}}
 										title={svc.unavailableReason}
 									>
 										現在利用不可
@@ -740,6 +771,75 @@ export default function SettingsSection() {
 						追加
 					</button>
 				</div>
+			</div>
+
+			{/* 危険操作 */}
+			<div
+				className="section-title"
+				style={{ color: "var(--red-text)", marginTop: 24 }}
+			>
+				危険な操作
+			</div>
+			<div
+				className="card"
+				style={{ borderColor: "#fecaca", background: "#fff7f7" }}
+			>
+				<div style={{ marginBottom: 16 }}>
+					<div
+						className="card-title"
+						style={{ color: "var(--red-text)", marginBottom: 6 }}
+					>
+						ログアウト
+					</div>
+					<p
+						style={{
+							fontSize: 13,
+							color: "var(--text-secondary)",
+							lineHeight: 1.6,
+						}}
+					>
+						この端末でのログイン状態を解除します。誤操作を避けるため、通常操作から離した位置に置いています。
+					</p>
+					<button
+						className="btn btn-outline btn-sm"
+						style={{ marginTop: 12 }}
+						onClick={logout}
+					>
+						<LogOut size={14} strokeWidth={2} style={{ marginRight: 4 }} />
+						ログアウト
+					</button>
+				</div>
+
+				<div style={{ height: 1, background: "#fecaca", marginBottom: 16 }} />
+
+				<div className="card-title" style={{ color: "var(--red-text)" }}>
+					アカウント削除
+				</div>
+				<p
+					style={{
+						fontSize: 13,
+						color: "var(--text-secondary)",
+						lineHeight: 1.6,
+					}}
+				>
+					アカウントを削除すると、Firebase
+					の認証情報、保存済みの記録、連携設定、APIキー、所属情報が削除され、元に戻せません。
+				</p>
+				<button
+					className="btn btn-danger"
+					style={{ marginTop: 12 }}
+					disabled={deleteAccountMutation.isPending}
+					onClick={() => {
+						const confirmed = window.confirm(
+							"アカウントを削除すると、ログイン情報と保存データは元に戻せません。本当に削除しますか？",
+						);
+						if (!confirmed) return;
+						deleteAccountMutation.mutate();
+					}}
+				>
+					<Trash2 size={14} strokeWidth={2} style={{ marginRight: 4 }} />
+					{deleteAccountMutation.isPending ? "削除中…" : "アカウントを削除"}
+				</button>
 			</div>
 		</div>
 	);

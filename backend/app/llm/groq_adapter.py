@@ -2,7 +2,7 @@ import httpx
 from .adapter import LLMAdapter, LLMResponse
 
 GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
-DEFAULT_MODEL = "llama-3.1-70b-versatile"
+DEFAULT_MODEL = "llama-3.3-70b-versatile"
 
 
 class GroqAdapter(LLMAdapter):
@@ -26,9 +26,21 @@ class GroqAdapter(LLMAdapter):
                         {"role": "user", "content": user},
                     ],
                     "temperature": 0.7,
-                    "max_tokens": 2048,
+                    "max_completion_tokens": 2048,
                 },
             )
-        resp.raise_for_status()
+        if resp.is_error:
+            detail = None
+            try:
+                error_payload = resp.json()
+                detail = (
+                    error_payload.get("error", {}).get("message")
+                    or error_payload.get("message")
+                )
+            except ValueError:
+                detail = resp.text
+            raise RuntimeError(
+                f"Groq API error ({resp.status_code}): {detail or 'Unknown error'}"
+            )
         content = resp.json()["choices"][0]["message"]["content"]
         return LLMResponse(text=content, model=DEFAULT_MODEL)

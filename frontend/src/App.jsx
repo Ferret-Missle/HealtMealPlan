@@ -11,6 +11,7 @@ import MealPlanPage from './pages/MealPlanPage';
 import ShoppingListPage from './pages/ShoppingListPage';
 import MyPage from './pages/MyPage';
 import MealLogPage from './pages/MealLogPage';   // 旧食事ページ（直リンク用に残す）
+import InvitePage, { INVITE_TOKEN_KEY } from './pages/InvitePage';
 import ChatWidget from './components/ChatWidget';
 import './App.css';
 
@@ -27,7 +28,13 @@ function PrivateRoute({ children }) {
 function PublicRoute({ children }) {
   const { user, loading } = useAuth();
   if (loading) return <div className="loading-screen"><div className="spinner" /></div>;
-  return user ? <Navigate to="/" replace /> : children;
+  if (user) {
+    // ログイン後に保留中の招待があればそちらへ
+    const pendingInvite = sessionStorage.getItem(INVITE_TOKEN_KEY);
+    if (pendingInvite) return <Navigate to={`/invite/${pendingInvite}`} replace />;
+    return <Navigate to="/" replace />;
+  }
+  return children;
 }
 
 export default function App() {
@@ -38,6 +45,8 @@ export default function App() {
           <Routes>
             <Route path="/login"    element={<PublicRoute><LoginPage /></PublicRoute>} />
             <Route path="/register" element={<PublicRoute><RegisterPage /></PublicRoute>} />
+            {/* 招待リンク — ログイン不要（未ログインなら認証を促す） */}
+            <Route path="/invite/:token" element={<InvitePage />} />
             {/* 利用規約・プライバシーポリシーはログイン不要で常にアクセス可能 */}
             <Route path="/terms"    element={<TermsPage />} />
             <Route path="/privacy"  element={<PrivacyPage />} />

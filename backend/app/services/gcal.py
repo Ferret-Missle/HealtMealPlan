@@ -11,10 +11,19 @@ GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
 async def _get_access_token(user_id: str, db: Session) -> str:
     token = db.query(models.OAuthToken).filter_by(user_id=user_id, service="google").first()
     if not token:
-        raise ValueError("Google Calendar not connected")
+        raise ValueError("Googleカレンダーが連携されていません。設定ページから連携してください。")
 
-    if token.expires_at and token.expires_at < datetime.utcnow() + timedelta(minutes=5):
+    # expires_at が設定されていて期限切れ間近（または None で安全のため常にリフレッシュ試行）
+    needs_refresh = (
+        token.expires_at is None
+        or token.expires_at < datetime.utcnow() + timedelta(minutes=5)
+    )
+    if needs_refresh and token.refresh_token:
         await _refresh_token(token, db)
+    elif needs_refresh and not token.refresh_token:
+        # refresh_token がない場合は既存 access_token をそのまま使う
+        # （有効期限切れなら Google API が 401 を返し、上位で処理される）
+        pass
 
     return security.decrypt(token.access_token)
 
@@ -24,7 +33,7 @@ async def _refresh_token(token: models.OAuthToken, db: Session):
         raise ValueError("No Google refresh token")
     refresh = security.decrypt(token.refresh_token)
 
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=15.0) as client:
         resp = await client.post(
             "https://oauth2.googleapis.com/token",
             data={
@@ -35,7 +44,7 @@ async def _refresh_token(token: models.OAuthToken, db: Session):
             },
         )
     if resp.status_code != 200:
-        raise ValueError(f"Google refresh failed: {resp.text}")
+        raise ValueError(f"Googleトークンの更新に失敗しました ({resp.status_code}): {resp.text[:200]}")
 
     data = resp.json()
     token.access_token = security.encrypt(data["access_token"])
@@ -45,12 +54,15 @@ async def _refresh_token(token: models.OAuthToken, db: Session):
 
 async def list_calendars(user_id: str, db: Session) -> list:
     access_token = await _get_access_token(user_id, db)
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=15.0) as client:
         resp = await client.get(
             "https://www.googleapis.com/calendar/v3/users/me/calendarList",
             headers={"Authorization": f"Bearer {access_token}"},
         )
-    resp.raise_for_status()
+    if resp.status_code == 401:
+        raise ValueError("Googleアクセストークンが無効です。一度連携を解除して再連携してください。")
+    if not resp.is_success:
+        raise ValueError(f"Google Calendar API エラー ({resp.status_code}): {resp.text[:200]}")
     items = resp.json().get("items", [])
     return [
         {
@@ -64,6 +76,48 @@ async def list_calendars(user_id: str, db: Session) -> list:
 
 _MEAL_KEYWORDS = ["外食", "ランチ", "ディナー", "夕食", "昼食", "朝食", "食事"]
 _EXERCISE_KEYWORDS = ["筋トレ", "ジム", "ランニング", "ウォーキング", "ヨガ", "運動", "トレーニング"]
+
+
+async def get_user_events(user_id: str, date: str, db: Session) -> list:
+    """ユーザー自身のカレンダー予定を（タイトルそのまま）一覧で返す。ダッシュボード表示用。"""
+    settings = (
+        db.query(models.CalendarSetting)
+        .filter_by(user_id=user_id, use_for_meal_plan=True)
+        .all()
+    )
+    calendar_ids = [s.calendar_id for s in settings] if settings else ["primary"]
+
+    access_token = await _get_access_token(user_id, db)
+    time_min = f"{date}T00:00:00Z"
+    time_max = f"{date}T23:59:59Z"
+
+    events = []
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        for cal_id in calendar_ids:
+            resp = await client.get(
+                f"https://www.googleapis.com/calendar/v3/calendars/{cal_id}/events",
+                headers={"Authorization": f"Bearer {access_token}"},
+                params={
+                    "timeMin": time_min,
+                    "timeMax": time_max,
+                    "singleEvents": "true",
+                    "orderBy": "startTime",
+                    "maxResults": 50,
+                },
+            )
+            if resp.status_code != 200:
+                continue
+            for ev in resp.json().get("items", []):
+                start_ev = ev.get("start", {})
+                end_ev = ev.get("end", {})
+                events.append({
+                    "summary": ev.get("summary", "(無題)"),
+                    "start": start_ev.get("dateTime", start_ev.get("date", "")),
+                    "end": end_ev.get("dateTime", end_ev.get("date", "")),
+                    "all_day": "date" in start_ev and "dateTime" not in start_ev,
+                })
+
+    return events
 
 
 async def get_daily_events(user_id: str, date: str, db: Session) -> dict:
@@ -83,7 +137,7 @@ async def get_daily_events(user_id: str, date: str, db: Session) -> dict:
     meal_events = []
     exercise_events = []
 
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=15.0) as client:
         for setting in settings:
             resp = await client.get(
                 f"https://www.googleapis.com/calendar/v3/calendars/{setting.calendar_id}/events",

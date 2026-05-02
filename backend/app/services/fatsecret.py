@@ -1,6 +1,5 @@
 import os
 import uuid
-import hashlib
 import hmac
 import base64
 import time
@@ -10,103 +9,208 @@ from cachetools import TTLCache
 from sqlalchemy.orm import Session
 from .. import models, security
 
+# OAuth 1.0a（食品検索用 — IP ホワイトリスト不要）
 CONSUMER_KEY    = os.getenv("FATSECRET_CONSUMER_KEY", "")
 CONSUMER_SECRET = os.getenv("FATSECRET_CONSUMER_SECRET", "")
-API_URL         = "https://platform.fatsecret.com/rest/server.api"
-TOKEN_URL       = "https://oauth.fatsecret.com/connect/token"
+
+# OAuth 2.0 はアプリレベルの signed request 用のみ。
+# ユーザー委任（食事日記など）は OAuth 1.0a 3-legged を使う。
+API_URL           = "https://platform.fatsecret.com/rest/server.api"
+REQUEST_TOKEN_URL = "https://authentication.fatsecret.com/oauth/request_token"
+AUTHORIZE_URL     = "https://authentication.fatsecret.com/oauth/authorize"
+ACCESS_TOKEN_URL  = "https://authentication.fatsecret.com/oauth/access_token"
 
 _search_cache: TTLCache = TTLCache(maxsize=500, ttl=3600)
-
-# ── OAuth 2.0 Client Credentials（食品検索用）─────────────────────────
-
-# Bearer token キャッシュ（24時間有効）
-_bearer: dict = {"token": None, "expires_at": 0.0}
+_pending_oauth_tokens: TTLCache = TTLCache(maxsize=500, ttl=900)
 
 
-async def _get_bearer_token(scope: str = "basic barcode") -> str:
-    """Client Credentials フローで Bearer token を取得（24時間キャッシュ）。"""
-    now = time.time()
-    if _bearer["token"] and _bearer["expires_at"] > now + 60:
-        return _bearer["token"]
+# ── OAuth 1.0a helpers ───────────────────────────────────────────────
+
+def _percent_encode(value: str) -> str:
+    return urllib.parse.quote(str(value), safe="~")
+
+
+def _normalize_params(params: dict) -> str:
+    encoded_items: list[tuple[str, str]] = []
+    for key, value in params.items():
+        if value is None:
+            continue
+        if isinstance(value, (list, tuple)):
+            for item in value:
+                encoded_items.append((_percent_encode(key), _percent_encode(item)))
+        else:
+            encoded_items.append((_percent_encode(key), _percent_encode(value)))
+    encoded_items.sort()
+    return "&".join(f"{k}={v}" for k, v in encoded_items)
+
+
+def _build_oauth1_params(
+    method: str,
+    url: str,
+    *,
+    request_params: dict | None = None,
+    token: str = "",
+    token_secret: str = "",
+    callback: str | None = None,
+    verifier: str | None = None,
+) -> dict[str, str]:
+    oauth_params = {
+        "oauth_consumer_key": CONSUMER_KEY,
+        "oauth_nonce": uuid.uuid4().hex,
+        "oauth_signature_method": "HMAC-SHA1",
+        "oauth_timestamp": str(int(time.time())),
+        "oauth_version": "1.0",
+    }
+    if token:
+        oauth_params["oauth_token"] = token
+    if callback:
+        oauth_params["oauth_callback"] = callback
+    if verifier:
+        oauth_params["oauth_verifier"] = verifier
+
+    signature_params = {**oauth_params, **(request_params or {})}
+    signature_base = "&".join(
+        [
+            method.upper(),
+            _percent_encode(url),
+            _percent_encode(_normalize_params(signature_params)),
+        ]
+    )
+    signing_key = f"{_percent_encode(CONSUMER_SECRET)}&{_percent_encode(token_secret)}"
+    oauth_signature = base64.b64encode(
+        hmac.digest(signing_key.encode(), signature_base.encode(), "sha1")
+    ).decode()
+    oauth_params["oauth_signature"] = oauth_signature
+    return oauth_params
+
+
+async def _signed_oauth1_request(
+    method: str,
+    url: str,
+    *,
+    data: dict | None = None,
+    token: str = "",
+    token_secret: str = "",
+    callback: str | None = None,
+    verifier: str | None = None,
+) -> httpx.Response:
+    payload = dict(data or {})
+    oauth_params = _build_oauth1_params(
+        method,
+        url,
+        request_params=payload,
+        token=token,
+        token_secret=token_secret,
+        callback=callback,
+        verifier=verifier,
+    )
+    signed_payload = {**payload, **oauth_params}
+    request_kwargs: dict[str, dict[str, str]] = {}
+    if method.upper() == "GET":
+        request_kwargs["params"] = signed_payload
+    else:
+        request_kwargs["data"] = signed_payload
 
     async with httpx.AsyncClient() as client:
-        resp = await client.post(
-            TOKEN_URL,
-            data={"grant_type": "client_credentials", "scope": scope},
-            auth=(CONSUMER_KEY, CONSUMER_SECRET),
-        )
-    resp.raise_for_status()
-    data = resp.json()
-    _bearer["token"]      = data["access_token"]
-    _bearer["expires_at"] = now + data.get("expires_in", 86400)
-    return _bearer["token"]
+        return await client.request(method.upper(), url, **request_kwargs)
 
 
-async def _api_call_public(params: dict, scope: str = "basic barcode") -> dict:
-    """食品検索など、ユーザー認証不要の API 呼び出し（OAuth 2.0 Bearer）。"""
-    token = await _get_bearer_token(scope)
-    async with httpx.AsyncClient() as client:
-        resp = await client.post(
-            API_URL,
-            data=params,
-            headers={"Authorization": f"Bearer {token}"},
-        )
+def _parse_form_encoded(text: str) -> dict[str, str]:
+    parsed = urllib.parse.parse_qs(text, keep_blank_values=True)
+    return {key: values[0] for key, values in parsed.items()}
+
+
+def _to_float(value, default: float = 0.0) -> float:
+    if value in (None, ""):
+        return default
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+async def _api_call_public(params: dict) -> dict:
+    """食品検索など、ユーザー認証不要の API 呼び出し（OAuth 1.0a 2-legged）。"""
+    resp = await _signed_oauth1_request("POST", API_URL, data=params)
     resp.raise_for_status()
     return resp.json()
 
 
-# ── OAuth 1.0a（ユーザー食事日記用）──────────────────────────────────
+# ── OAuth 1.0a 3-legged（ユーザー委任 — 食事日記用）─────────────────
 
-def _oauth1_header(access_token: str, token_secret: str, extra_params: dict) -> str:
-    """ユーザーの OAuth 1.0a トークンで署名した Authorization ヘッダーを返す。"""
-    params = {
-        "oauth_consumer_key":     CONSUMER_KEY,
-        "oauth_nonce":            uuid.uuid4().hex,
-        "oauth_signature_method": "HMAC-SHA1",
-        "oauth_timestamp":        str(int(time.time())),
-        "oauth_token":            access_token,
-        "oauth_version":          "1.0",
-    }
-    # 署名ベースに API パラメータも含める
-    all_params = {**params, **extra_params}
-    sorted_params = "&".join(
-        f"{urllib.parse.quote(k, safe='')}={urllib.parse.quote(str(v), safe='')}"
-        for k, v in sorted(all_params.items())
-    )
-    base_string = "&".join([
+async def begin_user_authorization(callback_url: str, user_id: str) -> str:
+    """FatSecret 3-legged OAuth を開始し、認可 URL を返す。"""
+    resp = await _signed_oauth1_request(
         "POST",
-        urllib.parse.quote(API_URL, safe=""),
-        urllib.parse.quote(sorted_params, safe=""),
-    ])
-    signing_key = (
-        f"{urllib.parse.quote(CONSUMER_SECRET, safe='')}"
-        f"&{urllib.parse.quote(token_secret, safe='')}"
+        REQUEST_TOKEN_URL,
+        callback=callback_url,
     )
-    sig = base64.b64encode(
-        hmac.new(signing_key.encode(), base_string.encode(), hashlib.sha1).digest()
-    ).decode()
-    params["oauth_signature"] = sig
-    return "OAuth " + ", ".join(
-        f'{k}="{urllib.parse.quote(str(v), safe="")}"'
-        for k, v in sorted(params.items())
-        if k.startswith("oauth_")
+    if resp.status_code != 200:
+        raise ValueError(f"FatSecret request token error: {resp.text}")
+
+    data = _parse_form_encoded(resp.text)
+    request_token = data.get("oauth_token", "")
+    request_token_secret = data.get("oauth_token_secret", "")
+    if not request_token or not request_token_secret:
+        raise ValueError("FatSecret request token response was incomplete")
+
+    _pending_oauth_tokens[request_token] = {
+        "user_id": user_id,
+        "request_token_secret": request_token_secret,
+    }
+    return AUTHORIZE_URL + "?" + urllib.parse.urlencode({"oauth_token": request_token})
+
+
+async def complete_user_authorization(
+    request_token: str,
+    verifier: str,
+) -> dict[str, str]:
+    pending = _pending_oauth_tokens.get(request_token)
+    if not pending:
+        raise ValueError("FatSecret authorization expired. Please start the connection again.")
+
+    resp = await _signed_oauth1_request(
+        "GET",
+        ACCESS_TOKEN_URL,
+        token=request_token,
+        token_secret=pending["request_token_secret"],
+        verifier=verifier,
     )
+    if resp.status_code != 200:
+        raise ValueError(f"FatSecret access token error: {resp.text}")
+
+    data = _parse_form_encoded(resp.text)
+    access_token = data.get("oauth_token", "")
+    access_token_secret = data.get("oauth_token_secret", "")
+    if not access_token or not access_token_secret:
+        raise ValueError("FatSecret access token response was incomplete")
+
+    _pending_oauth_tokens.pop(request_token, None)
+    return {
+        "user_id": pending["user_id"],
+        "access_token": access_token,
+        "access_token_secret": access_token_secret,
+    }
 
 
 async def _api_call_user(user_id: str, db: Session, params: dict) -> dict:
-    """食事記録など、ユーザートークンが必要な API 呼び出し（OAuth 1.0a 3-legged）。"""
+    """食事記録など、ユーザートークンが必要な API 呼び出し（OAuth 1.0a delegated）。"""
     token = db.query(models.OAuthToken).filter_by(user_id=user_id, service="fatsecret").first()
     if not token:
         raise ValueError("FatSecretが連携されていません。設定画面から連携してください。")
-    access_token  = security.decrypt(token.access_token)
-    token_secret  = security.decrypt(token.refresh_token) if token.refresh_token else ""
-    auth_header   = _oauth1_header(access_token, token_secret, params)
-    async with httpx.AsyncClient() as client:
-        resp = await client.post(
-            API_URL,
-            data=params,
-            headers={"Authorization": auth_header},
-        )
+
+    access_token = security.decrypt(token.access_token)
+    access_token_secret = security.decrypt(token.refresh_token) if token.refresh_token else ""
+    if not access_token_secret:
+        raise ValueError("FatSecretトークンシークレットがありません。再連携してください。")
+
+    resp = await _signed_oauth1_request(
+        "POST",
+        API_URL,
+        data=params,
+        token=access_token,
+        token_secret=access_token_secret,
+    )
     resp.raise_for_status()
     return resp.json()
 
@@ -170,7 +274,7 @@ async def get_food_entries(user_id: str, date: str, db: Session) -> list:
 
 
 async def sync_food_diary(user_id: str, date: str, db: Session) -> int:
-    """FatSecretの食事日記を指定日付でDBに同期する（有料プランのみ）。既存レコードは上書きしない。"""
+    """FatSecretの食事日記を指定日付でDBに同期する（有料プランのみ）。"""
     from .. import models
     try:
         entries = await get_food_entries(user_id, date, db)
@@ -178,41 +282,45 @@ async def sync_food_diary(user_id: str, date: str, db: Session) -> int:
         raise ValueError(str(e))
     except Exception as e:
         raise ValueError(f"FatSecret diary sync requires a paid plan: {e}")
+
+    # FatSecret同期分は日次スナップショットとして扱い、その日の最新状態で置き換える。
+    existing_fatsecret_logs = (
+        db.query(models.MealLog)
+        .filter_by(user_id=user_id, date=date, source="fatsecret")
+        .all()
+    )
+    for log in existing_fatsecret_logs:
+        db.delete(log)
+
     synced = 0
     for entry in entries:
         food_id = str(entry.get("food_id", ""))
-        meal_type_raw = entry.get("meal_name", "dinner").lower()
+        meal_type_raw = str(entry.get("meal") or entry.get("meal_name") or "dinner").lower()
         meal_map = {"breakfast": "breakfast", "lunch": "lunch", "dinner": "dinner", "snack": "snack"}
         meal_type = meal_map.get(meal_type_raw, "snack")
-
-        # 重複チェック
-        exists = (
-            db.query(models.MealLog)
-            .filter_by(user_id=user_id, date=date, food_id=food_id, meal_type=meal_type)
-            .first()
-        )
-        if exists:
-            continue
-
-        # 栄養情報
-        nutrition = entry.get("nutritional_content", {})
+        nutrition = entry.get("nutritional_content") if isinstance(entry.get("nutritional_content"), dict) else entry
+        kcal = _to_float(entry.get("calories", nutrition.get("calories")))
+        protein_g = _to_float(entry.get("protein", nutrition.get("protein")))
+        fat_g = _to_float(entry.get("fat", nutrition.get("fat")))
+        carb_g = _to_float(entry.get("carbohydrate", nutrition.get("carbohydrate")))
+        serving_grams = _to_float(entry.get("metric_serving_amount"), default=0.0) or None
         log = models.MealLog(
             user_id=user_id,
             date=date,
             meal_type=meal_type,
             food_name=entry.get("food_entry_name", ""),
             food_id=food_id,
-            kcal=float(nutrition.get("calories", 0) or 0),
-            protein_g=float(nutrition.get("protein", 0) or 0),
-            fat_g=float(nutrition.get("fat", 0) or 0),
-            carb_g=float(nutrition.get("carbohydrate", 0) or 0),
-            serving_grams=float(entry.get("metric_serving_amount", 0) or 0),
+            kcal=kcal,
+            protein_g=protein_g,
+            fat_g=fat_g,
+            carb_g=carb_g,
+            serving_grams=serving_grams,
             source="fatsecret",
         )
         db.add(log)
         synced += 1
 
-    if synced > 0:
+    if synced > 0 or existing_fatsecret_logs:
         db.commit()
     return synced
 
@@ -224,7 +332,7 @@ async def search_by_barcode(user_id: str, barcode: str, db: Session) -> dict | N
         "barcode": barcode,
         "format":  "json",
     }
-    data = await _api_call_public(params, scope="basic barcode")
+    data = await _api_call_public(params)
     food_id = data.get("food_id", {}).get("value")
     if not food_id:
         return None

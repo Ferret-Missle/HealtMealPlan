@@ -35,7 +35,7 @@ const BYOK_PROVIDERS = [
 	{ key: "anthropic", label: "Anthropic (Claude)", vision: true },
 	{ key: "openai", label: "OpenAI (GPT-4o)", vision: true },
 	{ key: "gemini", label: "Google Gemini", vision: true },
-	{ key: "groq", label: "Groq (Llama 3.1)", vision: false },
+	{ key: "groq", label: "Groq (Llama 3.3)", vision: false },
 	{ key: "mistral", label: "Mistral AI", vision: false },
 ];
 
@@ -61,7 +61,10 @@ export default function SettingsPage() {
 	});
 	const [showApiKeyForm, setShowApiKeyForm] = useState(false);
 	const [excludedInput, setExcludedInput] = useState("");
-	const [errorMsg, setErrorMsg] = useState("");
+	// セクション別インラインエラー（グローバル通知は使わない）
+	const [serviceError, setServiceError] = useState("");   // 外部サービス連携セクション
+	const [apiKeyError,  setApiKeyError]  = useState("");   // LLMプランセクション
+	const [hpError,      setHpError]      = useState("");   // HealthPlanet モーダル内
 	const [successMsg, setSuccessMsg] = useState(
 		connected ? `${connected} を連携しました！` : "",
 	);
@@ -86,9 +89,10 @@ export default function SettingsPage() {
 			refreshProfile();
 			setShowApiKeyForm(false);
 			setNewApiKey({ provider: "anthropic", key: "" });
+			setApiKeyError("");
 			setSuccessMsg("APIキーを登録しました");
 		},
-		onError: (e) => setErrorMsg(e.message),
+		onError: (e) => setApiKeyError(e.message),
 	});
 
 	const deleteKeyMutation = useMutation({
@@ -97,6 +101,7 @@ export default function SettingsPage() {
 			qc.invalidateQueries({ queryKey: ["settings"] });
 			refreshProfile();
 		},
+		onError: (e) => setApiKeyError(e.message),
 	});
 
 	const disconnectMutation = useMutation({
@@ -104,16 +109,19 @@ export default function SettingsPage() {
 		onSuccess: () => {
 			qc.invalidateQueries({ queryKey: ["settings"] });
 			refreshProfile();
+			setServiceError("");
 		},
+		onError: (e) => setServiceError(e.message),
 	});
 
 	const syncCalMutation = useMutation({
 		mutationFn: () => settingsApi.syncCalendars(),
 		onSuccess: () => {
 			qc.invalidateQueries({ queryKey: ["settings"] });
+			setServiceError("");
 			setSuccessMsg("カレンダーを同期しました");
 		},
-		onError: (e) => setErrorMsg(e.message),
+		onError: (e) => setServiceError(e.message),
 	});
 
 	const connectedServices = settings?.connected_services || [];
@@ -144,7 +152,7 @@ export default function SettingsPage() {
 				window.location.href = res.data.authorize_url;
 			}
 		} catch (e) {
-			setErrorMsg("連携の開始に失敗しました: " + e.message);
+			setServiceError("連携の開始に失敗しました: " + e.message);
 		}
 	};
 
@@ -165,9 +173,8 @@ export default function SettingsPage() {
 			setHpPendingUserId(null);
 			setHpCode("");
 		} catch (e) {
-			setErrorMsg(
-				"コードの交換に失敗しました: " +
-					(e.response?.data?.detail || e.message),
+			setHpError(
+				"コードの交換に失敗しました: " + e.message,
 			);
 		} finally {
 			setHpSubmitting(false);
@@ -219,11 +226,6 @@ export default function SettingsPage() {
 					{successMsg}
 				</div>
 			)}
-			{errorMsg && (
-				<div className="alert alert-error" onClick={() => setErrorMsg("")}>
-					{errorMsg}
-				</div>
-			)}
 
 			{/* HealthPlanet manual code entry modal */}
 			{hpPendingUserId && (
@@ -259,6 +261,12 @@ export default function SettingsPage() {
 							value={hpCode}
 							onChange={(e) => setHpCode(e.target.value)}
 						/>
+						{hpError && (
+							<div className="alert alert-error" style={{ marginBottom: 8 }}
+								onClick={() => setHpError("")}>
+								{hpError}
+							</div>
+						)}
 						<div style={{ display: "flex", gap: 8 }}>
 							<button
 								className="btn btn-primary"
@@ -269,7 +277,7 @@ export default function SettingsPage() {
 							</button>
 							<button
 								className="btn btn-outline"
-								onClick={() => setHpPendingUserId(null)}
+								onClick={() => { setHpPendingUserId(null); setHpError(""); }}
 							>
 								キャンセル
 							</button>
@@ -357,14 +365,25 @@ export default function SettingsPage() {
 			{connectedServices.includes("google") && (
 				<button
 					className="btn btn-outline btn-full"
-					style={{ marginBottom: 12 }}
-					onClick={() => syncCalMutation.mutate()}
+					style={{ marginBottom: serviceError ? 4 : 12 }}
+					onClick={() => { setServiceError(""); syncCalMutation.mutate(); }}
 					disabled={syncCalMutation.isPending}
 				>
 					{syncCalMutation.isPending
 						? "カレンダー同期中..."
 						: "📅 カレンダーリストを同期"}
 				</button>
+			)}
+
+			{/* 外部サービス連携セクション インラインエラー */}
+			{serviceError && (
+				<div
+					className="alert alert-error"
+					style={{ marginBottom: 12, cursor: "pointer" }}
+					onClick={() => setServiceError("")}
+				>
+					{serviceError}
+				</div>
 			)}
 
 			{/* LLM / BYOK */}
@@ -450,27 +469,41 @@ export default function SettingsPage() {
 								※ AES-256-GCMで暗号化して保存。末尾4文字のみ表示されます。
 							</div>
 						</div>
+						{apiKeyError && (
+							<div className="alert alert-error" style={{ marginBottom: 8 }}
+								onClick={() => setApiKeyError("")}>
+								{apiKeyError}
+							</div>
+						)}
 						<div style={{ display: "flex", gap: 8 }}>
 							<button
 								className="btn btn-primary"
 								style={{ flex: 1 }}
-								onClick={() =>
+								onClick={() => {
+									setApiKeyError("");
 									apiKeyMutation.mutate({
 										provider: newApiKey.provider,
 										api_key: newApiKey.key,
-									})
-								}
+									});
+								}}
 								disabled={!newApiKey.key || apiKeyMutation.isPending}
 							>
 								{apiKeyMutation.isPending ? "登録中..." : "登録"}
 							</button>
 							<button
 								className="btn btn-outline"
-								onClick={() => setShowApiKeyForm(false)}
+								onClick={() => { setShowApiKeyForm(false); setApiKeyError(""); }}
 							>
 								キャンセル
 							</button>
 						</div>
+					</div>
+				)}
+				{/* APIキー削除エラー（フォームが閉じていても表示） */}
+				{apiKeyError && !showApiKeyForm && (
+					<div className="alert alert-error" style={{ marginTop: 8, cursor: "pointer" }}
+						onClick={() => setApiKeyError("")}>
+						{apiKeyError}
 					</div>
 				)}
 			</div>

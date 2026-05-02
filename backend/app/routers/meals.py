@@ -340,6 +340,87 @@ async def get_meal_history(
     return unique
 
 
+@router.get("/daily-kcal")
+async def get_daily_kcal(
+    days: int = 8,
+    base_date: str | None = None,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Return daily total kcal for the past N days (excluding base_date itself).
+    Used by dashboard to show yesterday and 7-day average."""
+    from datetime import timedelta
+    from collections import defaultdict
+    anchor = dt_date.fromisoformat(base_date) if base_date else dt_date.today()
+    start = str(anchor - timedelta(days=days))
+    end   = str(anchor - timedelta(days=1))   # exclude today/base_date
+
+    logs = (
+        db.query(models.MealLog)
+        .filter(
+            models.MealLog.user_id == current_user.id,
+            models.MealLog.date >= start,
+            models.MealLog.date <= end,
+        )
+        .all()
+    )
+
+    totals: dict[str, float] = defaultdict(float)
+    for log in logs:
+        totals[log.date] += log.kcal or 0
+
+    # Return sorted descending (newest first); include only dates with data
+    return [
+        {"date": d, "total_kcal": round(v)}
+        for d, v in sorted(totals.items(), reverse=True)
+    ]
+
+
+@router.get("/daily-nutrition")
+async def get_daily_nutrition(
+    days: int = 31,
+    base_date: str | None = None,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Return daily PFC + kcal totals for the past N days (excluding base_date itself).
+    Used by dashboard PFC / calorie history graphs."""
+    from datetime import timedelta
+    from collections import defaultdict
+    anchor = dt_date.fromisoformat(base_date) if base_date else dt_date.today()
+    start = str(anchor - timedelta(days=days))
+    end   = str(anchor - timedelta(days=1))
+
+    logs = (
+        db.query(models.MealLog)
+        .filter(
+            models.MealLog.user_id == current_user.id,
+            models.MealLog.date >= start,
+            models.MealLog.date <= end,
+        )
+        .all()
+    )
+
+    totals: dict[str, dict] = defaultdict(lambda: {"total_kcal": 0.0, "protein_g": 0.0, "fat_g": 0.0, "carb_g": 0.0})
+    for log in logs:
+        t = totals[log.date]
+        t["total_kcal"] += log.kcal or 0
+        t["protein_g"]  += log.protein_g or 0
+        t["fat_g"]      += log.fat_g or 0
+        t["carb_g"]     += log.carb_g or 0
+
+    return [
+        {
+            "date": d,
+            "total_kcal": round(v["total_kcal"]),
+            "protein_g":  round(v["protein_g"], 1),
+            "fat_g":      round(v["fat_g"], 1),
+            "carb_g":     round(v["carb_g"], 1),
+        }
+        for d, v in sorted(totals.items(), reverse=True)
+    ]
+
+
 @router.post("/sync-fatsecret")
 async def sync_fatsecret_logs(
     date: str | None = None,

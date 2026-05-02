@@ -1,23 +1,50 @@
 import os
+import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
-from dotenv import load_dotenv
 
 from .database import engine, Base
 from .routers import auth, dashboard, meals, body, settings, meal_plan, group, shopping, chat
 
-load_dotenv()
-
+logger = logging.getLogger(__name__)
 limiter = Limiter(key_func=get_remote_address)
+
+
+def _run_migrations():
+    """create_all では既存テーブルへのカラム追加ができないため、ALTER TABLE で補完する。"""
+    from sqlalchemy import text
+    with engine.connect() as conn:
+        # meal_plans.conditions_json
+        try:
+            conn.execute(text(
+                "ALTER TABLE meal_plans ADD COLUMN IF NOT EXISTS conditions_json JSON"
+            ))
+        except Exception as e:
+            logger.warning("Migration conditions_json skipped: %s", e)
+        # meal_plan_slots.source_type / kcal_budget
+        try:
+            conn.execute(text(
+                "ALTER TABLE meal_plan_slots ADD COLUMN IF NOT EXISTS source_type VARCHAR"
+            ))
+        except Exception as e:
+            logger.warning("Migration source_type skipped: %s", e)
+        try:
+            conn.execute(text(
+                "ALTER TABLE meal_plan_slots ADD COLUMN IF NOT EXISTS kcal_budget FLOAT"
+            ))
+        except Exception as e:
+            logger.warning("Migration kcal_budget skipped: %s", e)
+        conn.commit()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
+    _run_migrations()
     yield
 
 
@@ -112,12 +139,15 @@ async def debug_env():
     keys_to_check = [
         "FIREBASE_SERVICE_ACCOUNT_JSON",
         "FRONTEND_URL",
+        "BACKEND_URL",
         "FITBIT_CLIENT_ID",
         "FITBIT_REDIRECT_URI",
         "HEALTHPLANET_CLIENT_ID",
         "HEALTHPLANET_REDIRECT_URI",
         "GOOGLE_CLIENT_ID",
         "GOOGLE_REDIRECT_URI",
+        "FATSECRET_CONSUMER_KEY",
+        "FATSECRET_REDIRECT_URI",
     ]
     result = {}
     for k in keys_to_check:

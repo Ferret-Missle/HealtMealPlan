@@ -159,6 +159,8 @@ async def sync_calendars(
         calendars = await gcal.list_calendars(current_user.id, db)
     except ValueError as e:
         raise HTTPException(400, str(e))
+    except Exception as e:
+        raise HTTPException(502, f"Google Calendar API error: {str(e)}")
 
     existing_ids = {
         c.calendar_id

@@ -18,9 +18,18 @@ api.interceptors.request.use(async (config) => {
 api.interceptors.response.use(
   (res) => res,
   (err) => {
-    if (err.response?.status === 429) {
-      const msg = err.response.data?.detail || '月間利用上限に達しました。BYOKプランへのアップグレードをご検討ください。';
+    const status = err.response?.status;
+    const detail = err.response?.data?.detail;
+    if (status === 429) {
+      const msg = detail || '月間利用上限に達しました。BYOKプランへのアップグレードをご検討ください。';
       return Promise.reject(new Error(msg));
+    }
+    // バックエンドの detail メッセージがあれば e.message に乗せて返す
+    if (detail) {
+      const wrapped = new Error(typeof detail === 'string' ? detail : JSON.stringify(detail));
+      wrapped.response = err.response;
+      wrapped.status   = status;
+      return Promise.reject(wrapped);
     }
     return Promise.reject(err);
   }
@@ -30,6 +39,7 @@ api.interceptors.response.use(
 export const authApi = {
 	register: (data) => api.post("/api/auth/register", data),
 	me: () => api.get("/api/auth/me"),
+	deleteAccount: () => api.delete("/api/auth/me"),
 	disconnect: (service) => api.delete(`/api/auth/disconnect/${service}`),
 	fitbitLoginUrl: (userId) =>
 		api.get(`/api/auth/fitbit/login?user_id=${userId}`),
@@ -53,6 +63,7 @@ export const dashboardApi = {
   today: (date) => api.get('/api/dashboard/today', { params: date ? { target_date: date } : {} }),
   sleep: (days = 7) => api.get('/api/dashboard/sleep', { params: { days } }),
   exerciseComparison: (days = 7) => api.get('/api/dashboard/exercise-comparison', { params: { days } }),
+  calendar: (date) => api.get('/api/dashboard/calendar', { params: date ? { date } : {} }).then(r => r.data),
 };
 
 // Meals
@@ -65,6 +76,8 @@ export const mealsApi = {
   foodDetail: (foodId) => api.get(`/api/meals/food/${foodId}`),
   barcode: (barcode) => api.get(`/api/meals/barcode/${barcode}`).then(r => r.data),
   history: (days = 7) => api.get('/api/meals/history', { params: { days } }).then(r => r.data),
+  dailyKcal: (baseDate, days = 8) => api.get('/api/meals/daily-kcal', { params: { base_date: baseDate, days } }).then(r => r.data),
+  dailyNutrition: (baseDate, days = 31) => api.get('/api/meals/daily-nutrition', { params: { base_date: baseDate, days } }).then(r => r.data),
   photoEstimate: (data) => api.post('/api/meals/photo-estimate', data).then(r => r.data),
   copy: (data) => api.post('/api/meals/copy', data).then(r => r.data),
   // FatSecret の食事ログを指定日付で同期
@@ -96,8 +109,15 @@ export const settingsApi = {
 // Group
 export const groupApi = {
   myGroup: () => api.get('/api/groups/my'),
+  schedules: (startDate, days = 7) =>
+    api.get('/api/groups/my/schedules', { params: { start_date: startDate, days } }).then(r => r.data),
+  pendingInvitations: () => api.get('/api/groups/invitations/pending'),
   create: (data) => api.post('/api/groups/create', data),
   invite: (groupId, data) => api.post(`/api/groups/${groupId}/invite`, data),
+  cancelInvitation: (groupId, inviteId) =>
+    api.delete(`/api/groups/${groupId}/invitations/${inviteId}`),
+  transferOwner: (groupId, targetUserId) =>
+    api.put(`/api/groups/${groupId}/transfer-owner/${targetUserId}`),
   join: (token) => api.post(`/api/groups/join/${token}`),
   leave: (groupId) => api.delete(`/api/groups/${groupId}/leave`),
 };
@@ -112,6 +132,7 @@ export const mealPlanApi = {
   updateItem: (planId, itemId, data) => api.put(`/api/meal-plans/${planId}/items/${itemId}`, data).then(r => r.data),
   replaceSlot: (planId, slotId, data) => api.post(`/api/meal-plans/${planId}/slots/${slotId}/replace`, data).then(r => r.data),
   recalculate: (planId) => api.post(`/api/meal-plans/${planId}/recalculate`).then(r => r.data),
+  delete: (planId) => api.delete(`/api/meal-plans/${planId}/delete`).then(r => r.data),
 };
 
 // Shopping

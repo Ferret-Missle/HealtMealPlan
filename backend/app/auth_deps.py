@@ -73,6 +73,17 @@ def _init_firebase():
     _firebase_initialized = True
 
 
+def require_firebase_admin():
+    _init_firebase()
+    if _firebase_init_error:
+        logger.error(f"Firebase admin unavailable: {_firebase_init_error}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Firebase not configured: {_firebase_init_error}",
+        )
+    return firebase_auth
+
+
 async def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
     db: Session = Depends(get_db),
