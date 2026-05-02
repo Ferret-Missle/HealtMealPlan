@@ -38,7 +38,6 @@ import {
 	BarChart,
 	Cell,
 	ComposedChart,
-	Line,
 	Pie,
 	PieChart,
 	ReferenceLine,
@@ -387,31 +386,64 @@ function WeightGraph({ history, onBulkSync, isSyncing }) {
 }
 
 // ── カロリー ──────────────────────────────────────────────────
-function CaloriesValue({ intake, target, pct, remaining, yesterdayKcal, avgKcal7 }) {
+function CaloriesValue({
+	intake,
+	target,
+	pct,
+	remaining,
+	yesterdayKcal,
+	avgKcal7,
+}) {
 	const fill = `progress-fill${pct > 100 ? " over" : pct > 75 ? " warn" : ""}`;
-	const hasComparison = yesterdayKcal != null || avgKcal7 != null || target != null;
+	const hasComparison =
+		yesterdayKcal != null || avgKcal7 != null || target != null;
 	return (
 		<>
-			<div style={{ display: "flex", alignItems: "flex-end", gap: 10, marginTop: 2 }}>
+			<div
+				style={{
+					display: "flex",
+					alignItems: "flex-end",
+					gap: 10,
+					marginTop: 2,
+				}}
+			>
 				<div style={{ lineHeight: 1.1 }}>
-					<span className="widget-value">{intake?.toLocaleString() ?? "—"}</span>
+					<span className="widget-value">
+						{intake?.toLocaleString() ?? "—"}
+					</span>
 					<span className="widget-unit">kcal</span>
 				</div>
 				{hasComparison && (
-					<div style={{ fontSize: 11, color: "var(--text-2)", lineHeight: 1.7, paddingBottom: 2 }}>
+					<div
+						style={{
+							fontSize: 11,
+							color: "var(--text-2)",
+							lineHeight: 1.7,
+							paddingBottom: 2,
+						}}
+					>
 						{yesterdayKcal != null && (
 							<div>
-								昨日 <span style={{ color: "var(--orange-text)", fontWeight: 700 }}>{yesterdayKcal.toLocaleString()}</span>
+								昨日{" "}
+								<span style={{ color: "var(--orange-text)", fontWeight: 700 }}>
+									{yesterdayKcal.toLocaleString()}
+								</span>
 							</div>
 						)}
 						{avgKcal7 != null && (
 							<div>
-								7日平均 <span style={{ color: "var(--blue-text)", fontWeight: 700 }}>{avgKcal7.toLocaleString()}</span>
+								7日平均{" "}
+								<span style={{ color: "var(--blue-text)", fontWeight: 700 }}>
+									{avgKcal7.toLocaleString()}
+								</span>
 							</div>
 						)}
 						{target != null && (
 							<div>
-								目標 <span style={{ color: "var(--text)", fontWeight: 700 }}>{target.toLocaleString()}</span>
+								目標{" "}
+								<span style={{ color: "var(--text)", fontWeight: 700 }}>
+									{target.toLocaleString()}
+								</span>
 							</div>
 						)}
 					</div>
@@ -420,7 +452,10 @@ function CaloriesValue({ intake, target, pct, remaining, yesterdayKcal, avgKcal7
 			{remaining != null ? (
 				<div className="widget-sub">残り {remaining.toLocaleString()}</div>
 			) : (
-				!hasComparison && target && <div className="widget-sub">目標 {target.toLocaleString()}</div>
+				!hasComparison &&
+				target && (
+					<div className="widget-sub">目標 {target.toLocaleString()}</div>
+				)
 			)}
 			{pct != null && (
 				<div className="progress-bar" style={{ marginTop: 6 }}>
@@ -439,7 +474,13 @@ function getCalorieAxisConfig(chartData, target) {
 
 	const maxValue = Math.max(...values, 0);
 	const step =
-		maxValue <= 1200 ? 200 : maxValue <= 2400 ? 250 : maxValue <= 4000 ? 500 : 1000;
+		maxValue <= 1200
+			? 200
+			: maxValue <= 2400
+				? 250
+				: maxValue <= 4000
+					? 500
+					: 1000;
 	const top = Math.max(step, Math.ceil(maxValue / step) * step);
 	const ticks = [];
 	for (let value = 0; value <= top; value += step) ticks.push(value);
@@ -461,18 +502,28 @@ function CaloriesGraph({ intake, target, history = [], period = "1d" }) {
 			const parts = d.split("-");
 			return `${parseInt(parts[1])}/${parseInt(parts[2])}`;
 		};
-		const chartData = sliced.map((r) => ({ date: fmtDate(r.date), kcal: r.total_kcal }));
+		const chartData = sliced.map((r) => ({
+			date: fmtDate(r.date),
+			kcal: r.total_kcal,
+		}));
 		const { domain, ticks } = getCalorieAxisConfig(chartData, target);
 		return (
 			<ResponsiveContainer width="100%" height={120}>
-				<AreaChart data={chartData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+				<AreaChart
+					data={chartData}
+					margin={{ top: 4, right: 4, left: -20, bottom: 0 }}
+				>
 					<defs>
 						<linearGradient id="calGrad" x1="0" y1="0" x2="0" y2="1">
 							<stop offset="5%" stopColor={BRAND} stopOpacity={0.3} />
 							<stop offset="95%" stopColor={BRAND} stopOpacity={0} />
 						</linearGradient>
 					</defs>
-					<XAxis dataKey="date" tick={{ fontSize: 9 }} interval="preserveStartEnd" />
+					<XAxis
+						dataKey="date"
+						tick={{ fontSize: 9 }}
+						interval="preserveStartEnd"
+					/>
 					<YAxis
 						domain={domain}
 						ticks={ticks}
@@ -484,8 +535,23 @@ function CaloriesGraph({ intake, target, history = [], period = "1d" }) {
 						labelStyle={{ fontSize: 11 }}
 						contentStyle={{ fontSize: 11 }}
 					/>
-					{target && <ReferenceLine y={target} stroke="#94a3b8" strokeDasharray="3 3" label={{ value: "目標", fontSize: 9, fill: "#94a3b8" }} />}
-					<Area type="monotone" dataKey="kcal" stroke={BRAND} fill="url(#calGrad)" strokeWidth={2} dot={{ r: 3, fill: BRAND, strokeWidth: 0 }} activeDot={{ r: 4 }} />
+					{target && (
+						<ReferenceLine
+							y={target}
+							stroke="#94a3b8"
+							strokeDasharray="3 3"
+							label={{ value: "目標", fontSize: 9, fill: "#94a3b8" }}
+						/>
+					)}
+					<Area
+						type="monotone"
+						dataKey="kcal"
+						stroke={BRAND}
+						fill="url(#calGrad)"
+						strokeWidth={2}
+						dot={{ r: 3, fill: BRAND, strokeWidth: 0 }}
+						activeDot={{ r: 4 }}
+					/>
 				</AreaChart>
 			</ResponsiveContainer>
 		);
@@ -551,7 +617,14 @@ function PFCValue({ p, f, c, yp, yf, yc }) {
 		<div
 			style={{ marginTop: 4, fontSize: 12, lineHeight: 2, textAlign: "center" }}
 		>
-			<div style={{ display: "flex", justifyContent: "center", gap: 8, alignItems: "baseline" }}>
+			<div
+				style={{
+					display: "flex",
+					justifyContent: "center",
+					gap: 8,
+					alignItems: "baseline",
+				}}
+			>
 				<span>
 					<span style={{ color: PFC_COLORS[0], fontWeight: 700 }}>P</span>{" "}
 					{p ? `${p.toFixed(1)}g` : "—"}
@@ -562,7 +635,14 @@ function PFCValue({ p, f, c, yp, yf, yc }) {
 					</span>
 				)}
 			</div>
-			<div style={{ display: "flex", justifyContent: "center", gap: 8, alignItems: "baseline" }}>
+			<div
+				style={{
+					display: "flex",
+					justifyContent: "center",
+					gap: 8,
+					alignItems: "baseline",
+				}}
+			>
 				<span>
 					<span style={{ color: PFC_COLORS[1], fontWeight: 700 }}>F</span>{" "}
 					{f ? `${f.toFixed(1)}g` : "—"}
@@ -573,7 +653,14 @@ function PFCValue({ p, f, c, yp, yf, yc }) {
 					</span>
 				)}
 			</div>
-			<div style={{ display: "flex", justifyContent: "center", gap: 8, alignItems: "baseline" }}>
+			<div
+				style={{
+					display: "flex",
+					justifyContent: "center",
+					gap: 8,
+					alignItems: "baseline",
+				}}
+			>
 				<span>
 					<span style={{ color: PFC_COLORS[2], fontWeight: 700 }}>C</span>{" "}
 					{c ? `${c.toFixed(1)}g` : "—"}
@@ -615,21 +702,54 @@ function PFCGraph({ p, f, c, history = [], period = "1d" }) {
 			return (
 				<g>
 					<rect x={x} y={y} width={width} height={height} fill={fill} />
-					<line x1={x} y1={y} x2={x + width} y2={y} stroke={color} strokeWidth={2} />
+					<line
+						x1={x}
+						y1={y}
+						x2={x + width}
+						y2={y}
+						stroke={color}
+						strokeWidth={2}
+					/>
 				</g>
 			);
 		};
 		return (
 			<ResponsiveContainer width="100%" height={130}>
-				<ComposedChart data={chartData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
-					<XAxis dataKey="date" tick={{ fontSize: 9 }} interval="preserveStartEnd" />
+				<ComposedChart
+					data={chartData}
+					margin={{ top: 4, right: 4, left: -20, bottom: 0 }}
+				>
+					<XAxis
+						dataKey="date"
+						tick={{ fontSize: 9 }}
+						interval="preserveStartEnd"
+					/>
 					<YAxis tick={{ fontSize: 9 }} unit="g" />
-					<Tooltip formatter={tooltipFmt} labelStyle={{ fontSize: 11 }} contentStyle={{ fontSize: 11 }} />
+					<Tooltip
+						formatter={tooltipFmt}
+						labelStyle={{ fontSize: 11 }}
+						contentStyle={{ fontSize: 11 }}
+					/>
 					{/* P/F 境界線：P棒の上端に PFC_COLORS[0] の線 */}
-					<Bar dataKey="P" stackId="pfc" fill={PFC_COLORS[0]} shape={BarWithTopLine(PFC_COLORS[0])} />
+					<Bar
+						dataKey="P"
+						stackId="pfc"
+						fill={PFC_COLORS[0]}
+						shape={BarWithTopLine(PFC_COLORS[0])}
+					/>
 					{/* F/C 境界線：F棒の上端に PFC_COLORS[1] の線 */}
-					<Bar dataKey="F" stackId="pfc" fill={PFC_COLORS[1]} shape={BarWithTopLine(PFC_COLORS[1])} />
-					<Bar dataKey="C" stackId="pfc" fill={PFC_COLORS[2]} radius={[2, 2, 0, 0]} />
+					<Bar
+						dataKey="F"
+						stackId="pfc"
+						fill={PFC_COLORS[1]}
+						shape={BarWithTopLine(PFC_COLORS[1])}
+					/>
+					<Bar
+						dataKey="C"
+						stackId="pfc"
+						fill={PFC_COLORS[2]}
+						radius={[2, 2, 0, 0]}
+					/>
 				</ComposedChart>
 			</ResponsiveContainer>
 		);
@@ -936,7 +1056,15 @@ function MealsValue({ logs, yesterdayKcal }) {
 	const total = logs.reduce((s, l) => s + (l.kcal || 0), 0);
 	return (
 		<>
-			<div style={{ lineHeight: 1.1, marginTop: 2, display: "flex", alignItems: "baseline", gap: 8 }}>
+			<div
+				style={{
+					lineHeight: 1.1,
+					marginTop: 2,
+					display: "flex",
+					alignItems: "baseline",
+					gap: 8,
+				}}
+			>
 				<div>
 					<span className="widget-value">
 						{total ? Math.round(total).toLocaleString() : "—"}
@@ -944,8 +1072,8 @@ function MealsValue({ logs, yesterdayKcal }) {
 					<span className="widget-unit">kcal</span>
 				</div>
 				{yesterdayKcal != null && (
-					<span style={{ fontSize: 13, color: "var(--text-2)" }}>
-						(昨日 {yesterdayKcal.toLocaleString()})
+					<span style={{ fontSize: 11, color: "var(--text-2)" }}>
+						昨日 {yesterdayKcal.toLocaleString()}
 					</span>
 				)}
 			</div>
