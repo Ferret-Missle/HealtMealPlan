@@ -960,6 +960,75 @@ select.form-input {
   margin-bottom: var(--sp-3);
   gap: var(--sp-3);
 }
+.meal-summary-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-3);
+}
+.meal-summary-metrics {
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  gap: var(--sp-4);
+  margin-left: auto;
+  flex-wrap: wrap;
+}
+.meal-summary-current {
+  text-align: right;
+  white-space: nowrap;
+}
+.meal-summary-current-value {
+  color: var(--brand-text);
+}
+.meal-summary-side-stats {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  padding-top: 2px;
+}
+.meal-summary-side-stat {
+  display: flex;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: 6px;
+  font-size: 12px;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+.meal-summary-side-label,
+.meal-summary-side-unit {
+  color: var(--text-2);
+}
+.meal-summary-side-value {
+  font-weight: 700;
+}
+.meal-summary-side-value.is-yesterday {
+  color: var(--orange-text);
+}
+.meal-summary-side-value.is-average {
+  color: var(--blue-text);
+}
+@media (max-width: 479px) {
+  .meal-summary-header,
+  .meal-summary-metrics {
+    align-items: stretch;
+  }
+
+  .meal-summary-header,
+  .meal-summary-metrics,
+  .meal-summary-side-stats {
+    flex-direction: column;
+  }
+
+  .meal-summary-current,
+  .meal-summary-side-stats,
+  .meal-summary-side-stat {
+    align-items: flex-end;
+  }
+}
 .meal-slot-kcal {
   display: inline-flex;
   align-items: center;

@@ -49,9 +49,18 @@ export default function MealLogPage() {
 		queryFn: () => mealsApi.list(dateStr).then((r) => r.data),
 	});
 
+	const { data: dailyKcal = [] } = useQuery({
+		queryKey: ["meals-daily-kcal", dateStr],
+		queryFn: () => mealsApi.dailyKcal(dateStr, 8),
+		staleTime: 5 * 60 * 1000,
+	});
+
 	const syncMutation = useMutation({
 		mutationFn: () => mealsApi.syncFatSecret(dateStr),
-		onSuccess: () => qc.invalidateQueries({ queryKey: ["meals", dateStr] }),
+		onSuccess: () => {
+			qc.invalidateQueries({ queryKey: ["meals", dateStr] });
+			qc.invalidateQueries({ queryKey: ["meals-daily-kcal", dateStr] });
+		},
 	});
 
 	const prev = () => setDateStr((d) => addJstDays(d, -1));
@@ -67,6 +76,23 @@ export default function MealLogPage() {
 		}),
 		{ kcal: 0, protein: 0, fat: 0, carb: 0 },
 	);
+
+	const yesterdayKcal = (() => {
+		const yesterday = addJstDays(dateStr, -1);
+		const rec = dailyKcal.find((entry) => entry.date === yesterday);
+		return rec ? rec.total_kcal : null;
+	})();
+
+	const avgKcal7 = (() => {
+		const values = dailyKcal
+			.slice(0, 7)
+			.map((entry) => entry.total_kcal)
+			.filter((value) => value > 0);
+		if (!values.length) return null;
+		return Math.round(
+			values.reduce((sum, value) => sum + value, 0) / values.length,
+		);
+	})();
 
 	const logsByType = MEAL_TYPES.reduce((acc, mt) => {
 		acc[mt.key] = logs.filter((l) => l.meal_type === mt.key);
@@ -123,22 +149,42 @@ export default function MealLogPage() {
 			{/* Daily totals */}
 			{logs.length > 0 ? (
 				<div className="card">
-					<div
-						style={{
-							display: "flex",
-							alignItems: "center",
-							justifyContent: "space-between",
-							marginBottom: "var(--sp-3)",
-						}}
-					>
+					<div className="meal-summary-header">
 						<div className="card-title" style={{ marginBottom: 0 }}>
 							本日の合計
 						</div>
-						<div>
-							<span className="metric-value" style={{ fontSize: 24 }}>
-								{Math.round(totals.kcal)}
-							</span>
-							<span className="metric-unit">kcal</span>
+						<div className="meal-summary-metrics">
+							<div className="meal-summary-current">
+								<span
+									className="metric-value meal-summary-current-value"
+									style={{ fontSize: 24 }}
+								>
+									{Math.round(totals.kcal)}
+								</span>
+								<span className="metric-unit">kcal</span>
+							</div>
+							{(yesterdayKcal != null || avgKcal7 != null) && (
+								<div className="meal-summary-side-stats">
+									{yesterdayKcal != null && (
+										<div className="meal-summary-side-stat">
+											<span className="meal-summary-side-label">昨日</span>
+											<span className="meal-summary-side-value is-yesterday">
+												{yesterdayKcal.toLocaleString()}
+											</span>
+											<span className="meal-summary-side-unit">kcal</span>
+										</div>
+									)}
+									{avgKcal7 != null && (
+										<div className="meal-summary-side-stat">
+											<span className="meal-summary-side-label">7日平均</span>
+											<span className="meal-summary-side-value is-average">
+												{avgKcal7.toLocaleString()}
+											</span>
+											<span className="meal-summary-side-unit">kcal</span>
+										</div>
+									)}
+								</div>
+							)}
 						</div>
 					</div>
 					<PFCChart

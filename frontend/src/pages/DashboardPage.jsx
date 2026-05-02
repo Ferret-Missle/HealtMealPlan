@@ -37,6 +37,8 @@ import {
 	Bar,
 	BarChart,
 	Cell,
+	ComposedChart,
+	Line,
 	Pie,
 	PieChart,
 	ReferenceLine,
@@ -409,7 +411,41 @@ function CaloriesValue({ intake, target, pct, remaining }) {
 	);
 }
 
-function CaloriesGraph({ intake, target }) {
+function CaloriesGraph({ intake, target, history = [], period = "1d" }) {
+	// 7d / 30d：日別kcalの折れ線 + 面グラフ
+	if (period !== "1d") {
+		if (!history.length) return <EmptyGraph />;
+		const days = period === "30d" ? 30 : 7;
+		const sliced = history.slice(0, days).reverse();
+		const fmtDate = (d) => {
+			const parts = d.split("-");
+			return `${parseInt(parts[1])}/${parseInt(parts[2])}`;
+		};
+		const chartData = sliced.map((r) => ({ date: fmtDate(r.date), kcal: r.total_kcal }));
+		return (
+			<ResponsiveContainer width="100%" height={120}>
+				<AreaChart data={chartData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+					<defs>
+						<linearGradient id="calGrad" x1="0" y1="0" x2="0" y2="1">
+							<stop offset="5%" stopColor={BRAND} stopOpacity={0.3} />
+							<stop offset="95%" stopColor={BRAND} stopOpacity={0} />
+						</linearGradient>
+					</defs>
+					<XAxis dataKey="date" tick={{ fontSize: 9 }} interval="preserveStartEnd" />
+					<YAxis tick={{ fontSize: 9 }} />
+					<Tooltip
+						formatter={(v) => [`${v.toLocaleString()} kcal`, "摂取"]}
+						labelStyle={{ fontSize: 11 }}
+						contentStyle={{ fontSize: 11 }}
+					/>
+					{target && <ReferenceLine y={target} stroke="#94a3b8" strokeDasharray="3 3" label={{ value: "目標", fontSize: 9, fill: "#94a3b8" }} />}
+					<Area type="monotone" dataKey="kcal" stroke={BRAND} fill="url(#calGrad)" strokeWidth={2} dot={false} />
+				</AreaChart>
+			</ResponsiveContainer>
+		);
+	}
+
+	// 1d：ドーナツ
 	if (!intake) return <EmptyGraph />;
 	const over = target && intake > target ? intake - target : 0;
 	const consumed = intake - over;
@@ -484,7 +520,44 @@ function PFCValue({ p, f, c }) {
 	);
 }
 
-function PFCGraph({ p, f, c }) {
+function PFCGraph({ p, f, c, history = [], period = "1d" }) {
+	// 7d / 30d：積み上げ棒グラフ（P/F/C）+ 各栄養素の線
+	if (period !== "1d") {
+		if (!history.length) return <EmptyGraph />;
+		const days = period === "30d" ? 30 : 7;
+		const sliced = history.slice(0, days).reverse();
+		const fmtDate = (d) => {
+			const parts = d.split("-");
+			return `${parseInt(parts[1])}/${parseInt(parts[2])}`;
+		};
+		const chartData = sliced.map((r) => ({
+			date: fmtDate(r.date),
+			P: r.protein_g,
+			F: r.fat_g,
+			C: r.carb_g,
+		}));
+		const tooltipFmt = (v, name) => [
+			`${v.toFixed(1)}g`,
+			name === "P" ? "タンパク質" : name === "F" ? "脂質" : "炭水化物",
+		];
+		return (
+			<ResponsiveContainer width="100%" height={130}>
+				<ComposedChart data={chartData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+					<XAxis dataKey="date" tick={{ fontSize: 9 }} interval="preserveStartEnd" />
+					<YAxis tick={{ fontSize: 9 }} unit="g" />
+					<Tooltip formatter={tooltipFmt} labelStyle={{ fontSize: 11 }} contentStyle={{ fontSize: 11 }} />
+					<Bar dataKey="P" stackId="pfc" fill={PFC_COLORS[0]} opacity={0.7} />
+					<Bar dataKey="F" stackId="pfc" fill={PFC_COLORS[1]} opacity={0.7} />
+					<Bar dataKey="C" stackId="pfc" fill={PFC_COLORS[2]} opacity={0.7} radius={[2, 2, 0, 0]} />
+					<Line type="monotone" dataKey="P" stroke={PFC_COLORS[0]} strokeWidth={1.5} dot={false} />
+					<Line type="monotone" dataKey="F" stroke={PFC_COLORS[1]} strokeWidth={1.5} dot={false} />
+					<Line type="monotone" dataKey="C" stroke={PFC_COLORS[2]} strokeWidth={1.5} dot={false} />
+				</ComposedChart>
+			</ResponsiveContainer>
+		);
+	}
+
+	// 1d：ドーナツ
 	if (!p && !f && !c) return <EmptyGraph />;
 	const data = [
 		{ name: "タンパク質", value: p ?? 0 },
@@ -1114,6 +1187,23 @@ export default function DashboardPage() {
 		queryFn: () => mealsApi.dailyKcal(dateStr, 8),
 		staleTime: 5 * 60 * 1000,
 	});
+
+	// PFC・カロリー履歴（calories / pfc ウィジェットの 7d / 30d 用）
+	const calPeriod = periods.calories ?? "1d";
+	const pfcPeriod = periods.pfc ?? "1d";
+	const nutritionDays = (() => {
+		const max = Math.max(
+			calPeriod === "30d" ? 30 : calPeriod === "7d" ? 7 : 0,
+			pfcPeriod === "30d" ? 30 : pfcPeriod === "7d" ? 7 : 0,
+		);
+		return max > 0 ? max + 1 : 0; // +1 for safety
+	})();
+	const { data: dailyNutrition = [] } = useQuery({
+		queryKey: ["meals-daily-nutrition", dateStr, nutritionDays],
+		queryFn: () => mealsApi.dailyNutrition(dateStr, nutritionDays),
+		enabled: nutritionDays > 0,
+		staleTime: 5 * 60 * 1000,
+	});
 	const yesterdayKcal = (() => {
 		const yStr = offsetDate(dateStr, -1);
 		const rec = dailyKcal.find((r) => r.date === yStr);
@@ -1223,7 +1313,7 @@ export default function DashboardPage() {
 			),
 		},
 		calories: {
-			support: ["1d"],
+			support: ["1d", "7d", "30d"],
 			value: (
 				<CaloriesValue
 					intake={calIntake}
@@ -1232,12 +1322,27 @@ export default function DashboardPage() {
 					remaining={calRemaining}
 				/>
 			),
-			graph: <CaloriesGraph intake={calIntake} target={calTarget} />,
+			graph: (
+				<CaloriesGraph
+					intake={calIntake}
+					target={calTarget}
+					history={dailyNutrition}
+					period={calPeriod}
+				/>
+			),
 		},
 		pfc: {
-			support: ["1d"],
+			support: ["1d", "7d", "30d"],
 			value: <PFCValue p={nut.protein_g} f={nut.fat_g} c={nut.carb_g} />,
-			graph: <PFCGraph p={nut.protein_g} f={nut.fat_g} c={nut.carb_g} />,
+			graph: (
+				<PFCGraph
+					p={nut.protein_g}
+					f={nut.fat_g}
+					c={nut.carb_g}
+					history={dailyNutrition}
+					period={pfcPeriod}
+				/>
+			),
 		},
 		steps: {
 			support: ["1d", "7d", "30d"],

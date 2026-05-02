@@ -77,6 +77,7 @@ export const mealsApi = {
   barcode: (barcode) => api.get(`/api/meals/barcode/${barcode}`).then(r => r.data),
   history: (days = 7) => api.get('/api/meals/history', { params: { days } }).then(r => r.data),
   dailyKcal: (baseDate, days = 8) => api.get('/api/meals/daily-kcal', { params: { base_date: baseDate, days } }).then(r => r.data),
+  dailyNutrition: (baseDate, days = 31) => api.get('/api/meals/daily-nutrition', { params: { base_date: baseDate, days } }).then(r => r.data),
   photoEstimate: (data) => api.post('/api/meals/photo-estimate', data).then(r => r.data),
   copy: (data) => api.post('/api/meals/copy', data).then(r => r.data),
   // FatSecret の食事ログを指定日付で同期
