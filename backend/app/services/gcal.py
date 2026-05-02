@@ -24,7 +24,7 @@ async def _refresh_token(token: models.OAuthToken, db: Session):
         raise ValueError("No Google refresh token")
     refresh = security.decrypt(token.refresh_token)
 
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=15.0) as client:
         resp = await client.post(
             "https://oauth2.googleapis.com/token",
             data={
@@ -35,7 +35,7 @@ async def _refresh_token(token: models.OAuthToken, db: Session):
             },
         )
     if resp.status_code != 200:
-        raise ValueError(f"Google refresh failed: {resp.text}")
+        raise ValueError(f"Googleトークンの更新に失敗しました ({resp.status_code}): {resp.text[:200]}")
 
     data = resp.json()
     token.access_token = security.encrypt(data["access_token"])
@@ -45,12 +45,13 @@ async def _refresh_token(token: models.OAuthToken, db: Session):
 
 async def list_calendars(user_id: str, db: Session) -> list:
     access_token = await _get_access_token(user_id, db)
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=15.0) as client:
         resp = await client.get(
             "https://www.googleapis.com/calendar/v3/users/me/calendarList",
             headers={"Authorization": f"Bearer {access_token}"},
         )
-    resp.raise_for_status()
+    if not resp.is_success:
+        raise ValueError(f"Google API returned {resp.status_code}: {resp.text[:200]}")
     items = resp.json().get("items", [])
     return [
         {
@@ -80,7 +81,7 @@ async def get_user_events(user_id: str, date: str, db: Session) -> list:
     time_max = f"{date}T23:59:59Z"
 
     events = []
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=15.0) as client:
         for cal_id in calendar_ids:
             resp = await client.get(
                 f"https://www.googleapis.com/calendar/v3/calendars/{cal_id}/events",
@@ -125,7 +126,7 @@ async def get_daily_events(user_id: str, date: str, db: Session) -> dict:
     meal_events = []
     exercise_events = []
 
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=15.0) as client:
         for setting in settings:
             resp = await client.get(
                 f"https://www.googleapis.com/calendar/v3/calendars/{setting.calendar_id}/events",
