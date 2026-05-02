@@ -675,8 +675,28 @@ function PFCValue({ p, f, c, yp, yf, yc }) {
 	);
 }
 
+// 棒の上端に区切り線を描くカスタムシェイプ（モジュールスコープで定義して参照を固定）
+function PBarShape({ x, y, width, height, fill }) {
+	if (!width || !height) return null;
+	return (
+		<g>
+			<rect x={x} y={y} width={width} height={height} fill={fill} />
+			<line x1={x} y1={y} x2={x + width} y2={y} stroke={PFC_COLORS[0]} strokeWidth={2} />
+		</g>
+	);
+}
+function FBarShape({ x, y, width, height, fill }) {
+	if (!width || !height) return null;
+	return (
+		<g>
+			<rect x={x} y={y} width={width} height={height} fill={fill} />
+			<line x1={x} y1={y} x2={x + width} y2={y} stroke={PFC_COLORS[1]} strokeWidth={2} />
+		</g>
+	);
+}
+
 function PFCGraph({ p, f, c, history = [], period = "1d" }) {
-	// 7d / 30d：積み上げ棒グラフ（P/F/C）+ 各栄養素の線
+	// 7d / 30d：積み上げ棒グラフ（P/F/C）+ 区切り線
 	if (period !== "1d") {
 		if (!history.length) return <EmptyGraph />;
 		const days = period === "30d" ? 30 : 7;
@@ -695,24 +715,6 @@ function PFCGraph({ p, f, c, history = [], period = "1d" }) {
 			`${v.toFixed(1)}g`,
 			name === "P" ? "タンパク質" : name === "F" ? "脂質" : "炭水化物",
 		];
-		// 棒の上端に区切り線を描くカスタムシェイプ
-		const BarWithTopLine = (color) => (props) => {
-			const { x, y, width, height, fill } = props;
-			if (!width || !height) return null;
-			return (
-				<g>
-					<rect x={x} y={y} width={width} height={height} fill={fill} />
-					<line
-						x1={x}
-						y1={y}
-						x2={x + width}
-						y2={y}
-						stroke={color}
-						strokeWidth={2}
-					/>
-				</g>
-			);
-		};
 		return (
 			<ResponsiveContainer width="100%" height={130}>
 				<ComposedChart
@@ -730,20 +732,10 @@ function PFCGraph({ p, f, c, history = [], period = "1d" }) {
 						labelStyle={{ fontSize: 11 }}
 						contentStyle={{ fontSize: 11 }}
 					/>
-					{/* P/F 境界線：P棒の上端に PFC_COLORS[0] の線 */}
-					<Bar
-						dataKey="P"
-						stackId="pfc"
-						fill={PFC_COLORS[0]}
-						shape={BarWithTopLine(PFC_COLORS[0])}
-					/>
-					{/* F/C 境界線：F棒の上端に PFC_COLORS[1] の線 */}
-					<Bar
-						dataKey="F"
-						stackId="pfc"
-						fill={PFC_COLORS[1]}
-						shape={BarWithTopLine(PFC_COLORS[1])}
-					/>
+					{/* P/F 境界線：P棒の上端に色付き線 */}
+					<Bar dataKey="P" stackId="pfc" fill={PFC_COLORS[0]} shape={<PBarShape />} />
+					{/* F/C 境界線：F棒の上端に色付き線 */}
+					<Bar dataKey="F" stackId="pfc" fill={PFC_COLORS[1]} shape={<FBarShape />} />
 					<Bar
 						dataKey="C"
 						stackId="pfc"
