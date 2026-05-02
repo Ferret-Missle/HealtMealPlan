@@ -118,9 +118,10 @@ img { max-width: 100%; height: auto; display: block; }
 }
 
 .app-main {
+  --app-main-pad: var(--sp-4);
   flex: 1;
   overflow-y: auto;
-  padding: var(--sp-4);
+  padding: var(--app-main-pad);
   padding-bottom: calc(72px + env(safe-area-inset-bottom, 8px));
   -webkit-overflow-scrolling: touch;
   overscroll-behavior-y: contain;
@@ -133,13 +134,17 @@ img { max-width: 100%; height: auto; display: block; }
 
 /* Tablet S 以上 */
 @media (min-width: 480px) {
-  .app-main { padding: var(--sp-5); }
+  .app-main {
+    --app-main-pad: var(--sp-5);
+    padding: var(--app-main-pad);
+  }
 }
 
 /* Tablet L 以上: ボトムナビ消えるためpadding-bottom縮小 */
 @media (min-width: 768px) {
   .app-main {
-    padding: var(--sp-6);
+    --app-main-pad: var(--sp-6);
+    padding: var(--app-main-pad);
     padding-bottom: var(--sp-8);
   }
 }
@@ -147,7 +152,8 @@ img { max-width: 100%; height: auto; display: block; }
 /* Desktop 以上: padding を更に拡大、最大幅は維持 */
 @media (min-width: 1024px) {
   .app-main {
-    padding: var(--sp-8);
+    --app-main-pad: var(--sp-8);
+    padding: var(--app-main-pad);
     padding-bottom: var(--sp-8);
   }
 }
@@ -155,7 +161,8 @@ img { max-width: 100%; height: auto; display: block; }
 /* Wide Desktop: パディング更に拡大、最大幅引き上げ */
 @media (min-width: 1600px) {
   .app-main {
-    padding: var(--sp-10);
+    --app-main-pad: var(--sp-10);
+    padding: var(--app-main-pad);
     max-width: 1600px;
   }
 }
@@ -332,10 +339,50 @@ img { max-width: 100%; height: auto; display: block; }
 .drawer-item:hover  { background: var(--s100); color: var(--text); }
 .drawer-item.active { background: var(--brand-pale); color: var(--brand-text); font-weight: 600; }
 
+@media (min-width: 1024px) {
+  .app-layout {
+    display: grid;
+    grid-template-columns: 280px minmax(0, 1fr);
+    grid-template-rows: 56px minmax(0, 1fr);
+  }
+
+  .app-header {
+    grid-column: 1 / -1;
+    grid-row: 1;
+  }
+
+  .hamburger-btn,
+  .drawer-overlay {
+    display: none;
+  }
+
+  .drawer {
+    position: sticky;
+    top: 56px;
+    left: auto;
+    bottom: auto;
+    grid-column: 1;
+    grid-row: 2;
+    width: 280px;
+    max-width: none;
+    height: calc(100dvh - 56px);
+    box-shadow: none;
+    transform: none;
+    transition: none;
+    z-index: 80;
+  }
+
+  .app-body {
+    grid-column: 2;
+    grid-row: 2;
+    min-height: 0;
+  }
+}
+
 /* ── Dashboard date nav sticky bar ─────────────────────────── */
 .dash-date-nav {
   position: sticky;
-  top: 0;
+  top: calc(var(--app-main-pad) * -1);
   z-index: 80;
   display: flex;
   align-items: center;

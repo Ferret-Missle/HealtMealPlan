@@ -312,10 +312,6 @@ export default function SettingsSection() {
 		<div>
 			<div className="page-header">
 				<h1 className="page-title">設定</h1>
-				<button className="btn btn-outline btn-sm" onClick={logout}>
-					<LogOut size={14} strokeWidth={2} style={{ marginRight: 4 }} />
-					ログアウト
-				</button>
 			</div>
 
 			{successMsg && (
@@ -426,7 +422,11 @@ export default function SettingsSection() {
 							<div className="deadline-display">
 								<div className="deadline-date">
 									{(() => {
-										return formatJstDate(goalsData.deadline, { year: "numeric", month: "long", day: "numeric" });
+										return formatJstDate(goalsData.deadline, {
+											year: "numeric",
+											month: "long",
+											day: "numeric",
+										});
 									})()}
 								</div>
 								<div
@@ -490,7 +490,8 @@ export default function SettingsSection() {
 									fontWeight: 600,
 								}}
 							>
-								設定後: あと {daysRemaining(goalForm.deadline).toLocaleString()} 日
+								設定後: あと {daysRemaining(goalForm.deadline).toLocaleString()}{" "}
+								日
 							</div>
 						)}
 					</div>
@@ -528,7 +529,14 @@ export default function SettingsSection() {
 								<div className="service-card-name">{svc.label}</div>
 								<div className="service-card-desc">{svc.desc}</div>
 								{svc.note && (
-									<div style={{ fontSize: 11, color: "var(--text-secondary)", marginTop: 3, lineHeight: 1.4 }}>
+									<div
+										style={{
+											fontSize: 11,
+											color: "var(--text-secondary)",
+											marginTop: 3,
+											lineHeight: 1.4,
+										}}
+									>
 										{svc.note}
 									</div>
 								)}
@@ -536,14 +544,26 @@ export default function SettingsSection() {
 							<div className="service-card-action">
 								{svc.noConnect ? (
 									<span
-										style={{ fontSize: 11, color: "var(--text-secondary)", maxWidth: 180, textAlign: "right", lineHeight: 1.4 }}
+										style={{
+											fontSize: 11,
+											color: "var(--text-secondary)",
+											maxWidth: 180,
+											textAlign: "right",
+											lineHeight: 1.4,
+										}}
 										title={svc.note}
 									>
 										連携不要
 									</span>
 								) : svc.unavailable ? (
 									<span
-										style={{ fontSize: 11, color: "var(--text-2)", maxWidth: 160, textAlign: "right", lineHeight: 1.4 }}
+										style={{
+											fontSize: 11,
+											color: "var(--text-2)",
+											maxWidth: 160,
+											textAlign: "right",
+											lineHeight: 1.4,
+										}}
 										title={svc.unavailableReason}
 									>
 										現在利用不可
@@ -758,15 +778,56 @@ export default function SettingsSection() {
 			</div>
 
 			{/* 危険操作 */}
-			<div className="section-title" style={{ color: "var(--red-text)", marginTop: 24 }}>
+			<div
+				className="section-title"
+				style={{ color: "var(--red-text)", marginTop: 24 }}
+			>
 				危険な操作
 			</div>
-			<div className="card" style={{ borderColor: "#fecaca", background: "#fff7f7" }}>
+			<div
+				className="card"
+				style={{ borderColor: "#fecaca", background: "#fff7f7" }}
+			>
+				<div style={{ marginBottom: 16 }}>
+					<div
+						className="card-title"
+						style={{ color: "var(--red-text)", marginBottom: 6 }}
+					>
+						ログアウト
+					</div>
+					<p
+						style={{
+							fontSize: 13,
+							color: "var(--text-secondary)",
+							lineHeight: 1.6,
+						}}
+					>
+						この端末でのログイン状態を解除します。誤操作を避けるため、通常操作から離した位置に置いています。
+					</p>
+					<button
+						className="btn btn-outline btn-sm"
+						style={{ marginTop: 12 }}
+						onClick={logout}
+					>
+						<LogOut size={14} strokeWidth={2} style={{ marginRight: 4 }} />
+						ログアウト
+					</button>
+				</div>
+
+				<div style={{ height: 1, background: "#fecaca", marginBottom: 16 }} />
+
 				<div className="card-title" style={{ color: "var(--red-text)" }}>
 					アカウント削除
 				</div>
-				<p style={{ fontSize: 13, color: "var(--text-secondary)", lineHeight: 1.6 }}>
-					アカウントを削除すると、Firebase の認証情報、保存済みの記録、連携設定、APIキー、所属情報が削除され、元に戻せません。
+				<p
+					style={{
+						fontSize: 13,
+						color: "var(--text-secondary)",
+						lineHeight: 1.6,
+					}}
+				>
+					アカウントを削除すると、Firebase
+					の認証情報、保存済みの記録、連携設定、APIキー、所属情報が削除され、元に戻せません。
 				</p>
 				<button
 					className="btn btn-danger"
