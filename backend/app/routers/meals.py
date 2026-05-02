@@ -340,6 +340,42 @@ async def get_meal_history(
     return unique
 
 
+@router.get("/daily-kcal")
+async def get_daily_kcal(
+    days: int = 8,
+    base_date: str | None = None,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Return daily total kcal for the past N days (excluding base_date itself).
+    Used by dashboard to show yesterday and 7-day average."""
+    from datetime import timedelta
+    from collections import defaultdict
+    anchor = dt_date.fromisoformat(base_date) if base_date else dt_date.today()
+    start = str(anchor - timedelta(days=days))
+    end   = str(anchor - timedelta(days=1))   # exclude today/base_date
+
+    logs = (
+        db.query(models.MealLog)
+        .filter(
+            models.MealLog.user_id == current_user.id,
+            models.MealLog.date >= start,
+            models.MealLog.date <= end,
+        )
+        .all()
+    )
+
+    totals: dict[str, float] = defaultdict(float)
+    for log in logs:
+        totals[log.date] += log.kcal or 0
+
+    # Return sorted descending (newest first); include only dates with data
+    return [
+        {"date": d, "total_kcal": round(v)}
+        for d, v in sorted(totals.items(), reverse=True)
+    ]
+
+
 @router.post("/sync-fatsecret")
 async def sync_fatsecret_logs(
     date: str | None = None,

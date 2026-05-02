@@ -781,7 +781,7 @@ const MEAL_TYPE_LABEL = {
 };
 const MEAL_TYPE_ORDER = ["breakfast", "lunch", "dinner", "snack"];
 
-function MealsValue({ logs }) {
+function MealsValue({ logs, yesterdayKcal, avgKcal7 }) {
 	const total = logs.reduce((s, l) => s + (l.kcal || 0), 0);
 	return (
 		<>
@@ -792,6 +792,16 @@ function MealsValue({ logs }) {
 				<span className="widget-unit">kcal</span>
 			</div>
 			<div className="widget-sub">{logs.length} 件の食事記録</div>
+			{(yesterdayKcal != null || avgKcal7 != null) && (
+				<div style={{ fontSize: 11, color: "var(--text-2)", marginTop: 4, lineHeight: 1.7 }}>
+					{yesterdayKcal != null && (
+						<div>昨日 <span style={{ color: "var(--text)", fontWeight: 600 }}>{yesterdayKcal.toLocaleString()}</span> kcal</div>
+					)}
+					{avgKcal7 != null && (
+						<div>7日平均 <span style={{ color: "var(--text)", fontWeight: 600 }}>{avgKcal7.toLocaleString()}</span> kcal</div>
+					)}
+				</div>
+			)}
 		</>
 	);
 }
@@ -1098,10 +1108,28 @@ export default function DashboardPage() {
 		queryFn: () => mealsApi.list(dateStr).then((r) => r.data),
 	});
 
+	// 昨日・7日平均カロリー（食事記録ウィジェットのサブ表示用）
+	const { data: dailyKcal = [] } = useQuery({
+		queryKey: ["meals-daily-kcal", dateStr],
+		queryFn: () => mealsApi.dailyKcal(dateStr, 8),
+		staleTime: 5 * 60 * 1000,
+	});
+	const yesterdayKcal = (() => {
+		const yStr = offsetDate(dateStr, -1);
+		const rec = dailyKcal.find((r) => r.date === yStr);
+		return rec ? rec.total_kcal : null;
+	})();
+	const avgKcal7 = (() => {
+		const vals = dailyKcal.slice(0, 7).map((r) => r.total_kcal).filter((v) => v > 0);
+		if (!vals.length) return null;
+		return Math.round(vals.reduce((a, b) => a + b, 0) / vals.length);
+	})();
+
 	const syncFatSecretMutation = useMutation({
 		mutationFn: () => mealsApi.syncFatSecret(dateStr),
 		onSuccess: () => {
 			qc.invalidateQueries({ queryKey: ["meals", dateStr] });
+			qc.invalidateQueries({ queryKey: ["meals-daily-kcal", dateStr] });
 			qc.invalidateQueries({ queryKey: ["dashboard", dateStr] });
 		},
 	});
@@ -1239,7 +1267,7 @@ export default function DashboardPage() {
 		},
 		meals: {
 			support: ["1d"],
-			value: <MealsValue logs={mealLogs} />,
+			value: <MealsValue logs={mealLogs} yesterdayKcal={yesterdayKcal} avgKcal7={avgKcal7} />,
 			graph: (
 				<MealsList
 					logs={mealLogs}
