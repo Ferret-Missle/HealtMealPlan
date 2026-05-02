@@ -400,10 +400,20 @@ function CaloriesValue({ intake, target, pct, remaining, yesterdayKcal, avgKcal7
 				{hasComparison && (
 					<div style={{ fontSize: 11, color: "var(--text-2)", lineHeight: 1.7, paddingBottom: 2 }}>
 						{yesterdayKcal != null && (
-							<div>昨日 <span style={{ color: "var(--text)", fontWeight: 600 }}>{yesterdayKcal.toLocaleString()}</span></div>
+							<div>
+								昨日 <span style={{ color: "var(--text)", fontWeight: 600 }}>{yesterdayKcal.toLocaleString()}</span>
+								{target != null && (
+									<span style={{ color: "var(--text-3)", marginLeft: 4 }}>/ 目標 {target.toLocaleString()}</span>
+								)}
+							</div>
 						)}
 						{avgKcal7 != null && (
-							<div>7日平均 <span style={{ color: "var(--text)", fontWeight: 600 }}>{avgKcal7.toLocaleString()}</span></div>
+							<div>
+								7日平均 <span style={{ color: "var(--text)", fontWeight: 600 }}>{avgKcal7.toLocaleString()}</span>
+								{target != null && (
+									<span style={{ color: "var(--text-3)", marginLeft: 4 }}>/ 目標 {target.toLocaleString()}</span>
+								)}
+							</div>
 						)}
 					</div>
 				)}
@@ -570,23 +580,27 @@ function PFCGraph({ p, f, c, history = [], period = "1d" }) {
 			P: r.protein_g,
 			F: r.fat_g,
 			C: r.carb_g,
+			// 区切り線：累積値（P/F境界、F/C境界）
+			_divPF: r.protein_g,
+			_divFC: r.protein_g + r.fat_g,
 		}));
-		const tooltipFmt = (v, name) => [
-			`${v.toFixed(1)}g`,
-			name === "P" ? "タンパク質" : name === "F" ? "脂質" : "炭水化物",
-		];
+		const tooltipFmt = (v, name) => {
+			if (name.startsWith("_")) return null; // 区切り線は非表示
+			return [`${v.toFixed(1)}g`, name === "P" ? "タンパク質" : name === "F" ? "脂質" : "炭水化物"];
+		};
 		return (
 			<ResponsiveContainer width="100%" height={130}>
 				<ComposedChart data={chartData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
 					<XAxis dataKey="date" tick={{ fontSize: 9 }} interval="preserveStartEnd" />
 					<YAxis tick={{ fontSize: 9 }} unit="g" />
 					<Tooltip formatter={tooltipFmt} labelStyle={{ fontSize: 11 }} contentStyle={{ fontSize: 11 }} />
-					<Bar dataKey="P" stackId="pfc" fill={PFC_COLORS[0]} opacity={0.7} />
-					<Bar dataKey="F" stackId="pfc" fill={PFC_COLORS[1]} opacity={0.7} />
-					<Bar dataKey="C" stackId="pfc" fill={PFC_COLORS[2]} opacity={0.7} radius={[2, 2, 0, 0]} />
-					<Line type="stepMiddle" dataKey="P" stroke={PFC_COLORS[0]} strokeWidth={1.5} dot={false} strokeDasharray="4 2" />
-					<Line type="stepMiddle" dataKey="F" stroke={PFC_COLORS[1]} strokeWidth={1.5} dot={false} strokeDasharray="4 2" />
-					<Line type="stepMiddle" dataKey="C" stroke={PFC_COLORS[2]} strokeWidth={1.5} dot={false} strokeDasharray="4 2" />
+					<Bar dataKey="P" stackId="pfc" fill={PFC_COLORS[0]} />
+					<Bar dataKey="F" stackId="pfc" fill={PFC_COLORS[1]} />
+					<Bar dataKey="C" stackId="pfc" fill={PFC_COLORS[2]} radius={[2, 2, 0, 0]} />
+					{/* P/F 境界線 */}
+					<Line type="stepMiddle" dataKey="_divPF" stroke={PFC_COLORS[0]} strokeWidth={1.5} dot={false} legendType="none" />
+					{/* F/C 境界線 */}
+					<Line type="stepMiddle" dataKey="_divFC" stroke={PFC_COLORS[1]} strokeWidth={1.5} dot={false} legendType="none" />
 				</ComposedChart>
 			</ResponsiveContainer>
 		);
@@ -889,15 +903,22 @@ const MEAL_TYPE_LABEL = {
 };
 const MEAL_TYPE_ORDER = ["breakfast", "lunch", "dinner", "snack"];
 
-function MealsValue({ logs }) {
+function MealsValue({ logs, yesterdayKcal }) {
 	const total = logs.reduce((s, l) => s + (l.kcal || 0), 0);
 	return (
 		<>
-			<div style={{ lineHeight: 1.1, marginTop: 2 }}>
-				<span className="widget-value">
-					{total ? Math.round(total).toLocaleString() : "—"}
-				</span>
-				<span className="widget-unit">kcal</span>
+			<div style={{ lineHeight: 1.1, marginTop: 2, display: "flex", alignItems: "baseline", gap: 8 }}>
+				<div>
+					<span className="widget-value">
+						{total ? Math.round(total).toLocaleString() : "—"}
+					</span>
+					<span className="widget-unit">kcal</span>
+				</div>
+				{yesterdayKcal != null && (
+					<span style={{ fontSize: 11, color: "var(--text-2)" }}>
+						昨日 {yesterdayKcal.toLocaleString()}
+					</span>
+				)}
 			</div>
 			<div className="widget-sub">{logs.length} 件の食事記録</div>
 		</>
@@ -1411,7 +1432,7 @@ export default function DashboardPage() {
 		},
 		meals: {
 			support: ["1d"],
-			value: <MealsValue logs={mealLogs} />,
+			value: <MealsValue logs={mealLogs} yesterdayKcal={yesterdayKcal} />,
 			graph: (
 				<MealsList
 					logs={mealLogs}
