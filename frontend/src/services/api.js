@@ -18,9 +18,18 @@ api.interceptors.request.use(async (config) => {
 api.interceptors.response.use(
   (res) => res,
   (err) => {
-    if (err.response?.status === 429) {
-      const msg = err.response.data?.detail || '月間利用上限に達しました。BYOKプランへのアップグレードをご検討ください。';
+    const status = err.response?.status;
+    const detail = err.response?.data?.detail;
+    if (status === 429) {
+      const msg = detail || '月間利用上限に達しました。BYOKプランへのアップグレードをご検討ください。';
       return Promise.reject(new Error(msg));
+    }
+    // バックエンドの detail メッセージがあれば e.message に乗せて返す
+    if (detail) {
+      const wrapped = new Error(typeof detail === 'string' ? detail : JSON.stringify(detail));
+      wrapped.response = err.response;
+      wrapped.status   = status;
+      return Promise.reject(wrapped);
     }
     return Promise.reject(err);
   }

@@ -11,10 +11,19 @@ GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
 async def _get_access_token(user_id: str, db: Session) -> str:
     token = db.query(models.OAuthToken).filter_by(user_id=user_id, service="google").first()
     if not token:
-        raise ValueError("Google Calendar not connected")
+        raise ValueError("Googleカレンダーが連携されていません。設定ページから連携してください。")
 
-    if token.expires_at and token.expires_at < datetime.utcnow() + timedelta(minutes=5):
+    # expires_at が設定されていて期限切れ間近（または None で安全のため常にリフレッシュ試行）
+    needs_refresh = (
+        token.expires_at is None
+        or token.expires_at < datetime.utcnow() + timedelta(minutes=5)
+    )
+    if needs_refresh and token.refresh_token:
         await _refresh_token(token, db)
+    elif needs_refresh and not token.refresh_token:
+        # refresh_token がない場合は既存 access_token をそのまま使う
+        # （有効期限切れなら Google API が 401 を返し、上位で処理される）
+        pass
 
     return security.decrypt(token.access_token)
 
@@ -50,8 +59,10 @@ async def list_calendars(user_id: str, db: Session) -> list:
             "https://www.googleapis.com/calendar/v3/users/me/calendarList",
             headers={"Authorization": f"Bearer {access_token}"},
         )
+    if resp.status_code == 401:
+        raise ValueError("Googleアクセストークンが無効です。一度連携を解除して再連携してください。")
     if not resp.is_success:
-        raise ValueError(f"Google API returned {resp.status_code}: {resp.text[:200]}")
+        raise ValueError(f"Google Calendar API エラー ({resp.status_code}): {resp.text[:200]}")
     items = resp.json().get("items", [])
     return [
         {
