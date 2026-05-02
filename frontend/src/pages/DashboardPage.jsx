@@ -387,13 +387,18 @@ function WeightGraph({ history, onBulkSync, isSyncing }) {
 }
 
 // ── カロリー ──────────────────────────────────────────────────
-function CaloriesValue({ intake, target, pct, remaining }) {
+function CaloriesValue({ intake, target, pct, remaining, yesterdayKcal }) {
 	const fill = `progress-fill${pct > 100 ? " over" : pct > 75 ? " warn" : ""}`;
 	return (
 		<>
 			<div style={{ lineHeight: 1.1, marginTop: 2 }}>
 				<span className="widget-value">{intake?.toLocaleString() ?? "—"}</span>
 				<span className="widget-unit">kcal</span>
+				{yesterdayKcal != null && (
+					<span style={{ fontSize: 11, color: "var(--text-2)", marginLeft: 6 }}>
+						昨日 {yesterdayKcal.toLocaleString()}
+					</span>
+				)}
 			</div>
 			{remaining != null ? (
 				<div className="widget-sub">残り {remaining.toLocaleString()}</div>
@@ -439,7 +444,7 @@ function CaloriesGraph({ intake, target, history = [], period = "1d" }) {
 						contentStyle={{ fontSize: 11 }}
 					/>
 					{target && <ReferenceLine y={target} stroke="#94a3b8" strokeDasharray="3 3" label={{ value: "目標", fontSize: 9, fill: "#94a3b8" }} />}
-					<Area type="monotone" dataKey="kcal" stroke={BRAND} fill="url(#calGrad)" strokeWidth={2} dot={false} />
+					<Area type="monotone" dataKey="kcal" stroke={BRAND} fill="url(#calGrad)" strokeWidth={2} dot={{ r: 3, fill: BRAND, strokeWidth: 0 }} activeDot={{ r: 4 }} />
 				</AreaChart>
 			</ResponsiveContainer>
 		);
@@ -499,22 +504,44 @@ function CaloriesGraph({ intake, target, history = [], period = "1d" }) {
 }
 
 // ── PFC ───────────────────────────────────────────────────────
-function PFCValue({ p, f, c }) {
+function PFCValue({ p, f, c, yp, yf, yc }) {
+	const hasYesterday = yp != null || yf != null || yc != null;
 	return (
 		<div
 			style={{ marginTop: 4, fontSize: 12, lineHeight: 2, textAlign: "center" }}
 		>
-			<div>
-				<span style={{ color: PFC_COLORS[0], fontWeight: 700 }}>P</span>{" "}
-				{p ? `${p.toFixed(1)}g` : "—"}
+			<div style={{ display: "flex", justifyContent: "center", gap: 8, alignItems: "baseline" }}>
+				<span>
+					<span style={{ color: PFC_COLORS[0], fontWeight: 700 }}>P</span>{" "}
+					{p ? `${p.toFixed(1)}g` : "—"}
+				</span>
+				{hasYesterday && (
+					<span style={{ fontSize: 10, color: "var(--text-2)" }}>
+						昨日 {yp != null ? `${yp.toFixed(1)}g` : "—"}
+					</span>
+				)}
 			</div>
-			<div>
-				<span style={{ color: PFC_COLORS[1], fontWeight: 700 }}>F</span>{" "}
-				{f ? `${f.toFixed(1)}g` : "—"}
+			<div style={{ display: "flex", justifyContent: "center", gap: 8, alignItems: "baseline" }}>
+				<span>
+					<span style={{ color: PFC_COLORS[1], fontWeight: 700 }}>F</span>{" "}
+					{f ? `${f.toFixed(1)}g` : "—"}
+				</span>
+				{hasYesterday && (
+					<span style={{ fontSize: 10, color: "var(--text-2)" }}>
+						昨日 {yf != null ? `${yf.toFixed(1)}g` : "—"}
+					</span>
+				)}
 			</div>
-			<div>
-				<span style={{ color: PFC_COLORS[2], fontWeight: 700 }}>C</span>{" "}
-				{c ? `${c.toFixed(1)}g` : "—"}
+			<div style={{ display: "flex", justifyContent: "center", gap: 8, alignItems: "baseline" }}>
+				<span>
+					<span style={{ color: PFC_COLORS[2], fontWeight: 700 }}>C</span>{" "}
+					{c ? `${c.toFixed(1)}g` : "—"}
+				</span>
+				{hasYesterday && (
+					<span style={{ fontSize: 10, color: "var(--text-2)" }}>
+						昨日 {yc != null ? `${yc.toFixed(1)}g` : "—"}
+					</span>
+				)}
 			</div>
 		</div>
 	);
@@ -549,9 +576,9 @@ function PFCGraph({ p, f, c, history = [], period = "1d" }) {
 					<Bar dataKey="P" stackId="pfc" fill={PFC_COLORS[0]} opacity={0.7} />
 					<Bar dataKey="F" stackId="pfc" fill={PFC_COLORS[1]} opacity={0.7} />
 					<Bar dataKey="C" stackId="pfc" fill={PFC_COLORS[2]} opacity={0.7} radius={[2, 2, 0, 0]} />
-					<Line type="monotone" dataKey="P" stroke={PFC_COLORS[0]} strokeWidth={1.5} dot={false} />
-					<Line type="monotone" dataKey="F" stroke={PFC_COLORS[1]} strokeWidth={1.5} dot={false} />
-					<Line type="monotone" dataKey="C" stroke={PFC_COLORS[2]} strokeWidth={1.5} dot={false} />
+					<Line type="stepMiddle" dataKey="P" stroke={PFC_COLORS[0]} strokeWidth={1.5} dot={false} strokeDasharray="4 2" />
+					<Line type="stepMiddle" dataKey="F" stroke={PFC_COLORS[1]} strokeWidth={1.5} dot={false} strokeDasharray="4 2" />
+					<Line type="stepMiddle" dataKey="C" stroke={PFC_COLORS[2]} strokeWidth={1.5} dot={false} strokeDasharray="4 2" />
 				</ComposedChart>
 			</ResponsiveContainer>
 		);
@@ -1188,22 +1215,25 @@ export default function DashboardPage() {
 		staleTime: 5 * 60 * 1000,
 	});
 
-	// PFC・カロリー履歴（calories / pfc ウィジェットの 7d / 30d 用）
+	// PFC・カロリー履歴（calories / pfc ウィジェットの 7d / 30d 用 + 前日値表示）
 	const calPeriod = periods.calories ?? "1d";
 	const pfcPeriod = periods.pfc ?? "1d";
 	const nutritionDays = (() => {
 		const max = Math.max(
-			calPeriod === "30d" ? 30 : calPeriod === "7d" ? 7 : 0,
-			pfcPeriod === "30d" ? 30 : pfcPeriod === "7d" ? 7 : 0,
+			calPeriod === "30d" ? 30 : calPeriod === "7d" ? 7 : 2,
+			pfcPeriod === "30d" ? 30 : pfcPeriod === "7d" ? 7 : 2,
 		);
-		return max > 0 ? max + 1 : 0; // +1 for safety
+		return max + 1; // +1 for safety; minimum 3 to always include yesterday
 	})();
 	const { data: dailyNutrition = [] } = useQuery({
 		queryKey: ["meals-daily-nutrition", dateStr, nutritionDays],
 		queryFn: () => mealsApi.dailyNutrition(dateStr, nutritionDays),
-		enabled: nutritionDays > 0,
 		staleTime: 5 * 60 * 1000,
 	});
+	const yesterdayNutrition = (() => {
+		const yStr = offsetDate(dateStr, -1);
+		return dailyNutrition.find((r) => r.date === yStr) ?? null;
+	})();
 	const yesterdayKcal = (() => {
 		const yStr = offsetDate(dateStr, -1);
 		const rec = dailyKcal.find((r) => r.date === yStr);
@@ -1320,6 +1350,7 @@ export default function DashboardPage() {
 					target={calTarget}
 					pct={calPct}
 					remaining={calRemaining}
+					yesterdayKcal={yesterdayNutrition?.total_kcal ?? null}
 				/>
 			),
 			graph: (
@@ -1333,7 +1364,16 @@ export default function DashboardPage() {
 		},
 		pfc: {
 			support: ["1d", "7d", "30d"],
-			value: <PFCValue p={nut.protein_g} f={nut.fat_g} c={nut.carb_g} />,
+			value: (
+				<PFCValue
+					p={nut.protein_g}
+					f={nut.fat_g}
+					c={nut.carb_g}
+					yp={yesterdayNutrition?.protein_g ?? null}
+					yf={yesterdayNutrition?.fat_g ?? null}
+					yc={yesterdayNutrition?.carb_g ?? null}
+				/>
+			),
 			graph: (
 				<PFCGraph
 					p={nut.protein_g}
