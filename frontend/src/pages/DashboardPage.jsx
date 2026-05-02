@@ -580,13 +580,21 @@ function PFCGraph({ p, f, c, history = [], period = "1d" }) {
 			P: r.protein_g,
 			F: r.fat_g,
 			C: r.carb_g,
-			// 区切り線：累積値（P/F境界、F/C境界）
-			_divPF: r.protein_g,
-			_divFC: r.protein_g + r.fat_g,
 		}));
-		const tooltipFmt = (v, name) => {
-			if (name.startsWith("_")) return null; // 区切り線は非表示
-			return [`${v.toFixed(1)}g`, name === "P" ? "タンパク質" : name === "F" ? "脂質" : "炭水化物"];
+		const tooltipFmt = (v, name) => [
+			`${v.toFixed(1)}g`,
+			name === "P" ? "タンパク質" : name === "F" ? "脂質" : "炭水化物",
+		];
+		// 棒の上端に区切り線を描くカスタムシェイプ
+		const BarWithTopLine = (color) => (props) => {
+			const { x, y, width, height, fill } = props;
+			if (!width || !height) return null;
+			return (
+				<g>
+					<rect x={x} y={y} width={width} height={height} fill={fill} />
+					<line x1={x} y1={y} x2={x + width} y2={y} stroke={color} strokeWidth={2} />
+				</g>
+			);
 		};
 		return (
 			<ResponsiveContainer width="100%" height={130}>
@@ -594,13 +602,11 @@ function PFCGraph({ p, f, c, history = [], period = "1d" }) {
 					<XAxis dataKey="date" tick={{ fontSize: 9 }} interval="preserveStartEnd" />
 					<YAxis tick={{ fontSize: 9 }} unit="g" />
 					<Tooltip formatter={tooltipFmt} labelStyle={{ fontSize: 11 }} contentStyle={{ fontSize: 11 }} />
-					<Bar dataKey="P" stackId="pfc" fill={PFC_COLORS[0]} />
-					<Bar dataKey="F" stackId="pfc" fill={PFC_COLORS[1]} />
+					{/* P/F 境界線：P棒の上端に PFC_COLORS[0] の線 */}
+					<Bar dataKey="P" stackId="pfc" fill={PFC_COLORS[0]} shape={BarWithTopLine(PFC_COLORS[0])} />
+					{/* F/C 境界線：F棒の上端に PFC_COLORS[1] の線 */}
+					<Bar dataKey="F" stackId="pfc" fill={PFC_COLORS[1]} shape={BarWithTopLine(PFC_COLORS[1])} />
 					<Bar dataKey="C" stackId="pfc" fill={PFC_COLORS[2]} radius={[2, 2, 0, 0]} />
-					{/* P/F 境界線 */}
-					<Line type="stepMiddle" dataKey="_divPF" stroke={PFC_COLORS[0]} strokeWidth={1.5} dot={false} legendType="none" />
-					{/* F/C 境界線 */}
-					<Line type="stepMiddle" dataKey="_divFC" stroke={PFC_COLORS[1]} strokeWidth={1.5} dot={false} legendType="none" />
 				</ComposedChart>
 			</ResponsiveContainer>
 		);
