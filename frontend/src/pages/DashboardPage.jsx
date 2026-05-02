@@ -389,7 +389,7 @@ function WeightGraph({ history, onBulkSync, isSyncing }) {
 // ── カロリー ──────────────────────────────────────────────────
 function CaloriesValue({ intake, target, pct, remaining, yesterdayKcal, avgKcal7 }) {
 	const fill = `progress-fill${pct > 100 ? " over" : pct > 75 ? " warn" : ""}`;
-	const hasComparison = yesterdayKcal != null || avgKcal7 != null;
+	const hasComparison = yesterdayKcal != null || avgKcal7 != null || target != null;
 	return (
 		<>
 			<div style={{ display: "flex", alignItems: "flex-end", gap: 10, marginTop: 2 }}>
@@ -401,18 +401,17 @@ function CaloriesValue({ intake, target, pct, remaining, yesterdayKcal, avgKcal7
 					<div style={{ fontSize: 11, color: "var(--text-2)", lineHeight: 1.7, paddingBottom: 2 }}>
 						{yesterdayKcal != null && (
 							<div>
-								昨日 <span style={{ color: "var(--text)", fontWeight: 600 }}>{yesterdayKcal.toLocaleString()}</span>
-								{target != null && (
-									<span style={{ color: "var(--text-3)", marginLeft: 4 }}>/ 目標 {target.toLocaleString()}</span>
-								)}
+								昨日 <span style={{ color: "var(--orange-text)", fontWeight: 700 }}>{yesterdayKcal.toLocaleString()}</span>
 							</div>
 						)}
 						{avgKcal7 != null && (
 							<div>
-								7日平均 <span style={{ color: "var(--text)", fontWeight: 600 }}>{avgKcal7.toLocaleString()}</span>
-								{target != null && (
-									<span style={{ color: "var(--text-3)", marginLeft: 4 }}>/ 目標 {target.toLocaleString()}</span>
-								)}
+								7日平均 <span style={{ color: "var(--blue-text)", fontWeight: 700 }}>{avgKcal7.toLocaleString()}</span>
+							</div>
+						)}
+						{target != null && (
+							<div>
+								目標 <span style={{ color: "var(--text)", fontWeight: 700 }}>{target.toLocaleString()}</span>
 							</div>
 						)}
 					</div>
@@ -421,9 +420,7 @@ function CaloriesValue({ intake, target, pct, remaining, yesterdayKcal, avgKcal7
 			{remaining != null ? (
 				<div className="widget-sub">残り {remaining.toLocaleString()}</div>
 			) : (
-				target && (
-					<div className="widget-sub">目標 {target.toLocaleString()}</div>
-				)
+				!hasComparison && target && <div className="widget-sub">目標 {target.toLocaleString()}</div>
 			)}
 			{pct != null && (
 				<div className="progress-bar" style={{ marginTop: 6 }}>
@@ -432,6 +429,26 @@ function CaloriesValue({ intake, target, pct, remaining, yesterdayKcal, avgKcal7
 			)}
 		</>
 	);
+}
+
+function getCalorieAxisConfig(chartData, target) {
+	const values = chartData
+		.map((entry) => entry.kcal)
+		.filter((value) => Number.isFinite(value));
+	if (Number.isFinite(target)) values.push(target);
+
+	const maxValue = Math.max(...values, 0);
+	const step =
+		maxValue <= 1200 ? 200 : maxValue <= 2400 ? 250 : maxValue <= 4000 ? 500 : 1000;
+	const top = Math.max(step, Math.ceil(maxValue / step) * step);
+	const ticks = [];
+	for (let value = 0; value <= top; value += step) ticks.push(value);
+	if (Number.isFinite(target) && !ticks.includes(target)) ticks.push(target);
+
+	return {
+		domain: [0, top],
+		ticks: ticks.sort((left, right) => left - right),
+	};
 }
 
 function CaloriesGraph({ intake, target, history = [], period = "1d" }) {
@@ -445,6 +462,7 @@ function CaloriesGraph({ intake, target, history = [], period = "1d" }) {
 			return `${parseInt(parts[1])}/${parseInt(parts[2])}`;
 		};
 		const chartData = sliced.map((r) => ({ date: fmtDate(r.date), kcal: r.total_kcal }));
+		const { domain, ticks } = getCalorieAxisConfig(chartData, target);
 		return (
 			<ResponsiveContainer width="100%" height={120}>
 				<AreaChart data={chartData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
@@ -455,7 +473,12 @@ function CaloriesGraph({ intake, target, history = [], period = "1d" }) {
 						</linearGradient>
 					</defs>
 					<XAxis dataKey="date" tick={{ fontSize: 9 }} interval="preserveStartEnd" />
-					<YAxis tick={{ fontSize: 9 }} />
+					<YAxis
+						domain={domain}
+						ticks={ticks}
+						allowDecimals={false}
+						tick={{ fontSize: 9 }}
+					/>
 					<Tooltip
 						formatter={(v) => [`${v.toLocaleString()} kcal`, "摂取"]}
 						labelStyle={{ fontSize: 11 }}
@@ -921,8 +944,8 @@ function MealsValue({ logs, yesterdayKcal }) {
 					<span className="widget-unit">kcal</span>
 				</div>
 				{yesterdayKcal != null && (
-					<span style={{ fontSize: 11, color: "var(--text-2)" }}>
-						昨日 {yesterdayKcal.toLocaleString()}
+					<span style={{ fontSize: 13, color: "var(--text-2)" }}>
+						(昨日 {yesterdayKcal.toLocaleString()})
 					</span>
 				)}
 			</div>
