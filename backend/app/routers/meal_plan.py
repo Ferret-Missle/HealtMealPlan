@@ -361,9 +361,19 @@ FREE_LIMITS = {
 }
 
 
+def _is_developer(user_id: str) -> bool:
+    """環境変数 DEVELOPER_USER_IDS（カンマ区切り）に含まれていれば開発者扱い。"""
+    import os
+    raw = os.getenv("DEVELOPER_USER_IDS", "")
+    devs = {s.strip() for s in raw.split(",") if s.strip()}
+    return user_id in devs
+
+
 def _check_usage_limit(user_id: str, feature: str, plan_type: str, db: Session):
     if plan_type == "byok":
         return
+    if _is_developer(user_id):
+        return  # 開発者は無制限
     from datetime import datetime
     limit = FREE_LIMITS.get(feature, 999)
     start_of_month = datetime.utcnow().replace(day=1, hour=0, minute=0, second=0, microsecond=0)

@@ -81,6 +81,8 @@ async def me(current_user: models.User = Depends(get_current_user), db: Session 
     oauth_services = [
         t.service for t in db.query(models.OAuthToken).filter(models.OAuthToken.user_id == current_user.id).all()
     ]
+    import os
+    dev_ids = {s.strip() for s in os.getenv("DEVELOPER_USER_IDS", "").split(",") if s.strip()}
     return {
         "id": current_user.id,
         "email": current_user.email,
@@ -89,6 +91,7 @@ async def me(current_user: models.User = Depends(get_current_user), db: Session 
         "byok_provider": plan.byok_provider if plan else None,
         "group_id": member.group_id if member else None,
         "connected_services": oauth_services,
+        "is_developer": current_user.id in dev_ids,
     }
 
 

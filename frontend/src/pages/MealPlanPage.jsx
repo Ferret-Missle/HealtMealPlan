@@ -11,9 +11,9 @@ import {
 // ─── 定数 ────────────────────────────────────────────────────────────────────
 const MEAL_JP = { breakfast: "朝", lunch: "昼", dinner: "夕" };
 const MEAL_FULL = { breakfast: "朝食", lunch: "昼食", dinner: "夕食" };
-const SOURCE_CYCLE = ["conbini", "bento", "homecook"];
-const SOURCE_LABEL = { conbini: "🏪", bento: "🍱", homecook: "🍳" };
-const SOURCE_JP = { conbini: "コンビニ", bento: "自作弁当", homecook: "自炊" };
+const SOURCE_CYCLE = ["conbini", "bento", "homecook", "drink_only"];
+const SOURCE_LABEL = { conbini: "🏪", bento: "🍱", homecook: "🍳", drink_only: "🥤" };
+const SOURCE_JP = { conbini: "コンビニ", bento: "自作弁当", homecook: "自炊", drink_only: "飲み物のみ" };
 // ─── 汎用ヘルパー ─────────────────────────────────────────────────────────────
 function nextSource(s) {
 	return SOURCE_CYCLE[(SOURCE_CYCLE.indexOf(s) + 1) % SOURCE_CYCLE.length];
@@ -106,8 +106,9 @@ function SettingsPanel({ settings, onChange, members }) {
 		});
 	}
 	function setFrequentMenu(uid, meal, raw) {
+		// カンマ/読点/句点/半角スペース/全角スペース/改行/タブで分割
 		const list = raw
-			.split(/[,\n、]/)
+			.split(/[,，、。．\.\s　]+/)
 			.map((s) => s.trim())
 			.filter(Boolean);
 		const current = settings.frequentMenus?.[uid] || {
@@ -252,7 +253,7 @@ function SettingsPanel({ settings, onChange, members }) {
 									marginBottom: 4,
 								}}
 							>
-								よく食べるメニュー（カンマ区切り、参考程度）
+								よく食べるメニュー（カンマ・スペース・句読点で区切り）
 							</div>
 							{["breakfast", "lunch", "dinner"].map((meal) => {
 								const fav =
@@ -656,10 +657,20 @@ function MemberDayCard({
 		return { slot, item };
 	});
 
-	const totalKcal = slotItems.reduce((sum, { slot, item }) => {
-		if (slot.is_dining_out) return sum + (slot.dining_out_kcal || 0);
-		return sum + (item?.kcal || 0);
-	}, 0);
+	const totals = slotItems.reduce(
+		(acc, { slot, item }) => {
+			if (slot.is_dining_out) {
+				acc.kcal += slot.dining_out_kcal || 0;
+				return acc;
+			}
+			acc.kcal += item?.kcal || 0;
+			acc.p += item?.protein_g || 0;
+			acc.f += item?.fat_g || 0;
+			acc.c += item?.carb_g || 0;
+			return acc;
+		},
+		{ kcal: 0, p: 0, f: 0, c: 0 },
+	);
 
 	return (
 		<div
@@ -684,14 +695,37 @@ function MemberDayCard({
 					cursor: "pointer",
 					fontSize: 13,
 					fontWeight: 600,
+					gap: 8,
 				}}
 			>
-				<span>
+				<span style={{ flexShrink: 0 }}>
 					{isMe && "👤 "}
-					{memberName} {isMe && <span style={{ fontSize: 10, color: "var(--primary)" }}>（自分）</span>}
+					{memberName}{" "}
+					{isMe && (
+						<span style={{ fontSize: 10, color: "var(--primary)" }}>
+							（自分）
+						</span>
+					)}
 				</span>
-				<span style={{ fontSize: 12, color: "var(--text-secondary)", fontWeight: 400 }}>
-					{Math.round(totalKcal)}kcal {expanded ? "▲" : "▼"}
+				<span
+					style={{
+						fontSize: 11,
+						color: "var(--text-secondary)",
+						fontWeight: 400,
+						display: "flex",
+						gap: 8,
+						alignItems: "baseline",
+						flexWrap: "wrap",
+						justifyContent: "flex-end",
+					}}
+				>
+					<span style={{ fontWeight: 600, color: "var(--text)" }}>
+						{Math.round(totals.kcal)}kcal
+					</span>
+					<span>P{totals.p.toFixed(0)}</span>
+					<span>F{totals.f.toFixed(0)}</span>
+					<span>C{totals.c.toFixed(0)}</span>
+					<span>{expanded ? "▲" : "▼"}</span>
 				</span>
 			</button>
 			{expanded && (
