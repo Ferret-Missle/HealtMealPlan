@@ -296,8 +296,10 @@ function WeightValue({ latest, delta, pct }) {
 			</div>
 			{delta && (
 				<div className="widget-sub">
-					{parseFloat(delta) < 0 ? "▼" : "▲"} {Math.abs(delta)} kg（
-					{delta < 0 ? "" : "+"}）
+					<span style={{ color: parseFloat(delta) < 0 ? "#16a34a" : "#dc2626" }}>
+						{parseFloat(delta) < 0 ? "▼" : "▲"} {Math.abs(delta)}kg
+					</span>
+					<span style={{ color: "var(--text-2)", fontSize: 10, marginLeft: 4 }}>（7日比）</span>
 				</div>
 			)}
 			{pct != null && (
@@ -627,7 +629,7 @@ function PFCValue({ p, f, c, yp, yf, yc, tp, tf, tc }) {
 				)}
 				{target != null && (
 					<span style={{ fontSize: 10, color: "var(--text-2)" }}>
-						({target.toFixed(0)}g)
+						(推奨 {target.toFixed(0)}g)
 					</span>
 				)}
 			</div>
@@ -757,17 +759,6 @@ function PFCGraph({ p, f, c, history = [], period = "1d" }) {
 					</Pie>
 				</PieChart>
 			</ResponsiveContainer>
-			<div style={{ fontSize: 11, lineHeight: 1.8, textAlign: "center" }}>
-				<div>
-					<Dot color={PFC_COLORS[0]} />P {total1d > 0 ? `${Math.round((p ?? 0) / total1d * 100)}%` : "—"}
-				</div>
-				<div>
-					<Dot color={PFC_COLORS[1]} />F {total1d > 0 ? `${Math.round((f ?? 0) / total1d * 100)}%` : "—"}
-				</div>
-				<div>
-					<Dot color={PFC_COLORS[2]} />C {total1d > 0 ? `${Math.round((c ?? 0) / total1d * 100)}%` : "—"}
-				</div>
-			</div>
 		</div>
 	);
 }
@@ -1429,9 +1420,18 @@ export default function DashboardPage() {
 
 	const latestW = weightHistory.at(-1)?.weight ?? summary?.weight;
 	const oldestW = weightHistory[0]?.weight;
+	// 7日基準で固定（表示期間が7d/30dに変わっても常に7日前との比較）
+	const wRef7d = (() => {
+		if (!weightHistory.length) return null;
+		const cutoff = offsetDate(dateStr, -7);
+		return (
+			[...weightHistory].reverse().find((w) => w.date <= cutoff)?.weight ??
+			weightHistory[0]?.weight
+		);
+	})();
 	const wDelta =
-		latestW && oldestW && latestW !== oldestW
-			? (latestW - oldestW).toFixed(1)
+		latestW && wRef7d && latestW !== wRef7d
+			? (latestW - wRef7d).toFixed(1)
 			: null;
 	const wPct =
 		goals.target_weight && latestW && oldestW
