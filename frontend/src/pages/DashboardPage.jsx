@@ -320,10 +320,14 @@ function WeightValue({ latest, delta, pct }) {
 			</div>
 			{delta && (
 				<div className="widget-sub">
-					<span style={{ color: parseFloat(delta) < 0 ? "#16a34a" : "#dc2626" }}>
+					<span
+						style={{ color: parseFloat(delta) < 0 ? "#16a34a" : "#dc2626" }}
+					>
 						{parseFloat(delta) < 0 ? "▼" : "▲"} {Math.abs(delta)}kg
 					</span>
-					<span style={{ color: "var(--text-2)", fontSize: 10, marginLeft: 4 }}>（7日比）</span>
+					<span style={{ color: "var(--text-2)", fontSize: 10, marginLeft: 4 }}>
+						（7日比）
+					</span>
 				</div>
 			)}
 			{pct != null && (
@@ -641,14 +645,28 @@ function PFCValue({ p, f, c, yp, yf, yc, tp, tf, tc }) {
 	const pfcRow = (color, label, val, yval, target) => {
 		const delta = val != null && yval != null ? val - yval : null;
 		return (
-			<div style={{ display: "flex", justifyContent: "center", gap: 6, alignItems: "baseline" }}>
+			<div
+				style={{
+					display: "flex",
+					justifyContent: "center",
+					gap: 6,
+					alignItems: "baseline",
+				}}
+			>
 				<span>
 					<span style={{ color, fontWeight: 700 }}>{label}</span>{" "}
 					{val != null ? `${val.toFixed(1)}g` : "—"}
 				</span>
 				{delta != null && (
-					<span style={{ fontSize: 10, fontWeight: 600, color: delta >= 0 ? "#16a34a" : "#dc2626" }}>
-						{delta >= 0 ? "+" : ""}{delta.toFixed(1)}
+					<span
+						style={{
+							fontSize: 10,
+							fontWeight: 600,
+							color: delta >= 0 ? "#16a34a" : "#dc2626",
+						}}
+					>
+						{delta >= 0 ? "+" : ""}
+						{delta.toFixed(1)}
 					</span>
 				)}
 				{target != null && (
@@ -660,7 +678,9 @@ function PFCValue({ p, f, c, yp, yf, yc, tp, tf, tc }) {
 		);
 	};
 	return (
-		<div style={{ marginTop: 4, fontSize: 12, lineHeight: 2, textAlign: "center" }}>
+		<div
+			style={{ marginTop: 4, fontSize: 12, lineHeight: 2, textAlign: "center" }}
+		>
 			{pfcRow(PFC_COLORS[0], "P", p, yp, tp)}
 			{pfcRow(PFC_COLORS[1], "F", f, yf, tf)}
 			{pfcRow(PFC_COLORS[2], "C", c, yc, tc)}
@@ -674,7 +694,14 @@ function PBarShape({ x, y, width, height, fill }) {
 	return (
 		<g>
 			<rect x={x} y={y} width={width} height={height} fill={fill} />
-			<line x1={x} y1={y} x2={x + width} y2={y} stroke={PFC_COLORS[0]} strokeWidth={2} />
+			<line
+				x1={x}
+				y1={y}
+				x2={x + width}
+				y2={y}
+				stroke={PFC_COLORS[0]}
+				strokeWidth={2}
+			/>
 		</g>
 	);
 }
@@ -683,7 +710,14 @@ function FBarShape({ x, y, width, height, fill }) {
 	return (
 		<g>
 			<rect x={x} y={y} width={width} height={height} fill={fill} />
-			<line x1={x} y1={y} x2={x + width} y2={y} stroke={PFC_COLORS[1]} strokeWidth={2} />
+			<line
+				x1={x}
+				y1={y}
+				x2={x + width}
+				y2={y}
+				stroke={PFC_COLORS[1]}
+				strokeWidth={2}
+			/>
 		</g>
 	);
 }
@@ -726,9 +760,19 @@ function PFCGraph({ p, f, c, history = [], period = "1d" }) {
 						contentStyle={{ fontSize: 11 }}
 					/>
 					{/* P/F 境界線：P棒の上端に色付き線 */}
-					<Bar dataKey="P" stackId="pfc" fill={PFC_COLORS[0]} shape={<PBarShape />} />
+					<Bar
+						dataKey="P"
+						stackId="pfc"
+						fill={PFC_COLORS[0]}
+						shape={<PBarShape />}
+					/>
 					{/* F/C 境界線：F棒の上端に色付き線 */}
-					<Bar dataKey="F" stackId="pfc" fill={PFC_COLORS[1]} shape={<FBarShape />} />
+					<Bar
+						dataKey="F"
+						stackId="pfc"
+						fill={PFC_COLORS[1]}
+						shape={<FBarShape />}
+					/>
 					<Bar
 						dataKey="C"
 						stackId="pfc"
@@ -747,20 +791,42 @@ function PFCGraph({ p, f, c, history = [], period = "1d" }) {
 		{ name: "F", value: f ?? 0 },
 		{ name: "C", value: c ?? 0 },
 	].filter((d) => d.value > 0);
-	const renderPctLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, percent }) => {
+	const renderPctLabel = ({
+		cx,
+		cy,
+		midAngle,
+		innerRadius,
+		outerRadius,
+		percent,
+	}) => {
 		if (percent < 0.08) return null;
 		const RADIAN = Math.PI / 180;
 		const r = innerRadius + (outerRadius - innerRadius) * 0.5;
 		const x = cx + r * Math.cos(-midAngle * RADIAN);
 		const y = cy + r * Math.sin(-midAngle * RADIAN);
 		return (
-			<text x={x} y={y} fill="white" textAnchor="middle" dominantBaseline="central" fontSize={8} fontWeight="bold">
+			<text
+				x={x}
+				y={y}
+				fill="white"
+				textAnchor="middle"
+				dominantBaseline="central"
+				fontSize={8}
+				fontWeight="bold"
+			>
 				{`${Math.round(percent * 100)}%`}
 			</text>
 		);
 	};
 	return (
-		<div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
+		<div
+			style={{
+				display: "flex",
+				flexDirection: "column",
+				alignItems: "center",
+				gap: 6,
+			}}
+		>
 			<ResponsiveContainer width={84} height={84}>
 				<PieChart>
 					<Pie
@@ -1357,10 +1423,7 @@ export default function DashboardPage() {
 		connectedServices.some(
 			(service) => service === "fitbit" || service === "healthplanet",
 		);
-	const {
-		mutate: runBodySync,
-		isPending: isBodySyncing,
-	} = useMutation({
+	const { mutate: runBodySync, isPending: isBodySyncing } = useMutation({
 		mutationFn: () => bodyApi.sync(dateStr),
 		onSuccess: () => {
 			qc.invalidateQueries({ queryKey: ["dashboard", dateStr] });
@@ -1381,12 +1444,13 @@ export default function DashboardPage() {
 	const weightDays = periods.weight === "30d" ? 30 : 7;
 	const shouldLoadWeightHistory =
 		deferredQueriesEnabled && (vis.weight.value || vis.weight.graph);
-	const { data: weightHistory = [], isFetching: isWeightHistoryFetching } = useQuery({
-		queryKey: ["weight-history", weightDays],
-		queryFn: () => bodyApi.weightHistory(weightDays).then((r) => r.data),
-		enabled: shouldLoadWeightHistory,
-		staleTime: 5 * 60 * 1000,
-	});
+	const { data: weightHistory = [], isFetching: isWeightHistoryFetching } =
+		useQuery({
+			queryKey: ["weight-history", weightDays],
+			queryFn: () => bodyApi.weightHistory(weightDays).then((r) => r.data),
+			enabled: shouldLoadWeightHistory,
+			staleTime: 5 * 60 * 1000,
+		});
 
 	const bulkSyncMutation = useMutation({
 		mutationFn: () => bodyApi.syncWeightHistory(weightDays),
@@ -1401,15 +1465,13 @@ export default function DashboardPage() {
 		deferredQueriesEnabled &&
 		(vis.sleep.graph || (vis.steps.graph && periods.steps !== "1d"));
 
-	const {
-		data: activityHistory = [],
-		isFetching: isActivityHistoryFetching,
-	} = useQuery({
-		queryKey: ["activity-history", activityDays],
-		queryFn: () => bodyApi.activityHistory(activityDays).then((r) => r.data),
-		enabled: shouldLoadActivityHistory,
-		staleTime: 5 * 60 * 1000,
-	});
+	const { data: activityHistory = [], isFetching: isActivityHistoryFetching } =
+		useQuery({
+			queryKey: ["activity-history", activityDays],
+			queryFn: () => bodyApi.activityHistory(activityDays).then((r) => r.data),
+			enabled: shouldLoadActivityHistory,
+			staleTime: 5 * 60 * 1000,
+		});
 	const sleepHistory = activityHistory.slice(-sleepDays);
 	const stepsHistory = activityHistory.slice(-stepsDays);
 
@@ -1421,7 +1483,8 @@ export default function DashboardPage() {
 	});
 
 	// 食事記録
-	const shouldLoadMeals = deferredQueriesEnabled && (vis.meals.value || vis.meals.graph);
+	const shouldLoadMeals =
+		deferredQueriesEnabled && (vis.meals.value || vis.meals.graph);
 	const { data: mealLogs = [], isFetching: isMealLogsFetching } = useQuery({
 		queryKey: ["meals", dateStr],
 		queryFn: () => mealsApi.list(dateStr).then((r) => r.data),
@@ -1456,12 +1519,13 @@ export default function DashboardPage() {
 			vis.calories.graph ||
 			vis.pfc.value ||
 			vis.pfc.graph);
-	const { data: dailyNutrition = [], isFetching: isDailyNutritionFetching } = useQuery({
-		queryKey: ["meals-daily-nutrition", dateStr, nutritionDays],
-		queryFn: () => mealsApi.dailyNutrition(dateStr, nutritionDays),
-		enabled: shouldLoadNutrition,
-		staleTime: 5 * 60 * 1000,
-	});
+	const { data: dailyNutrition = [], isFetching: isDailyNutritionFetching } =
+		useQuery({
+			queryKey: ["meals-daily-nutrition", dateStr, nutritionDays],
+			queryFn: () => mealsApi.dailyNutrition(dateStr, nutritionDays),
+			enabled: shouldLoadNutrition,
+			staleTime: 5 * 60 * 1000,
+		});
 	const yesterdayNutrition = (() => {
 		const yStr = offsetDate(dateStr, -1);
 		return dailyNutrition.find((r) => r.date === yStr) ?? null;
@@ -1472,7 +1536,10 @@ export default function DashboardPage() {
 		return rec ? rec.total_kcal : null;
 	})();
 	const avgKcal7 = (() => {
-		const vals = dailyKcal.slice(0, 7).map((r) => r.total_kcal).filter((v) => v > 0);
+		const vals = dailyKcal
+			.slice(0, 7)
+			.map((r) => r.total_kcal)
+			.filter((v) => v > 0);
 		if (!vals.length) return null;
 		return Math.round(vals.reduce((a, b) => a + b, 0) / vals.length);
 	})();
@@ -1494,7 +1561,8 @@ export default function DashboardPage() {
 		staleTime: 5 * 60 * 1000,
 	});
 	const widgetBusy = {
-		weight: isBodySyncing || (shouldLoadWeightHistory && isWeightHistoryFetching),
+		weight:
+			isBodySyncing || (shouldLoadWeightHistory && isWeightHistoryFetching),
 		calories:
 			(shouldLoadDailyKcal && isDailyKcalFetching) ||
 			(shouldLoadNutrition && isDailyNutritionFetching),
@@ -1507,7 +1575,9 @@ export default function DashboardPage() {
 				periods.steps !== "1d"),
 		sleep:
 			isBodySyncing ||
-			(shouldLoadActivityHistory && isActivityHistoryFetching && vis.sleep.graph),
+			(shouldLoadActivityHistory &&
+				isActivityHistoryFetching &&
+				vis.sleep.graph),
 		meals:
 			(shouldLoadMeals && isMealLogsFetching) ||
 			(shouldLoadDailyKcal && isDailyKcalFetching),
@@ -1572,12 +1642,14 @@ export default function DashboardPage() {
 		calIntake != null && calTarget != null ? calTarget - calIntake : null;
 
 	// PFC 推奨摂取量（kcal × 比率 → g換算）
-	const proteinRatio = goals.target_protein_ratio ?? 0.30;
-	const fatRatio     = goals.target_fat_ratio     ?? 0.25;
-	const carbRatio    = goals.target_carb_ratio    ?? 0.45;
-	const targetProtein = calTarget ? Math.round(calTarget * proteinRatio / 4) : null;
-	const targetFat     = calTarget ? Math.round(calTarget * fatRatio     / 9) : null;
-	const targetCarb    = calTarget ? Math.round(calTarget * carbRatio    / 4) : null;
+	const proteinRatio = goals.target_protein_ratio ?? 0.3;
+	const fatRatio = goals.target_fat_ratio ?? 0.25;
+	const carbRatio = goals.target_carb_ratio ?? 0.45;
+	const targetProtein = calTarget
+		? Math.round((calTarget * proteinRatio) / 4)
+		: null;
+	const targetFat = calTarget ? Math.round((calTarget * fatRatio) / 9) : null;
+	const targetCarb = calTarget ? Math.round((calTarget * carbRatio) / 4) : null;
 
 	// DnD（長押し 300ms）
 	const sensors = useSensors(
