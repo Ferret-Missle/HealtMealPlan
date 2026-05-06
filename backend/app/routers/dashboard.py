@@ -8,7 +8,7 @@ from slowapi.util import get_remote_address
 from ..database import get_db
 from .. import models
 from ..auth_deps import get_current_user
-from ..services import fitbit, healthplanet, gcal
+from ..services import gcal
 
 limiter = Limiter(key_func=get_remote_address)
 router = APIRouter()
@@ -48,55 +48,10 @@ async def today_summary(
         .first()
     )
 
-    # Try live fetch if no cached data
     connected = [
         t.service
         for t in db.query(models.OAuthToken).filter_by(user_id=current_user.id).all()
     ]
-
-    if not activity_log and "fitbit" in connected:
-        try:
-            act_data = await fitbit.get_activities(current_user.id, today, db)
-            sleep_data = await fitbit.get_sleep(current_user.id, today, db)
-            activity_log = models.ActivityLog(
-                user_id=current_user.id,
-                date=today,
-                steps=act_data.get("steps", 0),
-                active_kcal=act_data.get("active_kcal", 0),
-                sleep_hours=sleep_data.get("sleep_hours"),
-                sleep_score=sleep_data.get("sleep_score"),
-                source="fitbit",
-            )
-            db.add(activity_log)
-            db.commit()
-        except Exception:
-            pass
-
-    if not weight_log and "healthplanet" in connected:
-        try:
-            hp_data = await healthplanet.get_innerscan(current_user.id, today, db)
-            if hp_data:
-                weight_log = models.WeightLog(
-                    user_id=current_user.id,
-                    date=today,
-                    weight=hp_data.get("weight"),
-                    body_fat=hp_data.get("body_fat"),
-                    muscle_mass=hp_data.get("muscle_mass"),
-                    bmi=hp_data.get("bmi"),
-                    source="healthplanet",
-                )
-                db.add(weight_log)
-                db.commit()
-        except Exception:
-            pass
-
-    # Calendar events
-    calendar_events = {"meal_events": [], "exercise_events": []}
-    if "google" in connected:
-        try:
-            calendar_events = await gcal.get_daily_events(current_user.id, today, db)
-        except Exception:
-            pass
 
     # Aggregate meal nutrition
     total_kcal = sum(m.kcal for m in meal_logs)
@@ -125,7 +80,7 @@ async def today_summary(
             "target_fat_ratio": goals.target_fat_ratio if goals else 0.25,
             "target_carb_ratio": goals.target_carb_ratio if goals else 0.45,
         },
-        "calendar": calendar_events,
+        "calendar": {"meal_events": [], "exercise_events": []},
         "connected_services": connected,
     }
 

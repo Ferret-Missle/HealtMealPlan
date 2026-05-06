@@ -29,7 +29,7 @@ import {
 	Settings2,
 	UtensilsCrossed,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import {
 	Area,
@@ -83,7 +83,9 @@ function lsGet(key, def) {
 function lsSet(key, val) {
 	try {
 		localStorage.setItem(key, JSON.stringify(val));
-	} catch {}
+	} catch {
+		return undefined;
+	}
 }
 
 // ── 定数 ─────────────────────────────────────────────────────
@@ -180,6 +182,26 @@ function PeriodPills({ period, onChange, supported = ["1d", "7d", "30d"] }) {
 	);
 }
 
+function InlineProgress({ label = "更新中" }) {
+	return (
+		<span
+			style={{
+				display: "inline-flex",
+				alignItems: "center",
+				gap: 6,
+				fontSize: 11,
+				color: "var(--text-2)",
+			}}
+		>
+			<span
+				className="spinner"
+				style={{ width: 12, height: 12, borderWidth: 2, flexShrink: 0 }}
+			/>
+			{label}
+		</span>
+	);
+}
+
 // ── 連携が必要オーバーレイ ────────────────────────────────────
 function NotConnectedOverlay({ label }) {
 	return (
@@ -212,6 +234,7 @@ function WidgetShell({
 	span,
 	needsConnection,
 	requirementLabel,
+	isBusy,
 }) {
 	const {
 		attributes,
@@ -243,6 +266,7 @@ function WidgetShell({
 					<Icon size={12} strokeWidth={1.8} />
 					{label}
 				</span>
+				{isBusy && <InlineProgress />}
 				<span
 					{...attributes}
 					{...listeners}
@@ -718,7 +742,6 @@ function PFCGraph({ p, f, c, history = [], period = "1d" }) {
 
 	// 1d：ドーナツ（%表示）
 	if (!p && !f && !c) return <EmptyGraph />;
-	const total1d = (p ?? 0) + (f ?? 0) + (c ?? 0);
 	const data = [
 		{ name: "P", value: p ?? 0 },
 		{ name: "F", value: f ?? 0 },
@@ -1105,8 +1128,7 @@ function MealsList({ logs, onSync, isSyncing }) {
 }
 
 // ── 今日の予定（フルワイド固定） ─────────────────────────────
-function ScheduleCard({ calendarData, dateStr }) {
-	const connected = calendarData?.connected;
+function ScheduleCard({ connected, calendarData, isLoading }) {
 	const events = calendarData?.events ?? [];
 
 	// 未連携: 連携 CTA カードを表示
@@ -1139,6 +1161,23 @@ function ScheduleCard({ calendarData, dateStr }) {
 					>
 						連携設定へ →
 					</Link>
+				</div>
+			</div>
+		);
+	}
+
+	if (isLoading && !calendarData) {
+		return (
+			<div className="card">
+				<div
+					className="card-title"
+					style={{ display: "flex", alignItems: "center", gap: 5 }}
+				>
+					<CalendarClock size={12} strokeWidth={2} />
+					今日の予定
+				</div>
+				<div style={{ padding: "8px 0" }}>
+					<InlineProgress label="Googleカレンダーを取得中" />
 				</div>
 			</div>
 		);
@@ -1270,6 +1309,7 @@ function SettingsPanel({ vis, onToggle }) {
 // ── メインページ ─────────────────────────────────────────────
 export default function DashboardPage() {
 	const qc = useQueryClient();
+	const autoBodySyncRef = useRef("");
 
 	// 日付
 	const [dateStr, setDateStr] = useState(todayStr);
@@ -1282,6 +1322,14 @@ export default function DashboardPage() {
 		lsGet("db-periods", DEFAULT_PERIODS),
 	);
 	const [showSettings, setShowSettings] = useState(false);
+	const [deferredQueriesEnabled, setDeferredQueriesEnabled] = useState(false);
+
+	useEffect(() => {
+		const frameId = window.requestAnimationFrame(() => {
+			setDeferredQueriesEnabled(true);
+		});
+		return () => window.cancelAnimationFrame(frameId);
+	}, []);
 
 	const toggleVis = (id, key) =>
 		setVis((prev) => {
@@ -1301,12 +1349,43 @@ export default function DashboardPage() {
 		queryKey: ["dashboard", dateStr],
 		queryFn: () => dashboardApi.today(dateStr).then((r) => r.data),
 	});
+	const connectedServices = summary?.connected_services ?? [];
+	const connectedServicesKey = connectedServices.slice().sort().join(",");
+	const shouldAutoSyncBody =
+		deferredQueriesEnabled &&
+		isToday &&
+		connectedServices.some(
+			(service) => service === "fitbit" || service === "healthplanet",
+		);
+	const {
+		mutate: runBodySync,
+		isPending: isBodySyncing,
+	} = useMutation({
+		mutationFn: () => bodyApi.sync(dateStr),
+		onSuccess: () => {
+			qc.invalidateQueries({ queryKey: ["dashboard", dateStr] });
+			qc.invalidateQueries({ queryKey: ["weight-history"] });
+			qc.invalidateQueries({ queryKey: ["activity-history"] });
+		},
+	});
+
+	useEffect(() => {
+		if (!shouldAutoSyncBody) return;
+		const syncKey = `${dateStr}:${connectedServicesKey}`;
+		if (autoBodySyncRef.current === syncKey) return;
+		autoBodySyncRef.current = syncKey;
+		runBodySync();
+	}, [connectedServicesKey, dateStr, runBodySync, shouldAutoSyncBody]);
 
 	// 体重履歴：選択中の期間に応じて日数を調整
 	const weightDays = periods.weight === "30d" ? 30 : 7;
-	const { data: weightHistory = [] } = useQuery({
+	const shouldLoadWeightHistory =
+		deferredQueriesEnabled && (vis.weight.value || vis.weight.graph);
+	const { data: weightHistory = [], isFetching: isWeightHistoryFetching } = useQuery({
 		queryKey: ["weight-history", weightDays],
 		queryFn: () => bodyApi.weightHistory(weightDays).then((r) => r.data),
+		enabled: shouldLoadWeightHistory,
+		staleTime: 5 * 60 * 1000,
 	});
 
 	const bulkSyncMutation = useMutation({
@@ -1317,17 +1396,22 @@ export default function DashboardPage() {
 	// 睡眠・歩数履歴：ウィジェットごとに独立したクエリ
 	const sleepDays = periods.sleep === "30d" ? 30 : 7;
 	const stepsDays = periods.steps === "30d" ? 30 : 7;
+	const activityDays = Math.max(sleepDays, stepsDays);
+	const shouldLoadActivityHistory =
+		deferredQueriesEnabled &&
+		(vis.sleep.graph || (vis.steps.graph && periods.steps !== "1d"));
 
-	const { data: sleepHistory = [] } = useQuery({
-		queryKey: ["activity-history", sleepDays],
-		queryFn: () => bodyApi.activityHistory(sleepDays).then((r) => r.data),
+	const {
+		data: activityHistory = [],
+		isFetching: isActivityHistoryFetching,
+	} = useQuery({
+		queryKey: ["activity-history", activityDays],
+		queryFn: () => bodyApi.activityHistory(activityDays).then((r) => r.data),
+		enabled: shouldLoadActivityHistory,
+		staleTime: 5 * 60 * 1000,
 	});
-
-	const { data: stepsHistory = [] } = useQuery({
-		queryKey: ["activity-history", stepsDays],
-		queryFn: () => bodyApi.activityHistory(stepsDays).then((r) => r.data),
-		enabled: periods.steps !== "1d",
-	});
+	const sleepHistory = activityHistory.slice(-sleepDays);
+	const stepsHistory = activityHistory.slice(-stepsDays);
 
 	// 同期はより多い日数に合わせて実行
 	const sleepBulkSyncMutation = useMutation({
@@ -1337,15 +1421,22 @@ export default function DashboardPage() {
 	});
 
 	// 食事記録
-	const { data: mealLogs = [] } = useQuery({
+	const shouldLoadMeals = deferredQueriesEnabled && (vis.meals.value || vis.meals.graph);
+	const { data: mealLogs = [], isFetching: isMealLogsFetching } = useQuery({
 		queryKey: ["meals", dateStr],
 		queryFn: () => mealsApi.list(dateStr).then((r) => r.data),
+		enabled: shouldLoadMeals,
+		staleTime: 5 * 60 * 1000,
 	});
 
 	// 昨日・7日平均カロリー（食事記録ウィジェットのサブ表示用）
-	const { data: dailyKcal = [] } = useQuery({
+	const shouldLoadDailyKcal =
+		deferredQueriesEnabled &&
+		(vis.meals.value || vis.meals.graph || vis.calories.value);
+	const { data: dailyKcal = [], isFetching: isDailyKcalFetching } = useQuery({
 		queryKey: ["meals-daily-kcal", dateStr],
 		queryFn: () => mealsApi.dailyKcal(dateStr, 8),
+		enabled: shouldLoadDailyKcal,
 		staleTime: 5 * 60 * 1000,
 	});
 
@@ -1359,9 +1450,16 @@ export default function DashboardPage() {
 		);
 		return max + 1; // +1 for safety; minimum 3 to always include yesterday
 	})();
-	const { data: dailyNutrition = [] } = useQuery({
+	const shouldLoadNutrition =
+		deferredQueriesEnabled &&
+		(vis.calories.value ||
+			vis.calories.graph ||
+			vis.pfc.value ||
+			vis.pfc.graph);
+	const { data: dailyNutrition = [], isFetching: isDailyNutritionFetching } = useQuery({
 		queryKey: ["meals-daily-nutrition", dateStr, nutritionDays],
 		queryFn: () => mealsApi.dailyNutrition(dateStr, nutritionDays),
+		enabled: shouldLoadNutrition,
 		staleTime: 5 * 60 * 1000,
 	});
 	const yesterdayNutrition = (() => {
@@ -1389,11 +1487,31 @@ export default function DashboardPage() {
 	});
 
 	// カレンダー予定（個別クエリ）
-	const { data: calendarData } = useQuery({
+	const { data: calendarData, isFetching: isCalendarFetching } = useQuery({
 		queryKey: ["dashboard-calendar", dateStr],
 		queryFn: () => dashboardApi.calendar(dateStr),
+		enabled: deferredQueriesEnabled && connectedServices.includes("google"),
 		staleTime: 5 * 60 * 1000,
 	});
+	const widgetBusy = {
+		weight: isBodySyncing || (shouldLoadWeightHistory && isWeightHistoryFetching),
+		calories:
+			(shouldLoadDailyKcal && isDailyKcalFetching) ||
+			(shouldLoadNutrition && isDailyNutritionFetching),
+		pfc: shouldLoadNutrition && isDailyNutritionFetching,
+		steps:
+			isBodySyncing ||
+			(shouldLoadActivityHistory &&
+				isActivityHistoryFetching &&
+				vis.steps.graph &&
+				periods.steps !== "1d"),
+		sleep:
+			isBodySyncing ||
+			(shouldLoadActivityHistory && isActivityHistoryFetching && vis.sleep.graph),
+		meals:
+			(shouldLoadMeals && isMealLogsFetching) ||
+			(shouldLoadDailyKcal && isDailyKcalFetching),
+	};
 
 	// 一括同期：すべてのデータソースをまとめて更新
 	const syncMutation = useMutation({
@@ -1716,6 +1834,7 @@ export default function DashboardPage() {
 												)
 											}
 											requirementLabel={WIDGET_REQUIREMENTS[id]?.label}
+											isBusy={widgetBusy[id]}
 										/>
 									);
 								})}
@@ -1723,7 +1842,12 @@ export default function DashboardPage() {
 						</SortableContext>
 					</DndContext>
 
-					<ScheduleCard calendarData={calendarData} dateStr={dateStr} />
+					<ScheduleCard
+						connected={connectedServices.includes("google")}
+						calendarData={calendarData}
+						isLoading={deferredQueriesEnabled && isCalendarFetching}
+						dateStr={dateStr}
+					/>
 
 					<Link
 						to="/plan"
