@@ -62,6 +62,15 @@ async def list_calendars(user_id: str, db: Session) -> list:
         )
     if resp.status_code == 401:
         raise ValueError("Googleアクセストークンが無効です。一度連携を解除して再連携してください。")
+    if resp.status_code == 403 and "has not been used" in resp.text:
+        raise ValueError(
+            "Google Calendar API が Google Cloud プロジェクトで有効化されていません。"
+            "管理者がコンソールで Calendar API を有効化する必要があります。"
+        )
+    if resp.status_code == 403:
+        raise ValueError(
+            "Googleカレンダーへのアクセスが拒否されました。連携時にカレンダー権限が許可されていない可能性があります。一度連携を解除して再連携してください。"
+        )
     if not resp.is_success:
         raise ValueError(f"Google Calendar API エラー ({resp.status_code}): {resp.text[:200]}")
     items = resp.json().get("items", [])
