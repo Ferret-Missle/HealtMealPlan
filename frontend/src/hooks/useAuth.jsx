@@ -52,48 +52,67 @@ export function AuthProvider({ children }) {
 	);
 
 	useEffect(() => {
-		const unsub = onAuthStateChanged(auth, async (firebaseUser) => {
-			setUser(firebaseUser);
-			if (firebaseUser) {
-				try {
-					const res = await authApi.me();
-					await applyAuthenticatedProfile(res.data);
-				} catch (err) {
-					// /me が 401/404 の場合 → DBにユーザー未登録。自動登録を試みる。
-					// （メール登録後のDB再構築時や、別デバイス初回ログイン時に発生）
-					const status = err?.response?.status;
-					if (status === 401 || status === 404 || status === 422) {
-						try {
-							const name =
-								firebaseUser.displayName ||
-								firebaseUser.email?.split("@")[0] ||
-								"ユーザー";
-							await authApi.register({
-								uid: firebaseUser.uid,
-								email:
-									firebaseUser.email || `${firebaseUser.uid}@unknown.local`,
-								name,
-								terms_version: "1.0",
-								privacy_version: "1.0",
-							});
-							const res2 = await authApi.me();
-							await applyAuthenticatedProfile(res2.data);
-						} catch {
+		let active = true;
+
+		const loadProfile = async (firebaseUser) => {
+			try {
+				const res = await authApi.me();
+				if (active) {
+					applyAuthenticatedProfile(res.data);
+				}
+			} catch (err) {
+				// /me が 401/404 の場合 → DBにユーザー未登録。自動登録を試みる。
+				// （メール登録後のDB再構築時や、別デバイス初回ログイン時に発生）
+				const status = err?.response?.status;
+				if (status === 401 || status === 404 || status === 422) {
+					try {
+						const name =
+							firebaseUser.displayName ||
+							firebaseUser.email?.split("@")[0] ||
+							"ユーザー";
+						await authApi.register({
+							uid: firebaseUser.uid,
+							email: firebaseUser.email || `${firebaseUser.uid}@unknown.local`,
+							name,
+							terms_version: "1.0",
+							privacy_version: "1.0",
+						});
+						const res2 = await authApi.me();
+						if (active) {
+							applyAuthenticatedProfile(res2.data);
+						}
+					} catch {
+						if (active) {
 							setProfile(null);
 							setPendingInvitations([]);
 						}
-					} else {
-						setProfile(null);
-						setPendingInvitations([]);
 					}
+				} else if (active) {
+					setProfile(null);
+					setPendingInvitations([]);
 				}
-			} else {
+			}
+		};
+
+		const unsub = onAuthStateChanged(auth, (firebaseUser) => {
+			if (!active) return;
+
+			setUser(firebaseUser);
+			setLoading(false);
+
+			if (!firebaseUser) {
 				setProfile(null);
 				setPendingInvitations([]);
+				return;
 			}
-			setLoading(false);
+
+			void loadProfile(firebaseUser);
 		});
-		return unsub;
+
+		return () => {
+			active = false;
+			unsub();
+		};
 	}, [applyAuthenticatedProfile]);
 
 	const loginEmail = (email, password) =>
