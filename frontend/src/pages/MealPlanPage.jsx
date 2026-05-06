@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { groupApi, mealPlanApi, shoppingApi } from "../services/api";
+import { authApi, groupApi, mealPlanApi, shoppingApi } from "../services/api";
 import {
 	addJstDays,
 	formatJstDate,
@@ -51,6 +51,7 @@ const DEFAULT_SETTINGS = {
 	lightBreakfast: {}, // { [userId]: bool }
 	workDay: {}, // { [userId]: { breakfast, lunch, dinner } }
 	weekend: {}, // { [userId]: { breakfast, lunch, dinner } }
+	frequentMenus: {}, // { [userId]: { breakfast: [], lunch: [], dinner: [] } }
 };
 const DEFAULT_WORKDAY = {
 	breakfast: "conbini",
@@ -102,6 +103,24 @@ function SettingsPanel({ settings, onChange, members }) {
 		onChange({
 			...settings,
 			[dayType]: { ...settings[dayType], [uid]: { ...current, [meal]: src } },
+		});
+	}
+	function setFrequentMenu(uid, meal, raw) {
+		const list = raw
+			.split(/[,\n、]/)
+			.map((s) => s.trim())
+			.filter(Boolean);
+		const current = settings.frequentMenus?.[uid] || {
+			breakfast: [],
+			lunch: [],
+			dinner: [],
+		};
+		onChange({
+			...settings,
+			frequentMenus: {
+				...settings.frequentMenus,
+				[uid]: { ...current, [meal]: list },
+			},
 		});
 	}
 
@@ -186,7 +205,7 @@ function SettingsPanel({ settings, onChange, members }) {
 						</div>
 
 						{/* 週末 */}
-						<div>
+						<div style={{ marginBottom: 10 }}>
 							<div
 								style={{
 									fontSize: 12,
@@ -222,6 +241,54 @@ function SettingsPanel({ settings, onChange, members }) {
 									</div>
 								))}
 							</div>
+						</div>
+
+						{/* よく食べるメニュー */}
+						<div>
+							<div
+								style={{
+									fontSize: 12,
+									color: "var(--text-secondary)",
+									marginBottom: 4,
+								}}
+							>
+								よく食べるメニュー（カンマ区切り、参考程度）
+							</div>
+							{["breakfast", "lunch", "dinner"].map((meal) => {
+								const fav =
+									(settings.frequentMenus?.[m.user_id]?.[meal] || []).join(", ");
+								return (
+									<div
+										key={meal}
+										style={{
+											display: "flex",
+											alignItems: "center",
+											gap: 6,
+											marginBottom: 4,
+										}}
+									>
+										<span
+											style={{
+												fontSize: 12,
+												color: "var(--text-secondary)",
+												minWidth: 24,
+											}}
+										>
+											{MEAL_JP[meal]}
+										</span>
+										<input
+											type="text"
+											defaultValue={fav}
+											placeholder="例: 卵かけご飯, 焼き鮭定食"
+											onBlur={(e) =>
+												setFrequentMenu(m.user_id, meal, e.target.value)
+											}
+											className="form-input"
+											style={{ flex: 1, fontSize: 12, padding: "4px 8px" }}
+										/>
+									</div>
+								);
+							})}
 						</div>
 					</div>
 				);
@@ -474,7 +541,9 @@ function ItemCard({ item, planId, isDraft }) {
 				marginBottom: 6,
 			}}
 		>
-			<div style={{ fontWeight: 500, fontSize: 14 }}>{item.menu_name}</div>
+			<div style={{ fontWeight: 500, fontSize: 14, whiteSpace: "pre-line" }}>
+				{(item.menu_name || "").replace(/\s*[＋+]\s*/g, "\n")}
+			</div>
 			{item.kcal && (
 				<div
 					style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 2 }}
@@ -556,6 +625,139 @@ function ItemCard({ item, planId, isDraft }) {
 					style={{ fontSize: 11, color: "var(--text-secondary)", marginTop: 4 }}
 				>
 					食材: {item.ingredients.join(", ")}
+				</div>
+			)}
+		</div>
+	);
+}
+
+// ─── 日カード × メンバーごとの折りたたみ表示 ─────────────────────────────────
+function MemberDayCard({
+	memberLabel,
+	memberName,
+	isMe,
+	daySlots,
+	planId,
+	planStatus,
+	onEditSlot,
+}) {
+	const [expanded, setExpanded] = useState(isMe);
+
+	// このメンバー用の朝・昼・夕アイテムを抽出
+	const slotItems = daySlots.map((slot) => {
+		let item = null;
+		if (slot.is_dining_out) {
+			item = { dining_out: true, kcal: slot.dining_out_kcal };
+		} else if (slot.sharing_type === "shared") {
+			item = slot.items.find((it) => it.user_id == null) || null;
+		} else {
+			item = slot.items.find((it) => it.user_id === memberLabel) || null;
+		}
+		return { slot, item };
+	});
+
+	const totalKcal = slotItems.reduce((sum, { slot, item }) => {
+		if (slot.is_dining_out) return sum + (slot.dining_out_kcal || 0);
+		return sum + (item?.kcal || 0);
+	}, 0);
+
+	return (
+		<div
+			style={{
+				border: `1px solid ${isMe ? "var(--primary)" : "var(--border)"}`,
+				borderRadius: 8,
+				marginBottom: 6,
+				background: "var(--surface)",
+				overflow: "hidden",
+			}}
+		>
+			<button
+				onClick={() => setExpanded((v) => !v)}
+				style={{
+					width: "100%",
+					display: "flex",
+					alignItems: "center",
+					justifyContent: "space-between",
+					padding: "8px 12px",
+					background: isMe ? "rgba(22,163,74,0.06)" : "transparent",
+					border: "none",
+					cursor: "pointer",
+					fontSize: 13,
+					fontWeight: 600,
+				}}
+			>
+				<span>
+					{isMe && "👤 "}
+					{memberName} {isMe && <span style={{ fontSize: 10, color: "var(--primary)" }}>（自分）</span>}
+				</span>
+				<span style={{ fontSize: 12, color: "var(--text-secondary)", fontWeight: 400 }}>
+					{Math.round(totalKcal)}kcal {expanded ? "▲" : "▼"}
+				</span>
+			</button>
+			{expanded && (
+				<div style={{ padding: "0 12px 10px 12px" }}>
+					{slotItems.map(({ slot, item }) => (
+						<div key={slot.id} style={{ marginTop: 10 }}>
+							<div
+								style={{
+									display: "flex",
+									alignItems: "center",
+									gap: 6,
+									marginBottom: 4,
+								}}
+							>
+								<span style={{ fontWeight: 600, fontSize: 13 }}>
+									{MEAL_FULL[slot.meal_type] || slot.meal_type}
+								</span>
+								{slot.source_type && (
+									<span
+										className={`tag ${slot.source_type === "conbini" ? "tag-blue" : slot.source_type === "bento" ? "tag-orange" : "tag-green"}`}
+										style={{ fontSize: 10 }}
+									>
+										{SOURCE_LABEL[slot.source_type]} {SOURCE_JP[slot.source_type]}
+									</span>
+								)}
+								<span
+									className={`tag ${slot.sharing_type === "shared" ? "tag-green" : "tag-gray"}`}
+									style={{ fontSize: 10 }}
+								>
+									{slot.sharing_type === "shared" ? "共有" : "個別"}
+								</span>
+								{slot.is_dining_out && <span className="tag tag-orange" style={{ fontSize: 10 }}>外食</span>}
+								{planStatus === "draft" && (
+									<button
+										className="btn-icon"
+										style={{ marginLeft: "auto", fontSize: 12 }}
+										title="編集"
+										onClick={() => onEditSlot({ slot, planId })}
+									>
+										✏️
+									</button>
+								)}
+							</div>
+							{slot.is_dining_out ? (
+								<div
+									style={{
+										background: "var(--bg)",
+										borderRadius: 6,
+										padding: "6px 8px",
+										fontSize: 12,
+										color: "var(--text-secondary)",
+									}}
+								>
+									🍽️ 外食 {slot.dining_out_kcal ? `（目安 ${Math.round(slot.dining_out_kcal)} kcal）` : ""}
+								</div>
+							) : item ? (
+								<ItemCard
+									item={item}
+									planId={planId}
+									isDraft={planStatus === "draft"}
+								/>
+							) : (
+								<div style={{ fontSize: 12, color: "var(--text-secondary)" }}>未生成</div>
+							)}
+						</div>
+					))}
 				</div>
 			)}
 		</div>
@@ -719,6 +921,23 @@ export default function MealPlanPage() {
 	});
 	const members = myGroup?.members || [];
 
+	const { data: meUser } = useQuery({
+		queryKey: ["auth-me"],
+		queryFn: () => authApi.me().then((r) => r.data),
+	});
+	const currentUserId = meUser?.id;
+
+	// label "A","B","C"... と user_id をマッピング
+	const labelByUserId = {};
+	const userIdByLabel = {};
+	const memberNameByLabel = {};
+	const labels = ["A", "B", "C", "D", "E", "F", "G"];
+	members.forEach((m, i) => {
+		labelByUserId[m.user_id] = labels[i];
+		userIdByLabel[labels[i]] = m.user_id;
+		memberNameByLabel[labels[i]] = m.name;
+	});
+
 	const { data: schedules = {} } = useQuery({
 		queryKey: ["group-schedules", startDate],
 		queryFn: () => groupApi.schedules(startDate, 7),
@@ -753,10 +972,23 @@ export default function MealPlanPage() {
 		setError("");
 		setGenerating(true);
 		try {
+			// frequentMenus を user_id ごとに整形
+			const frequentMenus = {};
+			members.forEach((m) => {
+				const fm = settings.frequentMenus?.[m.user_id];
+				if (fm && (fm.breakfast?.length || fm.lunch?.length || fm.dinner?.length)) {
+					frequentMenus[m.user_id] = {
+						breakfast: fm.breakfast || [],
+						lunch: fm.lunch || [],
+						dinner: fm.dinner || [],
+					};
+				}
+			});
 			const res = await mealPlanApi.generate({
 				start_date: startDate,
 				days: 7,
 				day_conditions: dayConditions,
+				frequent_menus: frequentMenus,
 			});
 			qc.invalidateQueries({ queryKey: ["meal-plans"] });
 			setSelectedPlan(res.id);
@@ -1167,100 +1399,22 @@ export default function MealPlanPage() {
 						planDetail.days.map((day) => (
 							<div key={day.id} className="card">
 								<div className="card-title">{dateLabel(day.date)}</div>
-								{day.slots.map((slot) => (
-									<div key={slot.id} style={{ marginBottom: 18 }}>
-										<div
-											style={{
-												display: "flex",
-												alignItems: "center",
-												gap: 6,
-												marginBottom: 6,
-											}}
-										>
-											<span style={{ fontWeight: 600, fontSize: 14 }}>
-												{MEAL_FULL[slot.meal_type] || slot.meal_type}
-											</span>
-											{slot.source_type && (
-												<span
-													className={`tag ${slot.source_type === "conbini" ? "tag-blue" : slot.source_type === "bento" ? "tag-orange" : "tag-green"}`}
-												>
-													{SOURCE_LABEL[slot.source_type]}{" "}
-													{SOURCE_JP[slot.source_type] || slot.source_type}
-												</span>
-											)}
-											<span
-												className={`tag ${slot.sharing_type === "shared" ? "tag-green" : "tag-gray"}`}
-											>
-												{slot.sharing_type === "shared" ? "共有" : "個別"}
-											</span>
-											{slot.is_dining_out && (
-												<span className="tag tag-orange">外食</span>
-											)}
-											{planDetail.status === "draft" && (
-												<button
-													className="btn-icon"
-													style={{ marginLeft: "auto", fontSize: 14 }}
-													title="編集"
-													onClick={() =>
-														setEditingSlot({ slot, planId: planDetail.id })
-													}
-												>
-													✏️
-												</button>
-											)}
-										</div>
-
-										{slot.total_kcal != null && (
-											<KcalBudgetBar
-												actual={slot.total_kcal}
-												budget={slot.kcal_budget}
-											/>
-										)}
-										{!slot.total_kcal && slot.kcal_budget && (
-											<div
-												style={{
-													fontSize: 11,
-													color: "var(--text-secondary)",
-													marginBottom: 4,
-												}}
-											>
-												目標: {slot.kcal_budget} kcal
-											</div>
-										)}
-
-										{slot.is_dining_out ? (
-											<div
-												style={{
-													background: "var(--bg)",
-													borderRadius: 8,
-													padding: "8px 10px",
-													fontSize: 13,
-													color: "var(--text-secondary)",
-												}}
-											>
-												🍽️ 外食{" "}
-												{slot.dining_out_kcal
-													? `（目安 ${Math.round(slot.dining_out_kcal)} kcal）`
-													: ""}
-											</div>
-										) : slot.items.length === 0 ? (
-											<div
-												style={{ fontSize: 13, color: "var(--text-secondary)" }}
-											>
-												未生成
-											</div>
-										) : (
-											slot.items.map((item) => (
-												<ItemCard
-													key={item.id}
-													item={item}
-													planId={planDetail.id}
-													isDraft={planDetail.status === "draft"}
-												/>
-											))
-										)}
-									</div>
-								))}
+								{members.map((m) => {
+									const label = labelByUserId[m.user_id];
+									const isMe = m.user_id === currentUserId;
+									return (
+										<MemberDayCard
+											key={m.user_id}
+											memberLabel={label}
+											memberName={m.name}
+											isMe={isMe}
+											daySlots={day.slots}
+											planId={planDetail.id}
+											planStatus={planDetail.status}
+											onEditSlot={setEditingSlot}
+										/>
+									);
+								})}
 							</div>
 						))
 					)}

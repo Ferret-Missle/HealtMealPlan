@@ -54,10 +54,18 @@ class DayCondition(BaseModel):
     members: list[MemberDayCondition] = []
 
 
+class FrequentMenus(BaseModel):
+    breakfast: list[str] = []
+    lunch: list[str] = []
+    dinner: list[str] = []
+
+
 class GeneratePlanRequest(BaseModel):
     start_date: str
     days: int = 7
     day_conditions: list[DayCondition] = []
+    # { user_id: { breakfast: [...], lunch: [...], dinner: [...] } }
+    frequent_menus: dict[str, FrequentMenus] = {}
 
 
 def _calc_kcal_budget(meal_type: str, target_kcal: int | None, light_breakfast: bool) -> float | None:
@@ -114,7 +122,10 @@ async def generate_meal_plan(
     goals = db.query(models.UserGoals).filter_by(user_id=current_user.id).first()
     target_kcal = goals.target_kcal if goals else None
 
-    conditions_json = {"day_conditions": [dc.model_dump() for dc in payload.day_conditions]}
+    conditions_json = {
+        "day_conditions": [dc.model_dump() for dc in payload.day_conditions],
+        "frequent_menus": {uid: fm.model_dump() for uid, fm in payload.frequent_menus.items()},
+    }
 
     plan_id = str(uuid.uuid4())
     plan = models.MealPlan(
