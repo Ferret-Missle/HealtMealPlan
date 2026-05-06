@@ -121,6 +121,9 @@ async def today_summary(
         "goals": {
             "target_kcal": goals.target_kcal if goals else None,
             "target_weight": goals.target_weight if goals else None,
+            "target_protein_ratio": goals.target_protein_ratio if goals else 0.30,
+            "target_fat_ratio": goals.target_fat_ratio if goals else 0.25,
+            "target_carb_ratio": goals.target_carb_ratio if goals else 0.45,
         },
         "calendar": calendar_events,
         "connected_services": connected,

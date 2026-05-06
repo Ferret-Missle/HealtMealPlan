@@ -369,10 +369,12 @@ async def get_daily_kcal(
     for log in logs:
         totals[log.date] += log.kcal or 0
 
-    # Return sorted descending (newest first); include only dates with data
+    # Return all dates in range (newest first), zero-filled for missing days
+    from datetime import timedelta
+    all_dates = [str(anchor - timedelta(days=i + 1)) for i in range(days)]
     return [
-        {"date": d, "total_kcal": round(v)}
-        for d, v in sorted(totals.items(), reverse=True)
+        {"date": d, "total_kcal": round(totals[d]) if d in totals else 0}
+        for d in all_dates
     ]
 
 
@@ -409,15 +411,19 @@ async def get_daily_nutrition(
         t["fat_g"]      += log.fat_g or 0
         t["carb_g"]     += log.carb_g or 0
 
+    # Return all dates in range (newest first), zero-filled for missing days
+    from datetime import timedelta
+    all_dates = [str(anchor - timedelta(days=i + 1)) for i in range(days)]
+    empty = {"total_kcal": 0, "protein_g": 0.0, "fat_g": 0.0, "carb_g": 0.0}
     return [
         {
             "date": d,
-            "total_kcal": round(v["total_kcal"]),
-            "protein_g":  round(v["protein_g"], 1),
-            "fat_g":      round(v["fat_g"], 1),
-            "carb_g":     round(v["carb_g"], 1),
+            "total_kcal": round(totals[d]["total_kcal"]) if d in totals else 0,
+            "protein_g":  round(totals[d]["protein_g"], 1) if d in totals else 0.0,
+            "fat_g":      round(totals[d]["fat_g"], 1) if d in totals else 0.0,
+            "carb_g":     round(totals[d]["carb_g"], 1) if d in totals else 0.0,
         }
-        for d, v in sorted(totals.items(), reverse=True)
+        for d in all_dates
     ]
 
 

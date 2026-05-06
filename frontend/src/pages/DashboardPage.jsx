@@ -611,66 +611,33 @@ function CaloriesGraph({ intake, target, history = [], period = "1d" }) {
 }
 
 // ── PFC ───────────────────────────────────────────────────────
-function PFCValue({ p, f, c, yp, yf, yc }) {
-	const hasYesterday = yp != null || yf != null || yc != null;
+function PFCValue({ p, f, c, yp, yf, yc, tp, tf, tc }) {
+	const pfcRow = (color, label, val, yval, target) => {
+		const delta = val != null && yval != null ? val - yval : null;
+		return (
+			<div style={{ display: "flex", justifyContent: "center", gap: 6, alignItems: "baseline" }}>
+				<span>
+					<span style={{ color, fontWeight: 700 }}>{label}</span>{" "}
+					{val != null ? `${val.toFixed(1)}g` : "—"}
+				</span>
+				{delta != null && (
+					<span style={{ fontSize: 10, fontWeight: 600, color: delta >= 0 ? "#16a34a" : "#dc2626" }}>
+						{delta >= 0 ? "+" : ""}{delta.toFixed(1)}
+					</span>
+				)}
+				{target != null && (
+					<span style={{ fontSize: 10, color: "var(--text-2)" }}>
+						({target.toFixed(0)}g)
+					</span>
+				)}
+			</div>
+		);
+	};
 	return (
-		<div
-			style={{ marginTop: 4, fontSize: 12, lineHeight: 2, textAlign: "center" }}
-		>
-			<div
-				style={{
-					display: "flex",
-					justifyContent: "center",
-					gap: 8,
-					alignItems: "baseline",
-				}}
-			>
-				<span>
-					<span style={{ color: PFC_COLORS[0], fontWeight: 700 }}>P</span>{" "}
-					{p ? `${p.toFixed(1)}g` : "—"}
-				</span>
-				{hasYesterday && (
-					<span style={{ fontSize: 10, color: "var(--text-2)" }}>
-						昨日 {yp != null ? `${yp.toFixed(1)}g` : "—"}
-					</span>
-				)}
-			</div>
-			<div
-				style={{
-					display: "flex",
-					justifyContent: "center",
-					gap: 8,
-					alignItems: "baseline",
-				}}
-			>
-				<span>
-					<span style={{ color: PFC_COLORS[1], fontWeight: 700 }}>F</span>{" "}
-					{f ? `${f.toFixed(1)}g` : "—"}
-				</span>
-				{hasYesterday && (
-					<span style={{ fontSize: 10, color: "var(--text-2)" }}>
-						昨日 {yf != null ? `${yf.toFixed(1)}g` : "—"}
-					</span>
-				)}
-			</div>
-			<div
-				style={{
-					display: "flex",
-					justifyContent: "center",
-					gap: 8,
-					alignItems: "baseline",
-				}}
-			>
-				<span>
-					<span style={{ color: PFC_COLORS[2], fontWeight: 700 }}>C</span>{" "}
-					{c ? `${c.toFixed(1)}g` : "—"}
-				</span>
-				{hasYesterday && (
-					<span style={{ fontSize: 10, color: "var(--text-2)" }}>
-						昨日 {yc != null ? `${yc.toFixed(1)}g` : "—"}
-					</span>
-				)}
-			</div>
+		<div style={{ marginTop: 4, fontSize: 12, lineHeight: 2, textAlign: "center" }}>
+			{pfcRow(PFC_COLORS[0], "P", p, yp, tp)}
+			{pfcRow(PFC_COLORS[1], "F", f, yf, tf)}
+			{pfcRow(PFC_COLORS[2], "C", c, yc, tc)}
 		</div>
 	);
 }
@@ -747,34 +714,42 @@ function PFCGraph({ p, f, c, history = [], period = "1d" }) {
 		);
 	}
 
-	// 1d：ドーナツ
+	// 1d：ドーナツ（%表示）
 	if (!p && !f && !c) return <EmptyGraph />;
+	const total1d = (p ?? 0) + (f ?? 0) + (c ?? 0);
 	const data = [
-		{ name: "タンパク質", value: p ?? 0 },
-		{ name: "脂質", value: f ?? 0 },
-		{ name: "炭水化物", value: c ?? 0 },
+		{ name: "P", value: p ?? 0 },
+		{ name: "F", value: f ?? 0 },
+		{ name: "C", value: c ?? 0 },
 	].filter((d) => d.value > 0);
+	const renderPctLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, percent }) => {
+		if (percent < 0.08) return null;
+		const RADIAN = Math.PI / 180;
+		const r = innerRadius + (outerRadius - innerRadius) * 0.5;
+		const x = cx + r * Math.cos(-midAngle * RADIAN);
+		const y = cy + r * Math.sin(-midAngle * RADIAN);
+		return (
+			<text x={x} y={y} fill="white" textAnchor="middle" dominantBaseline="central" fontSize={8} fontWeight="bold">
+				{`${Math.round(percent * 100)}%`}
+			</text>
+		);
+	};
 	return (
-		<div
-			style={{
-				display: "flex",
-				flexDirection: "column",
-				alignItems: "center",
-				gap: 6,
-			}}
-		>
-			<ResponsiveContainer width={80} height={80}>
+		<div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
+			<ResponsiveContainer width={84} height={84}>
 				<PieChart>
 					<Pie
 						data={data}
 						cx="50%"
 						cy="50%"
-						innerRadius={24}
-						outerRadius={38}
+						innerRadius={22}
+						outerRadius={40}
 						dataKey="value"
 						startAngle={90}
 						endAngle={-270}
 						strokeWidth={0}
+						label={renderPctLabel}
+						labelLine={false}
 					>
 						{data.map((_, i) => (
 							<Cell key={i} fill={PFC_COLORS[i]} />
@@ -784,13 +759,13 @@ function PFCGraph({ p, f, c, history = [], period = "1d" }) {
 			</ResponsiveContainer>
 			<div style={{ fontSize: 11, lineHeight: 1.8, textAlign: "center" }}>
 				<div>
-					<Dot color={PFC_COLORS[0]} />P {p?.toFixed(1) ?? "—"}g
+					<Dot color={PFC_COLORS[0]} />P {total1d > 0 ? `${Math.round((p ?? 0) / total1d * 100)}%` : "—"}
 				</div>
 				<div>
-					<Dot color={PFC_COLORS[1]} />F {f?.toFixed(1) ?? "—"}g
+					<Dot color={PFC_COLORS[1]} />F {total1d > 0 ? `${Math.round((f ?? 0) / total1d * 100)}%` : "—"}
 				</div>
 				<div>
-					<Dot color={PFC_COLORS[2]} />C {c?.toFixed(1) ?? "—"}g
+					<Dot color={PFC_COLORS[2]} />C {total1d > 0 ? `${Math.round((c ?? 0) / total1d * 100)}%` : "—"}
 				</div>
 			</div>
 		</div>
@@ -1478,6 +1453,14 @@ export default function DashboardPage() {
 	const calRemaining =
 		calIntake != null && calTarget != null ? calTarget - calIntake : null;
 
+	// PFC 推奨摂取量（kcal × 比率 → g換算）
+	const proteinRatio = goals.target_protein_ratio ?? 0.30;
+	const fatRatio     = goals.target_fat_ratio     ?? 0.25;
+	const carbRatio    = goals.target_carb_ratio    ?? 0.45;
+	const targetProtein = calTarget ? Math.round(calTarget * proteinRatio / 4) : null;
+	const targetFat     = calTarget ? Math.round(calTarget * fatRatio     / 9) : null;
+	const targetCarb    = calTarget ? Math.round(calTarget * carbRatio    / 4) : null;
+
 	// DnD（長押し 300ms）
 	const sensors = useSensors(
 		useSensor(PointerSensor, {
@@ -1541,6 +1524,9 @@ export default function DashboardPage() {
 					yp={yesterdayNutrition?.protein_g ?? null}
 					yf={yesterdayNutrition?.fat_g ?? null}
 					yc={yesterdayNutrition?.carb_g ?? null}
+					tp={targetProtein}
+					tf={targetFat}
+					tc={targetCarb}
 				/>
 			),
 			graph: (
