@@ -1,6 +1,7 @@
 import os
 import uuid
 from datetime import datetime, timedelta
+from urllib.parse import quote
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -85,8 +86,9 @@ async def get_group_schedules(
             events = []
             async with httpx.AsyncClient() as client:
                 for cal_id in calendar_ids:
+                    encoded_calendar_id = quote(cal_id, safe="")
                     resp = await client.get(
-                        f"https://www.googleapis.com/calendar/v3/calendars/{cal_id}/events",
+                        f"https://www.googleapis.com/calendar/v3/calendars/{encoded_calendar_id}/events",
                         headers={"Authorization": f"Bearer {access_token}"},
                         params={
                             "timeMin": time_min,

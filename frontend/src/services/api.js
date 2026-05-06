@@ -98,12 +98,13 @@ export const bodyApi = {
 
 // Settings
 export const settingsApi = {
-  get: () => api.get('/api/settings/'),
-  updatePreferences: (data) => api.put('/api/settings/preferences', data),
-  registerApiKey: (data) => api.post('/api/settings/api-keys', data),
-  deleteApiKey: (provider) => api.delete(`/api/settings/api-keys/${provider}`),
-  syncCalendars: () => api.get('/api/settings/calendars/sync'),
-  updateCalendar: (calendarId, data) => api.put(`/api/settings/calendars/${calendarId}`, data),
+	get: () => api.get("/api/settings/"),
+	updatePreferences: (data) => api.put("/api/settings/preferences", data),
+	registerApiKey: (data) => api.post("/api/settings/api-keys", data),
+	deleteApiKey: (provider) => api.delete(`/api/settings/api-keys/${provider}`),
+	syncCalendars: () => api.get("/api/settings/calendars/sync"),
+	updateCalendar: (calendarId, data) =>
+		api.put(`/api/settings/calendars/${encodeURIComponent(calendarId)}`, data),
 };
 
 // Group

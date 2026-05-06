@@ -162,21 +162,27 @@ async def sync_calendars(
     except Exception as e:
         raise HTTPException(502, f"Google Calendar API error: {str(e)}")
 
-    existing_ids = {
-        c.calendar_id
-        for c in db.query(models.CalendarSetting).filter_by(user_id=current_user.id).all()
+    existing_settings = {
+        setting.calendar_id: setting
+        for setting in db.query(models.CalendarSetting).filter_by(user_id=current_user.id).all()
     }
 
     for cal in calendars:
-        if cal["id"] not in existing_ids:
-            setting = models.CalendarSetting(
+        setting = existing_settings.get(cal["id"])
+        if setting:
+            setting.calendar_name = cal["summary"]
+            setting.is_shared = not cal.get("primary", False)
+            continue
+
+        db.add(
+            models.CalendarSetting(
                 user_id=current_user.id,
                 calendar_id=cal["id"],
                 calendar_name=cal["summary"],
                 is_shared=not cal.get("primary", False),
-                use_for_meal_plan=True,
+                use_for_meal_plan=cal.get("primary", False),
             )
-            db.add(setting)
+        )
 
     db.commit()
     return {"synced": len(calendars)}

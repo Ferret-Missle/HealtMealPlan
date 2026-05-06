@@ -63,6 +63,15 @@ function addMonths(n) {
 	return addJstMonths(n);
 }
 
+function createGoalForm(source) {
+	return {
+		target_weight: source?.target_weight ?? "",
+		target_kcal: source?.target_kcal ?? "",
+		goal_type: source?.goal_type ?? "lose",
+		deadline: source?.deadline ?? "",
+	};
+}
+
 export default function SettingsSection() {
 	const { user, profile, logout, refreshProfile } = useAuth();
 	const qc = useQueryClient();
@@ -126,6 +135,29 @@ export default function SettingsSection() {
 			if (connected) {
 				await refreshConnectedState();
 
+				if (connected === "google") {
+					try {
+						const res = await settingsApi.syncCalendars();
+						await refreshConnectedState();
+						if (active) {
+							const synced = res.data?.synced ?? 0;
+							setSuccessMsg(
+								`Googleカレンダーを連携しました。${synced}件のカレンダーを同期しました`,
+							);
+						}
+					} catch (e) {
+						if (active) {
+							const detail =
+								e.response?.data?.detail ||
+								e.message ||
+								"カレンダー一覧の同期に失敗しました";
+							setErrorMsg(
+								`Googleカレンダーは連携済みですが、カレンダー一覧の同期に失敗しました: ${detail}`,
+							);
+						}
+					}
+				}
+
 				if (connected === "healthplanet") {
 					try {
 						const res = await bodyApi.syncWeightHistory(30);
@@ -163,7 +195,7 @@ export default function SettingsSection() {
 	}, [connected, oauthError, navigate, refreshConnectedState]);
 
 	// 健康目標
-	const [goalForm, setGoalForm] = useState(null); // null = not loaded yet
+	const [goalDraft, setGoalDraft] = useState(null);
 
 	const { data: settings, isLoading } = useQuery({
 		queryKey: ["settings"],
@@ -175,17 +207,7 @@ export default function SettingsSection() {
 		queryFn: () => bodyApi.goals().then((r) => r.data),
 	});
 
-	// ロード完了後に一度だけフォームを初期化
-	useEffect(() => {
-		if (goalsData && goalForm === null) {
-			setGoalForm({
-				target_weight: goalsData.target_weight ?? "",
-				target_kcal: goalsData.target_kcal ?? "",
-				goal_type: goalsData.goal_type ?? "lose",
-				deadline: goalsData.deadline ?? "",
-			});
-		}
-	}, [goalsData]); // eslint-disable-line react-hooks/exhaustive-deps
+	const goalForm = goalDraft ?? (goalsData ? createGoalForm(goalsData) : null);
 
 	const goalMutation = useMutation({
 		mutationFn: (data) => bodyApi.updateGoals(data),
@@ -246,15 +268,29 @@ export default function SettingsSection() {
 
 	const syncCalMutation = useMutation({
 		mutationFn: () => settingsApi.syncCalendars(),
+		onSuccess: (response) => {
+			qc.invalidateQueries({ queryKey: ["settings"] });
+			const synced = response.data?.synced ?? 0;
+			setSuccessMsg(`カレンダーを同期しました (${synced}件)`);
+		},
+		onError: (e) => setErrorMsg(e.message),
+	});
+
+	const updateCalendarMutation = useMutation({
+		mutationFn: ({ calendarId, use_for_meal_plan }) =>
+			settingsApi.updateCalendar(calendarId, { use_for_meal_plan }),
 		onSuccess: () => {
 			qc.invalidateQueries({ queryKey: ["settings"] });
-			setSuccessMsg("カレンダーを同期しました");
+			qc.invalidateQueries({ queryKey: ["dashboard"] });
+			qc.invalidateQueries({ queryKey: ["dashboard-calendar"] });
+			qc.invalidateQueries({ queryKey: ["group-schedules"] });
 		},
 		onError: (e) => setErrorMsg(e.message),
 	});
 
 	const connectedServices = settings?.connected_services || [];
 	const apiKeys = settings?.api_keys || [];
+	const calendarSettings = settings?.calendar_settings || [];
 	const dietStyles = settings?.preferences?.diet_styles || [];
 	const excludedFoods = settings?.excluded_foods || [];
 
@@ -264,16 +300,16 @@ export default function SettingsSection() {
 
 			if (service === "fitbit") {
 				const res = await authApi.fitbitLoginUrl(user.uid);
-				window.location.href = res.data.url;
+				window.location.assign(res.data.url);
 			} else if (service === "healthplanet") {
 				const res = await authApi.healthplanetLoginUrl(user.uid);
-				window.location.href = res.data.url;
+				window.location.assign(res.data.url);
 			} else if (service === "google") {
 				const res = await authApi.googleLoginUrl(user.uid);
-				window.location.href = res.data.url;
+				window.location.assign(res.data.url);
 			} else if (service === "fatsecret") {
 				const res = await authApi.fatsecretLoginUrl(user.uid);
-				window.location.href = res.data.url;
+				window.location.assign(res.data.url);
 			}
 		} catch (e) {
 			const detail = e.response?.data?.detail || e.message;
@@ -298,6 +334,17 @@ export default function SettingsSection() {
 	const removeExcluded = (food) => {
 		prefMutation.mutate({
 			excluded_foods: excludedFoods.filter((f) => f !== food),
+		});
+	};
+
+	const updateGoalForm = (updater) => {
+		setGoalDraft((current) => updater(current ?? createGoalForm(goalsData)));
+	};
+
+	const toggleCalendarSelection = (calendarId, checked) => {
+		updateCalendarMutation.mutate({
+			calendarId,
+			use_for_meal_plan: checked,
 		});
 	};
 
@@ -369,7 +416,9 @@ export default function SettingsSection() {
 								<button
 									key={key}
 									className={`btn btn-sm${goalForm.goal_type === key ? " btn-primary" : " btn-outline"}`}
-									onClick={() => setGoalForm((f) => ({ ...f, goal_type: key }))}
+									onClick={() =>
+										updateGoalForm((f) => ({ ...f, goal_type: key }))
+									}
 								>
 									{label}
 								</button>
@@ -387,7 +436,7 @@ export default function SettingsSection() {
 							placeholder="例: 65.0"
 							value={goalForm.target_weight}
 							onChange={(e) =>
-								setGoalForm((f) => ({ ...f, target_weight: e.target.value }))
+								updateGoalForm((f) => ({ ...f, target_weight: e.target.value }))
 							}
 							style={{ maxWidth: 140 }}
 						/>
@@ -403,7 +452,7 @@ export default function SettingsSection() {
 							placeholder="例: 1800"
 							value={goalForm.target_kcal}
 							onChange={(e) =>
-								setGoalForm((f) => ({ ...f, target_kcal: e.target.value }))
+								updateGoalForm((f) => ({ ...f, target_kcal: e.target.value }))
 							}
 							style={{ maxWidth: 140 }}
 						/>
@@ -460,7 +509,9 @@ export default function SettingsSection() {
 									<button
 										key={months}
 										className={`btn btn-sm${active ? " btn-primary" : " btn-outline"}`}
-										onClick={() => setGoalForm((f) => ({ ...f, deadline: d }))}
+										onClick={() =>
+											updateGoalForm((f) => ({ ...f, deadline: d }))
+										}
 									>
 										{label}
 									</button>
@@ -473,7 +524,7 @@ export default function SettingsSection() {
 							type="date"
 							value={goalForm.deadline}
 							onChange={(e) =>
-								setGoalForm((f) => ({ ...f, deadline: e.target.value }))
+								updateGoalForm((f) => ({ ...f, deadline: e.target.value }))
 							}
 							style={{ maxWidth: 180 }}
 						/>
@@ -601,17 +652,85 @@ export default function SettingsSection() {
 			})}
 
 			{connectedServices.includes("google") && (
-				<button
-					className="btn btn-outline btn-full"
-					style={{ marginBottom: 12 }}
-					onClick={() => syncCalMutation.mutate()}
-					disabled={syncCalMutation.isPending}
-				>
-					<CalendarSync size={14} strokeWidth={2} style={{ marginRight: 6 }} />
-					{syncCalMutation.isPending
-						? "カレンダー同期中…"
-						: "カレンダーリストを同期"}
-				</button>
+				<>
+					<button
+						className="btn btn-outline btn-full"
+						style={{ marginBottom: 12 }}
+						onClick={() => syncCalMutation.mutate()}
+						disabled={syncCalMutation.isPending}
+					>
+						<CalendarSync
+							size={14}
+							strokeWidth={2}
+							style={{ marginRight: 6 }}
+						/>
+						{syncCalMutation.isPending
+							? "カレンダー同期中…"
+							: "カレンダーリストを同期"}
+					</button>
+
+					<div className="card" style={{ marginBottom: 16 }}>
+						<div className="card-title">取得対象のカレンダー</div>
+						<div
+							style={{
+								fontSize: 12,
+								color: "var(--text-secondary)",
+								marginBottom: 12,
+								lineHeight: 1.5,
+							}}
+						>
+							Google
+							アカウントで閲覧できるカレンダーだけが表示されます。家族カレンダーや共有カレンダーも、閲覧権限があれば選択できます。
+						</div>
+						{calendarSettings.length > 0 ? (
+							calendarSettings.map((calendar) => (
+								<label
+									key={calendar.calendar_id}
+									className="list-item"
+									style={{
+										display: "flex",
+										alignItems: "center",
+										gap: 12,
+										cursor: updateCalendarMutation.isPending
+											? "wait"
+											: "pointer",
+									}}
+								>
+									<input
+										type="checkbox"
+										checked={calendar.use_for_meal_plan}
+										onChange={(e) =>
+											toggleCalendarSelection(
+												calendar.calendar_id,
+												e.target.checked,
+											)
+										}
+										disabled={updateCalendarMutation.isPending}
+										style={{ width: 16, height: 16 }}
+									/>
+									<div style={{ flex: 1, minWidth: 0 }}>
+										<div style={{ fontSize: 14, fontWeight: 500 }}>
+											{calendar.calendar_name}
+										</div>
+										<div
+											style={{
+												fontSize: 11,
+												color: "var(--text-secondary)",
+												marginTop: 2,
+											}}
+										>
+											{calendar.is_shared ? "共有カレンダー" : "マイカレンダー"}
+										</div>
+									</div>
+								</label>
+							))
+						) : (
+							<div style={{ fontSize: 13, color: "var(--text-secondary)" }}>
+								まだカレンダーが同期されていません。上のボタンで一覧を同期してください。
+							</div>
+						)}
+					</div>
+				</>
 			)}
 
 			{/* LLM / BYOK */}

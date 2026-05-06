@@ -1,5 +1,6 @@
 import os
 from datetime import datetime, timedelta
+from urllib.parse import quote
 import httpx
 from sqlalchemy.orm import Session
 from .. import models, security
@@ -78,14 +79,23 @@ _MEAL_KEYWORDS = ["外食", "ランチ", "ディナー", "夕食", "昼食", "�
 _EXERCISE_KEYWORDS = ["筋トレ", "ジム", "ランニング", "ウォーキング", "ヨガ", "運動", "トレーニング"]
 
 
-async def get_user_events(user_id: str, date: str, db: Session) -> list:
-    """ユーザー自身のカレンダー予定を（タイトルそのまま）一覧で返す。ダッシュボード表示用。"""
+def _selected_calendar_ids(user_id: str, db: Session) -> list[str]:
     settings = (
         db.query(models.CalendarSetting)
         .filter_by(user_id=user_id, use_for_meal_plan=True)
         .all()
     )
-    calendar_ids = [s.calendar_id for s in settings] if settings else ["primary"]
+    return [setting.calendar_id for setting in settings] if settings else ["primary"]
+
+
+def _calendar_events_url(calendar_id: str) -> str:
+    encoded_calendar_id = quote(calendar_id, safe="")
+    return f"https://www.googleapis.com/calendar/v3/calendars/{encoded_calendar_id}/events"
+
+
+async def get_user_events(user_id: str, date: str, db: Session) -> list:
+    """ユーザー自身のカレンダー予定を（タイトルそのまま）一覧で返す。ダッシュボード表示用。"""
+    calendar_ids = _selected_calendar_ids(user_id, db)
 
     access_token = await _get_access_token(user_id, db)
     time_min = f"{date}T00:00:00Z"
@@ -95,7 +105,7 @@ async def get_user_events(user_id: str, date: str, db: Session) -> list:
     async with httpx.AsyncClient(timeout=15.0) as client:
         for cal_id in calendar_ids:
             resp = await client.get(
-                f"https://www.googleapis.com/calendar/v3/calendars/{cal_id}/events",
+                _calendar_events_url(cal_id),
                 headers={"Authorization": f"Bearer {access_token}"},
                 params={
                     "timeMin": time_min,
@@ -122,13 +132,7 @@ async def get_user_events(user_id: str, date: str, db: Session) -> list:
 
 async def get_daily_events(user_id: str, date: str, db: Session) -> dict:
     """Fetch calendar events and categorize as meal/exercise. Strips titles/locations for privacy."""
-    settings = (
-        db.query(models.CalendarSetting)
-        .filter_by(user_id=user_id, use_for_meal_plan=True)
-        .all()
-    )
-    if not settings:
-        return {"meal_events": [], "exercise_events": []}
+    calendar_ids = _selected_calendar_ids(user_id, db)
 
     access_token = await _get_access_token(user_id, db)
     time_min = f"{date}T00:00:00Z"
@@ -138,9 +142,9 @@ async def get_daily_events(user_id: str, date: str, db: Session) -> dict:
     exercise_events = []
 
     async with httpx.AsyncClient(timeout=15.0) as client:
-        for setting in settings:
+        for calendar_id in calendar_ids:
             resp = await client.get(
-                f"https://www.googleapis.com/calendar/v3/calendars/{setting.calendar_id}/events",
+                _calendar_events_url(calendar_id),
                 headers={"Authorization": f"Bearer {access_token}"},
                 params={
                     "timeMin": time_min,
