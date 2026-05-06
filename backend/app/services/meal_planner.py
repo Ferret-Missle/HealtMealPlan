@@ -6,8 +6,29 @@ from .. import models, security
 from ..llm.adapter import get_adapter
 
 
-SYSTEM_PROMPT = """あなたは健康的な食事の専門家です。指定された条件に基づいて、栄養バランスの取れた献立を提案してください。
-回答は必ずJSON形式のみで返してください。JSON以外のテキストは含めないでください。"""
+SYSTEM_PROMPT = """あなたは管理栄養士です。指定された目標カロリーとPFCバランス（タンパク質・脂質・炭水化物）に厳密に合わせた献立を提案してください。
+- 提案料理の serving_grams（1人前の総量g）は、目標カロリーとPFCに ±10% 以内で一致するよう調整してください
+- kcal_per_serving / protein_g / fat_g / carb_g は serving_grams に対する栄養素値を計算して記載してください
+- 一般的な食材の栄養素データに基づいて、目標値に最も近づく分量を選んでください
+- 回答は必ずJSON形式のみで返してください。JSON以外のテキストは含めないでください。"""
+
+
+def _meal_ratio(meal_type: str, light_breakfast: bool) -> float:
+    """1日のうち各食事に割り当てるカロリー比率。"""
+    if light_breakfast:
+        return {"breakfast": 0.20, "lunch": 0.35, "dinner": 0.45}.get(meal_type, 0.33)
+    return {"breakfast": 0.25, "lunch": 0.35, "dinner": 0.40}.get(meal_type, 0.33)
+
+
+def _slot_targets(meal_type: str, light_breakfast: bool, member_contexts: list) -> dict:
+    """グループ平均のkcal/PFC目標を返す。"""
+    ratio = _meal_ratio(meal_type, light_breakfast)
+    n = max(1, len(member_contexts))
+    kcal = sum(mc["target_kcal"] * ratio for mc in member_contexts) / n
+    p = sum(mc["target_kcal"] * ratio * mc["p_ratio"] / 4 for mc in member_contexts) / n
+    f = sum(mc["target_kcal"] * ratio * mc["f_ratio"] / 9 for mc in member_contexts) / n
+    c = sum(mc["target_kcal"] * ratio * mc["c_ratio"] / 4 for mc in member_contexts) / n
+    return {"kcal": round(kcal), "protein": round(p, 1), "fat": round(f, 1), "carb": round(c, 1)}
 
 
 def _get_day_cond_members(day_date: str, conditions: dict) -> list:
@@ -49,6 +70,9 @@ async def generate_menus(plan_id: str, user_id: str, db: Session, conditions: di
             "user_id": member.user_id,
             "label": labels[idx],
             "target_kcal": goals.target_kcal or 2000,
+            "p_ratio": (getattr(goals, "target_protein_ratio", None) or 0.30),
+            "f_ratio": (getattr(goals, "target_fat_ratio", None) or 0.25),
+            "c_ratio": (getattr(goals, "target_carb_ratio", None) or 0.45),
             "goal_type": goals.goal_type or "maintain",
             "preferences": goals.preferences_json or {},
             "excluded_foods": goals.excluded_foods_json or [],
@@ -122,45 +146,42 @@ async def _call_llm(
     member_contexts: list, past_ingredients: list
 ) -> dict:
     meal_name_jp = {"breakfast": "朝食", "lunch": "昼食", "dinner": "夕食"}.get(meal_type_str, "食事")
-    sharing_jp = "共有食（全員分）" if slot.sharing_type == "shared" else "個別食"
+    sharing_jp = "共有食（全員分同じ料理）" if slot.sharing_type == "shared" else "個別食"
     members_count = len(member_contexts)
-    kcal_budget = getattr(slot, "kcal_budget", None)
+
+    # グループ平均の kcal/PFC 目標を計算
+    targets = _slot_targets(meal_type_str, light_breakfast, member_contexts)
 
     if source_type == "conbini":
         source_note = (
             "【購入スタイル: コンビニ・スーパー購入】\n"
-            "コンビニやスーパーで購入できる商品を提案してください。\n"
-            "例: おにぎり、サンドイッチ、サラダチキン、冷蔵惣菜など。\n"
-            "menu_nameは商品名を具体的に書いてください。\n"
-            "cooking_summaryは「コンビニ購入」と記載してください。"
+            "コンビニやスーパーで購入できる商品の組み合わせで目標値に近づけてください。\n"
+            "例: おにぎり＋サラダチキン＋野菜サラダ、サンドイッチ＋ヨーグルト など。\n"
+            "menu_name は組み合わせた商品名を具体的に書いてください（例：『鮭おにぎり＋サラダチキン＋野菜サラダ』）。\n"
+            "cooking_summary は「コンビニ購入」と記載してください。"
         )
     elif source_type == "bento":
         source_note = (
             "【購入スタイル: 自作弁当】\n"
             "家で作って持参できるお弁当メニューを提案してください。\n"
             "冷めても美味しく、持ち運びしやすい料理が理想です。\n"
-            "例: おにぎり、から揚げ、卵焼き、野菜炒めなど。\n"
-            "cooking_summaryに簡単な調理手順を記載してください。"
+            "cooking_summary に簡単な調理手順を記載してください。"
         )
     elif source_type == "homecook":
         source_note = (
             "【購入スタイル: 自炊】\n"
-            "自宅で調理できる料理を提案してください。\n"
-            "cooking_summaryに調理手順の概要を記載してください。"
+            "自宅で調理できる料理を提案してください。主菜・副菜・主食をバランスよく組み合わせてOK。\n"
+            "cooking_summary に調理手順の概要を記載してください。"
         )
     else:
         source_note = "自炊またはコンビニ購入どちらでも構いません。"
 
     breakfast_note = ""
     if meal_type_str == "breakfast" and light_breakfast:
-        breakfast_note = "【朝食は軽めに】朝食のカロリーを抑えめ（目標の70〜80%程度）にしてください。消化が良く手軽な内容が理想です。\n"
-
-    kcal_note = ""
-    if kcal_budget:
-        kcal_note = f"【目標カロリー】この食事の目標カロリーは約 {int(kcal_budget)} kcal です。できるだけ近い値で提案してください。\n"
+        breakfast_note = "【朝食は軽めに】消化が良く手軽な内容（おにぎり、ヨーグルト、フルーツなど）にしてください。\n"
 
     member_info = "\n".join([
-        f"メンバー{mc['label']}: 1日目標カロリー{mc['target_kcal']}kcal / 目標:{mc['goal_type']}"
+        f"  - メンバー{mc['label']}: 1日目標 {mc['target_kcal']}kcal / 目標:{mc['goal_type']}"
         for mc in member_contexts
     ])
 
@@ -168,20 +189,32 @@ async def _call_llm(
 
     user_prompt = f"""以下の条件で{meal_name_jp}（{sharing_jp}・{members_count}名分）の献立を提案してください。
 
+[★ 1人あたりの栄養目標（必ず ±10% 以内で合わせる）]
+- カロリー: 約 {targets['kcal']} kcal
+- タンパク質 (P): 約 {targets['protein']} g
+- 脂質 (F): 約 {targets['fat']} g
+- 炭水化物 (C): 約 {targets['carb']} g
+
 [食事条件]
-{breakfast_note}{kcal_note}{source_note}
+{breakfast_note}{source_note}
 
 [メンバー情報]
 {member_info}
 
-[共通条件]
+[除外/重複]
 除外食材: {", ".join(excluded) if excluded else "なし"}
-過去3日の使用食材（重複回避）: {", ".join(past_ingredients) if past_ingredients else "なし"}
+過去3日の使用食材（重複回避推奨）: {", ".join(past_ingredients) if past_ingredients else "なし"}
+
+[出力ルール]
+- serving_grams は 1 人前の総重量（g）。料理の量で目標 kcal/PFC に合わせること。
+- kcal_per_serving / protein_g / fat_g / carb_g は serving_grams に対する栄養素値（実測した実値）。
+- 一般的な日本食品の栄養素データを使い、目標値に最も近い分量を計算すること。
+- ingredients は使用する食材名を具体的にリスト化（コンビニの場合は商品名）。
 
 [出力形式]
-以下のJSON形式で返してください:
+以下のJSON形式のみで返してください（説明文不要）:
 {{
-  "menu_name": "料理名（コンビニの場合は商品名を具体的に）",
+  "menu_name": "料理名または商品の組み合わせ",
   "kcal_per_serving": 数値,
   "protein_g": 数値,
   "fat_g": 数値,
@@ -196,7 +229,7 @@ async def _call_llm(
         raw = result.text if hasattr(result, "text") else str(result)
         return _parse_json_response(raw)
     except Exception:
-        return _fallback_menu(meal_name_jp, source_type)
+        return _fallback_menu(meal_name_jp, source_type, targets)
 
 
 def _make_item(slot_id: str, user_label: str | None, data: dict, meal_type_str: str) -> models.MealPlanItem:
@@ -257,30 +290,41 @@ def _parse_json_response(text: str) -> dict:
     return json.loads(text)
 
 
-def _fallback_menu(meal_name: str, source_type: str = "auto") -> dict:
-    if source_type == "conbini":
-        defaults = {
-            "朝食": {"menu_name": "おにぎり（鮭）＋野菜サラダ", "kcal_per_serving": 380, "protein_g": 14, "fat_g": 8, "carb_g": 62},
-            "昼食": {"menu_name": "サラダチキン＋サンドイッチ＋野菜スープ", "kcal_per_serving": 520, "protein_g": 30, "fat_g": 14, "carb_g": 65},
-            "夕食": {"menu_name": "幕の内弁当（コンビニ）", "kcal_per_serving": 600, "protein_g": 25, "fat_g": 18, "carb_g": 80},
-        }
-    elif source_type == "bento":
-        defaults = {
-            "朝食": {"menu_name": "おにぎり＋ゆで卵", "kcal_per_serving": 350, "protein_g": 16, "fat_g": 8, "carb_g": 54},
-            "昼食": {"menu_name": "から揚げ弁当（自作）", "kcal_per_serving": 560, "protein_g": 28, "fat_g": 20, "carb_g": 65},
-            "夕食": {"menu_name": "鮭おにぎり＋玉子焼き弁当", "kcal_per_serving": 500, "protein_g": 22, "fat_g": 15, "carb_g": 68},
-        }
+def _fallback_menu(meal_name: str, source_type: str = "auto", targets: dict | None = None) -> dict:
+    """LLM呼び出しが失敗した場合のフォールバック。targetsがあればそれを使う。"""
+    name_map = {
+        ("conbini", "朝食"): "おにぎり＋ゆで卵＋サラダ（コンビニ）",
+        ("conbini", "昼食"): "サラダチキン＋おにぎり＋野菜スープ（コンビニ）",
+        ("conbini", "夕食"): "鶏むね弁当＋サラダ（コンビニ）",
+        ("bento", "朝食"): "鮭おにぎり＋ゆで卵＋ミニサラダ",
+        ("bento", "昼食"): "鶏むね肉弁当（玄米・卵焼き・野菜）",
+        ("bento", "夕食"): "幕の内弁当（魚・卵焼き・煮物）",
+        ("homecook", "朝食"): "ご飯・味噌汁・卵焼き・焼鮭",
+        ("homecook", "昼食"): "鶏むね肉の野菜炒め定食",
+        ("homecook", "夕食"): "鮭の塩焼き・小鉢・味噌汁",
+    }
+    menu_name = name_map.get((source_type, meal_name)) or f"{meal_name}（おまかせ）"
+
+    if targets:
+        kcal = targets.get("kcal", 500)
+        p = targets.get("protein", 20)
+        f = targets.get("fat", 15)
+        c = targets.get("carb", 65)
     else:
-        defaults = {
-            "朝食": {"menu_name": "ご飯・味噌汁・卵焼き", "kcal_per_serving": 450, "protein_g": 18, "fat_g": 12, "carb_g": 65},
-            "昼食": {"menu_name": "鶏胸肉の野菜炒め定食", "kcal_per_serving": 580, "protein_g": 35, "fat_g": 15, "carb_g": 70},
-            "夕食": {"menu_name": "鮭の塩焼き・野菜スープ", "kcal_per_serving": 520, "protein_g": 30, "fat_g": 18, "carb_g": 55},
-        }
-    base = defaults.get(meal_name, {"menu_name": meal_name, "kcal_per_serving": 500, "protein_g": 20, "fat_g": 15, "carb_g": 65})
-    base["serving_grams"] = 300
-    base["ingredients"] = []
-    base["cooking_summary"] = "コンビニ購入" if source_type == "conbini" else ""
-    return base
+        # ざっくりデフォルト
+        defaults_by_meal = {"朝食": (450, 18, 12, 65), "昼食": (600, 30, 18, 70), "夕食": (550, 28, 18, 60)}
+        kcal, p, f, c = defaults_by_meal.get(meal_name, (500, 20, 15, 65))
+
+    return {
+        "menu_name": menu_name,
+        "kcal_per_serving": kcal,
+        "protein_g": p,
+        "fat_g": f,
+        "carb_g": c,
+        "serving_grams": max(200, round(kcal * 0.6)),  # 大まかに kcal × 0.6 (g)
+        "ingredients": [],
+        "cooking_summary": "コンビニ購入" if source_type == "conbini" else "",
+    }
 
 
 async def generate_slot_menu(
@@ -320,6 +364,9 @@ async def generate_slot_menu(
             "user_id": member.user_id,
             "label": labels[idx],
             "target_kcal": goals.target_kcal or 2000,
+            "p_ratio": (getattr(goals, "target_protein_ratio", None) or 0.30),
+            "f_ratio": (getattr(goals, "target_fat_ratio", None) or 0.25),
+            "c_ratio": (getattr(goals, "target_carb_ratio", None) or 0.45),
             "goal_type": goals.goal_type or "maintain",
             "preferences": goals.preferences_json or {},
             "excluded_foods": goals.excluded_foods_json or [],
