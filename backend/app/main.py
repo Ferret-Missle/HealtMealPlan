@@ -115,9 +115,17 @@ async def health():
     }
 
 
+def _require_debug_enabled():
+    """ENABLE_DEBUG_ENDPOINTS=1 でない限り debug 系を 404 として隠す。"""
+    from fastapi import HTTPException
+    if os.getenv("ENABLE_DEBUG_ENDPOINTS", "").lower() not in ("1", "true", "yes"):
+        raise HTTPException(404, "Not found")
+
+
 @app.get("/debug/firebase-key")
 async def debug_firebase_key():
     """Firebase private_key の形式を診断するエンドポイント。鍵の初期化は行わない。"""
+    _require_debug_enabled()
     import base64 as _base64
     import json as _json
 
@@ -169,6 +177,7 @@ async def debug_firebase_key():
 @app.get("/debug/env")
 async def debug_env():
     """環境変数の登録状態を確認するためのデバッグエンドポイント。値は秘匿。"""
+    _require_debug_enabled()
     sa = os.getenv("FIREBASE_SERVICE_ACCOUNT_JSON", "")
     keys_to_check = [
         "FIREBASE_SERVICE_ACCOUNT_JSON",
