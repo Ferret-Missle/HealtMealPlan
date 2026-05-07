@@ -615,17 +615,54 @@ function ItemCard({ item, planId, isDraft }) {
 				</div>
 			)}
 			{item.cooking_summary && (
-				<div
-					style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 4 }}
-				>
-					{item.cooking_summary}
+				<div style={{ marginTop: 6 }}>
+					<div
+						style={{
+							fontSize: 11,
+							fontWeight: 600,
+							color: "var(--text-secondary)",
+							marginBottom: 2,
+						}}
+					>
+						調理手順
+					</div>
+					<div
+						style={{
+							fontSize: 12,
+							color: "var(--text-secondary)",
+							whiteSpace: "pre-line",
+							lineHeight: 1.55,
+						}}
+					>
+						{item.cooking_summary}
+					</div>
 				</div>
 			)}
 			{item.ingredients?.length > 0 && (
-				<div
-					style={{ fontSize: 11, color: "var(--text-secondary)", marginTop: 4 }}
-				>
-					食材: {item.ingredients.join(", ")}
+				<div style={{ marginTop: 6 }}>
+					<div
+						style={{
+							fontSize: 11,
+							fontWeight: 600,
+							color: "var(--text-secondary)",
+							marginBottom: 2,
+						}}
+					>
+						食材
+					</div>
+					<ul
+						style={{
+							margin: 0,
+							paddingLeft: 16,
+							fontSize: 11,
+							color: "var(--text-secondary)",
+							lineHeight: 1.6,
+						}}
+					>
+						{item.ingredients.map((ing, i) => (
+							<li key={i}>{ing}</li>
+						))}
+					</ul>
 				</div>
 			)}
 		</div>
