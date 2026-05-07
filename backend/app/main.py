@@ -1,5 +1,6 @@
 import os
 import logging
+from datetime import datetime
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -12,6 +13,7 @@ from .routers import auth, dashboard, meals, body, settings, meal_plan, group, s
 
 logger = logging.getLogger(__name__)
 limiter = Limiter(key_func=get_remote_address)
+_SERVER_STARTED_AT = datetime.utcnow().isoformat() + "Z"
 
 
 def _run_migrations():
@@ -94,7 +96,23 @@ app.include_router(chat.router, prefix="/api/chat", tags=["chat"])
 
 @app.get("/health")
 async def health():
-    return {"status": "ok"}
+    """サーバ稼働確認 + 現在動いているコードのコミットハッシュを返す。"""
+    import subprocess
+    commit = os.getenv("RENDER_GIT_COMMIT") or os.getenv("VERCEL_GIT_COMMIT_SHA") or "unknown"
+    if commit == "unknown":
+        try:
+            commit = subprocess.check_output(
+                ["git", "rev-parse", "--short", "HEAD"],
+                stderr=subprocess.DEVNULL,
+                cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            ).decode().strip()
+        except Exception:
+            pass
+    return {
+        "status": "ok",
+        "commit": commit[:7] if commit and commit != "unknown" else commit,
+        "started_at": _SERVER_STARTED_AT,
+    }
 
 
 @app.get("/debug/firebase-key")
