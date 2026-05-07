@@ -2,8 +2,31 @@ import json
 import uuid
 from datetime import date as dt_date, timedelta
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 from .. import models, security
 from ..llm.adapter import get_adapter
+
+
+# ─── 進捗管理 ──────────────────────────────────────────────────
+MEAL_JP_MAP = {"breakfast": "朝食", "lunch": "昼食", "dinner": "夕食"}
+
+
+def _set_progress(plan_id: str, db: Session, step: int, total: int, message: str, done: bool = False, error: bool = False):
+    """plan.conditions_json に進捗情報を書き込む。"""
+    plan = db.query(models.MealPlan).filter_by(id=plan_id).first()
+    if not plan:
+        return
+    cond = dict(plan.conditions_json or {})
+    cond["_progress"] = {
+        "step": step,
+        "total": total,
+        "message": message,
+        "done": done,
+        "error": error,
+    }
+    plan.conditions_json = cond
+    flag_modified(plan, "conditions_json")
+    db.commit()
 
 
 SYSTEM_PROMPT = """あなたは家庭料理に詳しい管理栄養士です。指定された目標カロリーとPFCバランス（タンパク質・脂質・炭水化物）に厳密に合わせ、家庭で作りやすい現実的な献立を提案してください。
@@ -91,6 +114,12 @@ async def generate_menus(plan_id: str, user_id: str, db: Session, conditions: di
     if conditions is None:
         conditions = plan.conditions_json or {}
 
+    # 全自炊スロット数を計算（進捗total用）
+    total_slots = sum(
+        1 for d in plan.days for s in d.slots if not s.is_dining_out
+    )
+    _set_progress(plan_id, db, 0, total_slots, "🔍 メンバー情報と目標カロリーを準備中...")
+
     members = db.query(models.GroupMember).filter_by(group_id=plan.group_id).all()
     labels = ["A", "B", "C", "D", "E", "F", "G"]
     member_contexts = []
@@ -136,6 +165,7 @@ async def generate_menus(plan_id: str, user_id: str, db: Session, conditions: di
     # プラン内で使用済みの食材を集約（再利用を促す）
     plan_used_ingredients: list[str] = []
     sorted_days = sorted(plan.days, key=lambda d: d.date)
+    done_count = 0
     for day in sorted_days:
         day_cond_members = _get_day_cond_members(day.date, conditions)
         sorted_slots = sorted(
@@ -145,6 +175,12 @@ async def generate_menus(plan_id: str, user_id: str, db: Session, conditions: di
         same_day_done: list[str] = []
         for slot in sorted_slots:
             mt = str(slot.meal_type)
+            meal_jp = MEAL_JP_MAP.get(mt, mt)
+            sharing_jp = "共有" if slot.sharing_type == "shared" else "個別"
+            _set_progress(
+                plan_id, db, done_count, total_slots,
+                f"📅 {day.date} の{meal_jp}（{sharing_jp}）を生成中... ({done_count + 1}/{total_slots})",
+            )
             new_names, new_ings = await _generate_slot_menu(
                 slot, day.date, member_contexts, past_ingredients,
                 user_id, db, conditions, day_cond_members,
@@ -157,6 +193,9 @@ async def generate_menus(plan_id: str, user_id: str, db: Session, conditions: di
                 plan_done_by_meal.setdefault(mt, []).extend(new_names)
             if new_ings:
                 plan_used_ingredients.extend(new_ings)
+            done_count += 1
+
+    _set_progress(plan_id, db, total_slots, total_slots, "✅ 生成完了", done=True)
 
 
 async def _generate_slot_menu(

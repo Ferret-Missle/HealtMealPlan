@@ -1,14 +1,43 @@
 import uuid
 from datetime import date as dt_date, timedelta
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 from pydantic import BaseModel
 
-from ..database import get_db
+from ..database import SessionLocal, get_db
 from .. import models
 from ..auth_deps import get_current_user
 
 router = APIRouter()
+
+
+async def _run_generation_bg(plan_id: str, user_id: str, conditions: dict):
+    """バックグラウンドで献立生成を実行。独自の DB セッションを使う。"""
+    from ..services import meal_planner
+    db = SessionLocal()
+    try:
+        await meal_planner.generate_menus(plan_id, user_id, db, conditions)
+    except Exception as e:
+        # 進捗をエラーとして記録
+        try:
+            plan = db.query(models.MealPlan).filter_by(id=plan_id).first()
+            if plan:
+                cond = dict(plan.conditions_json or {})
+                cond["_progress"] = {
+                    "step": 0,
+                    "total": 0,
+                    "message": f"エラーが発生しました: {str(e)[:200]}",
+                    "done": True,
+                    "error": True,
+                }
+                plan.conditions_json = cond
+                flag_modified(plan, "conditions_json")
+                db.commit()
+        except Exception:
+            pass
+    finally:
+        db.close()
 
 
 @router.get("/")
@@ -103,11 +132,10 @@ def _resolve_light_breakfast_for_slot(day_date: str, day_conditions: list[DayCon
 @router.post("/generate")
 async def generate_meal_plan(
     payload: GeneratePlanRequest,
+    background_tasks: BackgroundTasks,
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    from ..services import meal_planner
-
     member = db.query(models.GroupMember).filter_by(user_id=current_user.id).first()
     if not member:
         raise HTTPException(400, "No group found")
@@ -138,6 +166,7 @@ async def generate_meal_plan(
     )
     db.add(plan)
 
+    total_slots = 0
     for i in range(payload.days):
         day_date = str(dt_date.fromisoformat(payload.start_date) + timedelta(days=i))
         day_id = str(uuid.uuid4())
@@ -148,7 +177,6 @@ async def generate_meal_plan(
             slot_id = str(uuid.uuid4())
             source = _resolve_source_for_slot(meal_type, day_date, payload.day_conditions)
             light_breakfast = _resolve_light_breakfast_for_slot(day_date, payload.day_conditions)
-            # dinner 全員 homecook → shared; それ以外は individual
             sharing = "shared" if meal_type == "dinner" and source == "homecook" else "individual"
 
             slot = models.MealPlanSlot(
@@ -160,15 +188,28 @@ async def generate_meal_plan(
                 kcal_budget=_calc_kcal_budget(meal_type, target_kcal, light_breakfast),
             )
             db.add(slot)
+            total_slots += 1
 
+    # 初期進捗を書き込み（フロントが即座にローディング画面に遷移できるよう）
+    conditions_json_with_progress = {
+        **conditions_json,
+        "_progress": {
+            "step": 0,
+            "total": total_slots,
+            "message": "🚀 献立生成を開始しています...",
+            "done": False,
+            "error": False,
+        },
+    }
+    plan.conditions_json = conditions_json_with_progress
+    flag_modified(plan, "conditions_json")
     db.commit()
 
-    try:
-        await meal_planner.generate_menus(plan_id, current_user.id, db, conditions_json)
-    except Exception:
-        pass
-
     _record_usage(current_user.id, "meal_plan_weekly", plan_type, db)
+
+    # バックグラウンドで生成を実行（レスポンスはすぐ返す）
+    background_tasks.add_task(_run_generation_bg, plan_id, current_user.id, conditions_json)
+
     db.refresh(plan)
     return _plan_detail(plan)
 
@@ -316,10 +357,11 @@ async def replace_slot_menu(
 @router.post("/{plan_id}/recalculate")
 async def recalculate_plan(
     plan_id: str,
+    background_tasks: BackgroundTasks,
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """S2: 再計算 — 修正内容を踏まえてAIが献立全体を再計算"""
+    """S2: 再計算 — 修正内容を踏まえてAIが献立全体を再計算（バックグラウンド実行）"""
     plan = db.query(models.MealPlan).filter_by(id=plan_id).first()
     if not plan:
         raise HTTPException(404, "Plan not found")
@@ -327,23 +369,32 @@ async def recalculate_plan(
     plan_type = _get_plan_type(current_user.id, db)
     _check_usage_limit(current_user.id, "recalculate", plan_type, db)
 
-    # Delete all draft items and regenerate
+    total_slots = 0
     for day in plan.days:
         for slot in day.slots:
             if not slot.is_dining_out:
                 for item in slot.items:
                     db.delete(item)
-    db.commit()
+                total_slots += 1
 
-    from ..services import meal_planner
-    try:
-        await meal_planner.generate_menus(plan_id, current_user.id, db)
-    except Exception as e:
-        raise HTTPException(500, f"LLM recalculation failed: {str(e)}")
-
+    # 進捗初期化
+    cond = dict(plan.conditions_json or {})
+    cond["_progress"] = {
+        "step": 0,
+        "total": total_slots,
+        "message": "🔄 献立を再計算しています...",
+        "done": False,
+        "error": False,
+    }
+    plan.conditions_json = cond
+    flag_modified(plan, "conditions_json")
     plan.status = models.PlanStatus.draft
     db.commit()
+
     _record_usage(current_user.id, "recalculate", plan_type, db)
+
+    background_tasks.add_task(_run_generation_bg, plan_id, current_user.id, plan.conditions_json)
+
     db.refresh(plan)
     return _plan_detail(plan)
 
@@ -440,4 +491,5 @@ def _plan_detail(plan: models.MealPlan) -> dict:
             })
         days.append({"id": day.id, "date": day.date, "slots": slots})
 
-    return {**_plan_summary(plan), "days": days}
+    progress = (plan.conditions_json or {}).get("_progress")
+    return {**_plan_summary(plan), "days": days, "progress": progress}

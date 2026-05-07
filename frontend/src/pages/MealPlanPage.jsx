@@ -669,6 +669,124 @@ function ItemCard({ item, planId, isDraft }) {
 	);
 }
 
+// ─── 生成中の進捗表示 ─────────────────────────────────────────────────────
+function GenerationProgress({ progress }) {
+	if (!progress) return null;
+	const { step, total, message, done, error } = progress;
+	const pct = total > 0 ? Math.min(100, Math.round((step / total) * 100)) : 0;
+
+	if (error) {
+		return (
+			<div
+				className="card"
+				style={{
+					borderLeft: "4px solid #dc2626",
+					marginBottom: 12,
+					background: "#fef2f2",
+				}}
+			>
+				<div style={{ fontWeight: 600, fontSize: 14, color: "#dc2626" }}>
+					⚠ 生成エラー
+				</div>
+				<div style={{ fontSize: 13, marginTop: 4, color: "var(--text-secondary)" }}>
+					{message || "不明なエラーが発生しました"}
+				</div>
+			</div>
+		);
+	}
+
+	if (done) return null;
+
+	return (
+		<div
+			className="card"
+			style={{
+				borderLeft: "4px solid var(--primary)",
+				marginBottom: 12,
+				background: "rgba(22,163,74,0.04)",
+			}}
+		>
+			<div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+				<div
+					style={{
+						width: 24,
+						height: 24,
+						border: "3px solid #e2e8f0",
+						borderTopColor: "var(--primary)",
+						borderRadius: "50%",
+						animation: "spin 0.8s linear infinite",
+						flexShrink: 0,
+					}}
+				/>
+				<div style={{ flex: 1, minWidth: 0 }}>
+					<div style={{ fontWeight: 600, fontSize: 14 }}>AIが献立を生成中…</div>
+					<div
+						style={{
+							fontSize: 12,
+							color: "var(--text-secondary)",
+							marginTop: 2,
+							whiteSpace: "nowrap",
+							overflow: "hidden",
+							textOverflow: "ellipsis",
+						}}
+					>
+						{message || "処理中..."}
+					</div>
+				</div>
+				<div
+					style={{
+						fontSize: 12,
+						color: "var(--text-secondary)",
+						fontWeight: 600,
+						flexShrink: 0,
+					}}
+				>
+					{step}/{total}
+				</div>
+			</div>
+			{/* プログレスバー */}
+			<div
+				style={{
+					marginTop: 10,
+					height: 6,
+					background: "#e2e8f0",
+					borderRadius: 3,
+					overflow: "hidden",
+				}}
+			>
+				<div
+					style={{
+						height: "100%",
+						width: `${pct}%`,
+						background: "var(--primary)",
+						borderRadius: 3,
+						transition: "width 0.3s",
+					}}
+				/>
+			</div>
+			{/* 案内 */}
+			<div
+				style={{
+					fontSize: 11,
+					color: "var(--text-secondary)",
+					marginTop: 8,
+					padding: "6px 8px",
+					background: "rgba(0,0,0,0.03)",
+					borderRadius: 6,
+					lineHeight: 1.5,
+				}}
+			>
+				💡 生成はバックグラウンドで実行されています。<br />
+				別の画面に移動しても処理は続きます。戻ってきた時に進捗を確認できます。
+			</div>
+			{/* スピナーアニメーション CSS */}
+			<style>{`
+				@keyframes spin { to { transform: rotate(360deg); } }
+			`}</style>
+		</div>
+	);
+}
+
 // ─── 買い物リスト：セクション分け + チェック機能 ─────────────────────────────
 // 文字列配列（旧形式）と { name, category, first_day_offset } 配列（新形式）両対応
 function _normalizeShoppingItems(rawList) {
@@ -1110,6 +1228,13 @@ export default function MealPlanPage() {
 		queryKey: ["meal-plan", selectedPlan],
 		queryFn: () => mealPlanApi.get(selectedPlan),
 		enabled: !!selectedPlan,
+		// 生成中（progress.done が false）は 2秒ごとにポーリング
+		refetchInterval: (query) => {
+			const data = query.state.data;
+			const prog = data?.progress;
+			return prog && prog.done === false ? 2000 : false;
+		},
+		refetchIntervalInBackground: true,
 	});
 
 	const { data: shopping } = useQuery({
@@ -1506,26 +1631,30 @@ export default function MealPlanPage() {
 				<div style={{ marginTop: 8 }}>
 					<div className="section-title">献立内容</div>
 
-					{planDetail.status === "draft" && (
-						<div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
-							<button
-								className="btn btn-secondary"
-								style={{ flex: 1 }}
-								onClick={handleRecalculate}
-								disabled={recalculating}
-							>
-								{recalculating ? "再計算中..." : "🔄 再計算"}
-							</button>
-							<button
-								className="btn btn-primary"
-								style={{ flex: 1 }}
-								onClick={() => confirmMutation.mutate(selectedPlan)}
-								disabled={confirmMutation.isPending}
-							>
-								{confirmMutation.isPending ? "確定中..." : "✓ 献立を確定"}
-							</button>
-						</div>
-					)}
+					{/* 生成進捗 */}
+					<GenerationProgress progress={planDetail.progress} />
+
+					{planDetail.status === "draft" &&
+						(!planDetail.progress || planDetail.progress.done) && (
+							<div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+								<button
+									className="btn btn-secondary"
+									style={{ flex: 1 }}
+									onClick={handleRecalculate}
+									disabled={recalculating}
+								>
+									{recalculating ? "再計算中..." : "🔄 再計算"}
+								</button>
+								<button
+									className="btn btn-primary"
+									style={{ flex: 1 }}
+									onClick={() => confirmMutation.mutate(selectedPlan)}
+									disabled={confirmMutation.isPending}
+								>
+									{confirmMutation.isPending ? "確定中..." : "✓ 献立を確定"}
+								</button>
+							</div>
+						)}
 
 					{planDetail.status === "confirmed" && (
 						<button
