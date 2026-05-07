@@ -377,24 +377,6 @@ export default function SettingsSection() {
 
 	return (
 		<div>
-			{/* ビルド情報（最新コードが配信されているか確認用） */}
-			<div
-				style={{
-					fontSize: 10,
-					color: "var(--text-3, #94a3b8)",
-					textAlign: "right",
-					marginBottom: 8,
-				}}
-				title="このバージョンが配信されているコード"
-			>
-				build:{" "}
-				{typeof window !== "undefined" ? window.__APP_COMMIT__ || "—" : "—"}
-				{" / "}
-				{typeof window !== "undefined" && window.__APP_BUILD_TIME__
-					? new Date(window.__APP_BUILD_TIME__).toLocaleString("ja-JP")
-					: "—"}
-			</div>
-
 			{/* Profile */}
 			<div className="card">
 				<div className="card-title">アカウント</div>
@@ -433,47 +415,37 @@ export default function SettingsSection() {
 					)}
 				</div>
 
-				{/* User ID（開発者向け：環境変数 DEVELOPER_USER_IDS に登録するため） */}
-				<div
+				{/* User ID（開発者向け）：クリックでコピー、デフォルトは控えめに省略表示 */}
+				<button
+					type="button"
+					onClick={() => {
+						const uid = profile?.id || user?.uid;
+						if (uid && navigator.clipboard) {
+							navigator.clipboard.writeText(uid);
+							toast.success("User ID をコピーしました");
+						}
+					}}
+					title="クリックで User ID をコピー"
 					style={{
-						marginTop: 10,
-						padding: "6px 10px",
-						background: "var(--bg)",
-						borderRadius: 6,
-						fontSize: 11,
-						color: "var(--text-secondary)",
-						display: "flex",
-						alignItems: "center",
-						gap: 6,
+						marginTop: 8,
+						background: "transparent",
+						border: "none",
+						padding: 0,
+						fontSize: 10,
+						color: "var(--text-3, #94a3b8)",
+						fontFamily: "monospace",
+						cursor: "pointer",
+						display: "inline-block",
 					}}
 				>
-					<span>User ID:</span>
-					<code
-						style={{
-							background: "var(--surface)",
-							padding: "2px 6px",
-							borderRadius: 4,
-							fontFamily: "monospace",
-							flex: 1,
-							wordBreak: "break-all",
-						}}
-					>
-						{profile?.id || user?.uid || "—"}
-					</code>
-					<button
-						className="btn btn-outline"
-						style={{ fontSize: 10, padding: "2px 8px" }}
-						onClick={() => {
-							const uid = profile?.id || user?.uid;
-							if (uid && navigator.clipboard) {
-								navigator.clipboard.writeText(uid);
-								toast.success("User ID をコピーしました");
-							}
-						}}
-					>
-						📋 コピー
-					</button>
-				</div>
+					{(() => {
+						const uid = profile?.id || user?.uid || "";
+						if (!uid) return "";
+						return uid.length > 12
+							? `id: ${uid.slice(0, 6)}…${uid.slice(-4)} 📋`
+							: `id: ${uid} 📋`;
+					})()}
+				</button>
 			</div>
 
 			{/* 健康目標 */}
@@ -1129,6 +1101,25 @@ export default function SettingsSection() {
 					<Trash2 size={14} strokeWidth={2} style={{ marginRight: 4 }} />
 					{deleteAccountMutation.isPending ? "削除中…" : "アカウントを削除"}
 				</button>
+			</div>
+
+			{/* ビルド情報（最新コードが配信されているか確認用・ナビバーで隠れないよう余白付き） */}
+			<div
+				style={{
+					fontSize: 10,
+					color: "var(--text-3, #94a3b8)",
+					textAlign: "center",
+					marginTop: 24,
+					paddingBottom: 96, // ボトムナビゲーション分のスペース
+				}}
+				title="このバージョンが配信されているコード"
+			>
+				build:{" "}
+				{typeof window !== "undefined" ? window.__APP_COMMIT__ || "—" : "—"}
+				{" · "}
+				{typeof window !== "undefined" && window.__APP_BUILD_TIME__
+					? new Date(window.__APP_BUILD_TIME__).toLocaleString("ja-JP")
+					: "—"}
 			</div>
 		</div>
 	);
