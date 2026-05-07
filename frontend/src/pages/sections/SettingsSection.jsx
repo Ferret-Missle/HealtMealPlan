@@ -410,7 +410,7 @@ export default function SettingsSection() {
 						{user?.email}
 					</div>
 				</div>
-				<div style={{ marginTop: 8 }}>
+				<div style={{ marginTop: 8, display: "flex", gap: 6, flexWrap: "wrap" }}>
 					<span
 						className={
 							profile?.plan_type === "byok"
@@ -422,6 +422,57 @@ export default function SettingsSection() {
 							? `BYOK (${profile.byok_provider})`
 							: "無料プラン (Groq)"}
 					</span>
+					{profile?.is_developer && (
+						<span
+							className="connected-badge"
+							style={{ background: "#7c3aed", color: "white" }}
+							title="開発者アカウント：使用回数制限が撤廃されています"
+						>
+							🛠 開発者モード
+						</span>
+					)}
+				</div>
+
+				{/* User ID（開発者向け：環境変数 DEVELOPER_USER_IDS に登録するため） */}
+				<div
+					style={{
+						marginTop: 10,
+						padding: "6px 10px",
+						background: "var(--bg)",
+						borderRadius: 6,
+						fontSize: 11,
+						color: "var(--text-secondary)",
+						display: "flex",
+						alignItems: "center",
+						gap: 6,
+					}}
+				>
+					<span>User ID:</span>
+					<code
+						style={{
+							background: "var(--surface)",
+							padding: "2px 6px",
+							borderRadius: 4,
+							fontFamily: "monospace",
+							flex: 1,
+							wordBreak: "break-all",
+						}}
+					>
+						{profile?.id || user?.uid || "—"}
+					</code>
+					<button
+						className="btn btn-outline"
+						style={{ fontSize: 10, padding: "2px 8px" }}
+						onClick={() => {
+							const uid = profile?.id || user?.uid;
+							if (uid && navigator.clipboard) {
+								navigator.clipboard.writeText(uid);
+								toast.success("User ID をコピーしました");
+							}
+						}}
+					>
+						📋 コピー
+					</button>
 				</div>
 			</div>
 
