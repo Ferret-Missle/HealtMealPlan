@@ -69,21 +69,68 @@ SYSTEM_PROMPT = """あなたは家庭料理に詳しい管理栄養士です。�
 
 
 def _meal_ratio(meal_type: str, light_breakfast: bool) -> float:
-    """1日のうち各食事に割り当てるカロリー比率。"""
+    """単純比率（互換用）：朝25/昼35/夕40、軽朝食なら20/35/45。"""
     if light_breakfast:
         return {"breakfast": 0.20, "lunch": 0.35, "dinner": 0.45}.get(meal_type, 0.33)
     return {"breakfast": 0.25, "lunch": 0.35, "dinner": 0.40}.get(meal_type, 0.33)
 
 
-def _slot_targets(meal_type: str, light_breakfast: bool, member_contexts: list) -> dict:
-    """グループ平均のkcal/PFC目標を返す。"""
-    ratio = _meal_ratio(meal_type, light_breakfast)
+# ソースタイプごとの倍率（標準=1.0）
+# drink_only: 飲み物のみは標準の30%まで圧縮 → その分は他の食事へ再分配
+SOURCE_KCAL_FACTOR = {
+    "drink_only": 0.30,
+    "conbini": 1.0,
+    "bento": 1.0,
+    "homecook": 1.0,
+}
+
+
+def _meal_weights(light_breakfast: bool, day_sources: dict[str, str]) -> dict[str, float]:
+    """1日3食のkcal配分比率を返す（合計=1.0に正規化）。
+    朝昼晩のベース比率にソース倍率を掛け、減った分を他に再分配。"""
+    if light_breakfast:
+        base = {"breakfast": 0.20, "lunch": 0.35, "dinner": 0.45}
+    else:
+        base = {"breakfast": 0.25, "lunch": 0.35, "dinner": 0.40}
+    weights = {
+        m: base[m] * SOURCE_KCAL_FACTOR.get(day_sources.get(m), 1.0)
+        for m in ("breakfast", "lunch", "dinner")
+    }
+    total = sum(weights.values())
+    if total <= 0:
+        return base  # フォールバック
+    return {k: v / total for k, v in weights.items()}
+
+
+def _slot_targets(
+    meal_type: str,
+    light_breakfast: bool,
+    member_contexts: list,
+    day_sources_per_member: dict[str, dict[str, str]] | None = None,
+) -> dict:
+    """グループ平均のkcal/PFC目標を返す。
+    day_sources_per_member: {user_id: {breakfast: src, lunch: src, dinner: src}}
+    """
     n = max(1, len(member_contexts))
-    kcal = sum(mc["target_kcal"] * ratio for mc in member_contexts) / n
-    p = sum(mc["target_kcal"] * ratio * mc["p_ratio"] / 4 for mc in member_contexts) / n
-    f = sum(mc["target_kcal"] * ratio * mc["f_ratio"] / 9 for mc in member_contexts) / n
-    c = sum(mc["target_kcal"] * ratio * mc["c_ratio"] / 4 for mc in member_contexts) / n
-    return {"kcal": round(kcal), "protein": round(p, 1), "fat": round(f, 1), "carb": round(c, 1)}
+    total_kcal = total_p = total_f = total_c = 0.0
+    for mc in member_contexts:
+        if day_sources_per_member:
+            sources = day_sources_per_member.get(mc["user_id"], {})
+            weights = _meal_weights(light_breakfast, sources)
+            ratio = weights.get(meal_type, 0.33)
+        else:
+            ratio = _meal_ratio(meal_type, light_breakfast)
+        kcal = mc["target_kcal"] * ratio
+        total_kcal += kcal
+        total_p += kcal * mc["p_ratio"] / 4
+        total_f += kcal * mc["f_ratio"] / 9
+        total_c += kcal * mc["c_ratio"] / 4
+    return {
+        "kcal": round(total_kcal / n),
+        "protein": round(total_p / n, 1),
+        "fat": round(total_f / n, 1),
+        "carb": round(total_c / n, 1),
+    }
 
 
 def _gather_body_info(user_id: str, db: Session, scope: str, goals) -> dict | None:
@@ -338,6 +385,7 @@ async def generate_menus(plan_id: str, user_id: str, db: Session, conditions: di
                 same_day_done=same_day_done,
                 recent_same_meal=plan_done_by_meal.get(mt, [])[-5:],
                 plan_used_ingredients=plan_used_ingredients,
+                all_day_slots=list(day.slots),
             )
             if new_names:
                 same_day_done.extend(new_names)
@@ -361,6 +409,7 @@ async def _generate_slot_menu(
     same_day_done: list[str] | None = None,
     recent_same_meal: list[str] | None = None,
     plan_used_ingredients: list[str] | None = None,
+    all_day_slots: list | None = None,
 ):
     if conditions is None:
         conditions = {}
@@ -372,9 +421,30 @@ async def _generate_slot_menu(
         recent_same_meal = []
     if plan_used_ingredients is None:
         plan_used_ingredients = []
+    if all_day_slots is None:
+        all_day_slots = []
 
     meal_type_str = str(slot.meal_type)
     slot_source = getattr(slot, "source_type", None) or ("homecook" if meal_type_str == "dinner" else "conbini")
+
+    # 1日の各食事のソースをメンバー別に算出（kcal配分の正規化に使う）
+    day_sources_per_member: dict[str, dict[str, str]] = {}
+    for mc in member_contexts:
+        member_sources: dict[str, str] = {}
+        for s in all_day_slots:
+            if getattr(s, "is_dining_out", False):
+                continue
+            mt = str(s.meal_type)
+            default_src = getattr(s, "source_type", None) or (
+                "homecook" if mt == "dinner" else "conbini"
+            )
+            if s.sharing_type == "shared":
+                member_sources[mt] = default_src
+            else:
+                member_sources[mt] = _get_member_source(
+                    mc["user_id"], mt, day_cond_members, default_src
+                )
+        day_sources_per_member[mc["user_id"]] = member_sources
 
     adapter = _get_llm_adapter(user_id, db)
 
@@ -387,6 +457,7 @@ async def _generate_slot_menu(
             adapter, slot, meal_type_str, slot_source, light_breakfast,
             member_contexts, past_ingredients, same_day_done, recent_same_meal,
             plan_used_ingredients,
+            day_sources_per_member=day_sources_per_member,
         )
         db.add(_make_item(slot.id, None, data, meal_type_str))
         if data.get("menu_name"):
@@ -401,6 +472,7 @@ async def _generate_slot_menu(
                 adapter, slot, meal_type_str, src, lb,
                 [mc], past_ingredients, same_day_done, recent_same_meal,
                 plan_used_ingredients,
+                day_sources_per_member={mc["user_id"]: day_sources_per_member.get(mc["user_id"], {})},
             )
             db.add(_make_item(slot.id, mc["label"], data, meal_type_str))
             if data.get("menu_name"):
@@ -418,6 +490,7 @@ async def _call_llm(
     same_day_done: list[str] | None = None,
     recent_same_meal: list[str] | None = None,
     plan_used_ingredients: list[str] | None = None,
+    day_sources_per_member: dict | None = None,
 ) -> dict:
     same_day_done = same_day_done or []
     recent_same_meal = recent_same_meal or []
@@ -426,8 +499,8 @@ async def _call_llm(
     sharing_jp = "共有食（全員分同じ料理）" if slot.sharing_type == "shared" else "個別食"
     members_count = len(member_contexts)
 
-    # グループ平均の kcal/PFC 目標を計算
-    targets = _slot_targets(meal_type_str, light_breakfast, member_contexts)
+    # グループ平均の kcal/PFC 目標を計算（ソース別倍率を考慮）
+    targets = _slot_targets(meal_type_str, light_breakfast, member_contexts, day_sources_per_member)
 
     if source_type == "conbini":
         source_note = (
@@ -799,6 +872,7 @@ async def generate_slot_menu(
             same_day_done=same_day_done,
             recent_same_meal=recent_same_meal[-5:],
             plan_used_ingredients=plan_used_ingredients,
+            all_day_slots=list(day.slots),
         )
 
 

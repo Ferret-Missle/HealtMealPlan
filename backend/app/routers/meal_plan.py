@@ -98,7 +98,7 @@ class GeneratePlanRequest(BaseModel):
 
 
 def _calc_kcal_budget(meal_type: str, target_kcal: int | None, light_breakfast: bool) -> float | None:
-    """Distribute daily kcal budget across meals."""
+    """単一食事の単純配分（互換用）。ソース未考慮。"""
     if not target_kcal:
         return None
     if light_breakfast:
@@ -106,6 +106,32 @@ def _calc_kcal_budget(meal_type: str, target_kcal: int | None, light_breakfast: 
     else:
         ratios = {"breakfast": 0.25, "lunch": 0.35, "dinner": 0.40}
     return round(target_kcal * ratios.get(meal_type, 0.33))
+
+
+# meal_planner.SOURCE_KCAL_FACTOR と同じ：drink_only は標準の30%
+_SOURCE_KCAL_FACTOR = {"drink_only": 0.30, "conbini": 1.0, "bento": 1.0, "homecook": 1.0}
+
+
+def _calc_day_kcal_budgets(
+    target_kcal: int | None,
+    light_breakfast: bool,
+    day_sources: dict[str, str],
+) -> dict[str, float | None]:
+    """1日3食を一度に計算。drink_only の食事は圧縮し、減った分を他の食事へ再分配。"""
+    if not target_kcal:
+        return {"breakfast": None, "lunch": None, "dinner": None}
+    if light_breakfast:
+        base = {"breakfast": 0.20, "lunch": 0.35, "dinner": 0.45}
+    else:
+        base = {"breakfast": 0.25, "lunch": 0.35, "dinner": 0.40}
+    weights = {
+        m: base[m] * _SOURCE_KCAL_FACTOR.get(day_sources.get(m), 1.0)
+        for m in ("breakfast", "lunch", "dinner")
+    }
+    total = sum(weights.values())
+    if total <= 0:
+        return {m: round(target_kcal * base[m]) for m in base}
+    return {m: round(target_kcal * (w / total)) for m, w in weights.items()}
 
 
 def _resolve_source_for_slot(meal_type: str, day_date: str, day_conditions: list[DayCondition]) -> str:
@@ -173,10 +199,17 @@ async def generate_meal_plan(
         day = models.MealPlanDay(id=day_id, meal_plan_id=plan_id, date=day_date)
         db.add(day)
 
+        # 1日分のソースをまず確定（kcal配分の正規化に使用）
+        light_breakfast = _resolve_light_breakfast_for_slot(day_date, payload.day_conditions)
+        day_sources = {
+            mt: _resolve_source_for_slot(mt, day_date, payload.day_conditions)
+            for mt in ("breakfast", "lunch", "dinner")
+        }
+        day_kcals = _calc_day_kcal_budgets(target_kcal, light_breakfast, day_sources)
+
         for meal_type in ["breakfast", "lunch", "dinner"]:
             slot_id = str(uuid.uuid4())
-            source = _resolve_source_for_slot(meal_type, day_date, payload.day_conditions)
-            light_breakfast = _resolve_light_breakfast_for_slot(day_date, payload.day_conditions)
+            source = day_sources[meal_type]
             sharing = "shared" if meal_type == "dinner" and source == "homecook" else "individual"
 
             slot = models.MealPlanSlot(
@@ -185,7 +218,7 @@ async def generate_meal_plan(
                 meal_type=meal_type,
                 sharing_type=sharing,
                 source_type=source,
-                kcal_budget=_calc_kcal_budget(meal_type, target_kcal, light_breakfast),
+                kcal_budget=day_kcals[meal_type],
             )
             db.add(slot)
             total_slots += 1
