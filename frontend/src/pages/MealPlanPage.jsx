@@ -327,22 +327,39 @@ function DayRow({ dayCondition, members, schedules, onUpdate }) {
 		onUpdate(date, userId, meal, newSrc);
 	}
 
-	// 特定日のスケジュールを取得（HH:MM形式に整形）
+	// 特定日のスケジュールを取得（JST タイムゾーンで日付・時刻を判定）
+	function jstDateOf(iso) {
+		// "2026-06-07" (all_day) はそのまま、"2026-06-07T..." は JST に変換
+		if (!iso) return "";
+		if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso;
+		const d = new Date(iso);
+		if (Number.isNaN(d.getTime())) return iso.slice(0, 10);
+		// sv-SE ロケールは ISO 形式 (yyyy-MM-dd) を返す
+		return d.toLocaleDateString("sv-SE", { timeZone: "Asia/Tokyo" });
+	}
+
 	function getMemberEvents(userId) {
 		const memberData = schedules?.[userId];
 		if (!memberData) return null;
 		if (!memberData.events || memberData.events.length === 0) return [];
 
-		return memberData.events.filter((ev) => {
-			const evDate = (ev.start || "").slice(0, 10);
-			return evDate === date;
-		});
+		return memberData.events.filter((ev) => jstDateOf(ev.start) === date);
 	}
 
 	function formatEventTime(ev) {
 		if (ev.all_day) return "終日";
-		const start = ev.start?.slice(11, 16) || "";
-		const end = ev.end?.slice(11, 16) || "";
+		const toJstHM = (iso) => {
+			if (!iso) return "";
+			const d = new Date(iso);
+			if (Number.isNaN(d.getTime())) return iso.slice(11, 16);
+			return d.toLocaleTimeString("ja-JP", {
+				hour: "2-digit",
+				minute: "2-digit",
+				timeZone: "Asia/Tokyo",
+			});
+		};
+		const start = toJstHM(ev.start);
+		const end = toJstHM(ev.end);
 		return start && end ? `${start}〜${end}` : start;
 	}
 

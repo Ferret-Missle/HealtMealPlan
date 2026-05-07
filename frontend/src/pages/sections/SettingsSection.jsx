@@ -64,12 +64,23 @@ function addMonths(n) {
 	return addJstMonths(n);
 }
 
+// バックエンドの DateTime("2026-06-07T00:00:00") を <input type="date"> 用の "2026-06-07" に正規化
+function normalizeDateInput(v) {
+	if (!v) return "";
+	if (typeof v !== "string") return "";
+	// すでに yyyy-MM-dd ならそのまま
+	if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return v;
+	// "2026-06-07T..." → 先頭10文字
+	if (/^\d{4}-\d{2}-\d{2}T/.test(v)) return v.slice(0, 10);
+	return "";
+}
+
 function createGoalForm(source) {
 	return {
 		target_weight: source?.target_weight ?? "",
 		target_kcal: source?.target_kcal ?? "",
 		goal_type: source?.goal_type ?? "lose",
-		deadline: source?.deadline ?? "",
+		deadline: normalizeDateInput(source?.deadline),
 	};
 }
 
