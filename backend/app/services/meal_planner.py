@@ -15,7 +15,14 @@ SYSTEM_PROMPT = """あなたは管理栄養士です。指定された目標カ�
 - 複数の料理を組み合わせる場合、menu_name は改行(\\n)区切りで列挙（「＋」記号は使わない）
   例: "鮭おにぎり\\nサラダチキン\\n野菜サラダ"
 - 一般的な日本食品の栄養素データを使い、目標値に最も近づく分量を計算すること
-- 回答は必ずJSON形式のみで返すこと。JSON以外のテキストは含めない"""
+- 回答は必ずJSON形式のみで返すこと。JSON以外のテキストは含めない
+
+【バラエティ重視】
+- 7日間の献立では、毎日違うメニューを提案すること。同じ料理の繰り返しは厳禁
+- 主菜のタンパク源（鶏/豚/牛/魚/海鮮/卵/大豆製品）を毎日ローテーション
+- 主食（白米/玄米/パン/麺/雑穀）も適度に変化を付ける
+- 和食/洋食/中華/エスニック など系統も混ぜる
+- 調理法（焼く/煮る/蒸す/炒める/揚げる/和える）にも変化を付ける"""
 
 
 def _meal_ratio(meal_type: str, light_breakfast: bool) -> float:
@@ -105,7 +112,10 @@ async def generate_menus(plan_id: str, user_id: str, db: Session, conditions: di
     past_ingredients = _get_past_ingredients(plan.group_id, plan.start_date, db)
 
     meal_order = {"breakfast": 0, "lunch": 1, "dinner": 2}
-    for day in plan.days:
+    # 食事タイプごとに、プラン内ですでに提案済みのメニュー名を蓄積（別日との重複回避用）
+    plan_done_by_meal: dict[str, list[str]] = {"breakfast": [], "lunch": [], "dinner": []}
+    sorted_days = sorted(plan.days, key=lambda d: d.date)
+    for day in sorted_days:
         day_cond_members = _get_day_cond_members(day.date, conditions)
         # 朝→昼→夕の順で生成し、同日内の既出メニュー名を次へ伝播
         sorted_slots = sorted(
@@ -114,13 +124,17 @@ async def generate_menus(plan_id: str, user_id: str, db: Session, conditions: di
         )
         same_day_done: list[str] = []
         for slot in sorted_slots:
+            mt = str(slot.meal_type)
             new_names = await _generate_slot_menu(
                 slot, day.date, member_contexts, past_ingredients,
                 user_id, db, conditions, day_cond_members,
                 same_day_done=same_day_done,
+                # 同じ食事タイプの直近5件を「最近の提案」として渡す
+                recent_same_meal=plan_done_by_meal.get(mt, [])[-5:],
             )
             if new_names:
                 same_day_done.extend(new_names)
+                plan_done_by_meal.setdefault(mt, []).extend(new_names)
 
 
 async def _generate_slot_menu(
@@ -133,6 +147,7 @@ async def _generate_slot_menu(
     conditions: dict | None = None,
     day_cond_members: list | None = None,
     same_day_done: list[str] | None = None,
+    recent_same_meal: list[str] | None = None,
 ):
     if conditions is None:
         conditions = {}
@@ -140,6 +155,8 @@ async def _generate_slot_menu(
         day_cond_members = []
     if same_day_done is None:
         same_day_done = []
+    if recent_same_meal is None:
+        recent_same_meal = []
 
     meal_type_str = str(slot.meal_type)
     slot_source = getattr(slot, "source_type", None) or ("homecook" if meal_type_str == "dinner" else "conbini")
@@ -152,7 +169,7 @@ async def _generate_slot_menu(
         light_breakfast = any(m.get("light_breakfast") for m in day_cond_members)
         data = await _call_llm(
             adapter, slot, meal_type_str, slot_source, light_breakfast,
-            member_contexts, past_ingredients, same_day_done
+            member_contexts, past_ingredients, same_day_done, recent_same_meal
         )
         db.add(_make_item(slot.id, None, data, meal_type_str))
         if data.get("menu_name"):
@@ -164,7 +181,7 @@ async def _generate_slot_menu(
             lb = _get_member_light_breakfast(mc["user_id"], day_cond_members)
             data = await _call_llm(
                 adapter, slot, meal_type_str, src, lb,
-                [mc], past_ingredients, same_day_done
+                [mc], past_ingredients, same_day_done, recent_same_meal
             )
             db.add(_make_item(slot.id, mc["label"], data, meal_type_str))
             if data.get("menu_name"):
@@ -178,8 +195,10 @@ async def _call_llm(
     adapter, slot, meal_type_str: str, source_type: str, light_breakfast: bool,
     member_contexts: list, past_ingredients: list,
     same_day_done: list[str] | None = None,
+    recent_same_meal: list[str] | None = None,
 ) -> dict:
     same_day_done = same_day_done or []
+    recent_same_meal = recent_same_meal or []
     meal_name_jp = {"breakfast": "朝食", "lunch": "昼食", "dinner": "夕食"}.get(meal_type_str, "食事")
     sharing_jp = "共有食（全員分同じ料理）" if slot.sharing_type == "shared" else "個別食"
     members_count = len(member_contexts)
@@ -263,6 +282,18 @@ async def _call_llm(
             f"主食・主菜・タンパク源・調理法を変えてバリエーションを出してください。\n"
         )
 
+    # 同じ食事タイプでプラン内の他日に提案済みのメニュー（連続/類似を避ける）
+    meal_jp = {"breakfast": "朝食", "lunch": "昼食", "dinner": "夕食"}.get(meal_type_str, "食事")
+    recent_section = ""
+    if recent_same_meal:
+        recent_flat = "; ".join(s.replace("\n", " / ") for s in recent_same_meal)
+        recent_section = (
+            f"\n[★ プラン内の他日の{meal_jp}（連続を避ける）]\n"
+            f"{recent_flat}\n"
+            f"上記と同じ料理や、主菜・主食・タンパク源が同じ料理は出さないでください。\n"
+            f"7日間でバラエティ豊かになるよう、和洋中・主食種類・タンパク源（鶏/豚/牛/魚/卵/豆/海鮮）・調理法を毎回変えること。\n"
+        )
+
     user_prompt = f"""以下の条件で{meal_name_jp}（{sharing_jp}・{members_count}名分）の献立を提案してください。
 
 [★ 1人あたりの栄養目標（必ず ±10% 以内で合わせる）]
@@ -279,7 +310,7 @@ async def _call_llm(
 
 [除外/重複]
 除外食材: {", ".join(excluded) if excluded else "なし"}
-過去3日の使用食材（重複回避推奨）: {", ".join(past_ingredients) if past_ingredients else "なし"}{same_day_section}
+過去3日の使用食材（重複回避推奨）: {", ".join(past_ingredients) if past_ingredients else "なし"}{same_day_section}{recent_section}
 
 [出力ルール]
 - serving_grams は 1 人前の総重量（g）。料理の量で目標 kcal/PFC に合わせること。
@@ -479,10 +510,23 @@ async def generate_slot_menu(
             for it in s.items:
                 if it.menu_name:
                     same_day_done.append(it.menu_name)
+        # プラン全体の同じ食事タイプの他日メニューを集める（自分の slot は除外）
+        cur_meal_type = str(slot.meal_type)
+        recent_same_meal: list[str] = []
+        for d in plan.days:
+            if d.id == day.id:
+                continue
+            for s in d.slots:
+                if str(s.meal_type) != cur_meal_type:
+                    continue
+                for it in s.items:
+                    if it.menu_name:
+                        recent_same_meal.append(it.menu_name)
         await _generate_slot_menu(
             slot, day.date, member_contexts, past_ingredients,
             user_id, db, conditions, day_cond_members,
             same_day_done=same_day_done,
+            recent_same_meal=recent_same_meal[-5:],
         )
 
 
