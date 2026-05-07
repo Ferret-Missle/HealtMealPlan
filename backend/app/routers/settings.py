@@ -30,12 +30,16 @@ async def get_settings(
     from ..llm.adapter import AVAILABLE_MODELS
     plan_type = plan.plan_type if plan else "free"
     provider_for_models = (plan.byok_provider if plan and plan_type == "byok" and plan.byok_provider else "free")
+    force_free = bool(getattr(plan, "force_free_llm", False)) if plan else False
+    # force_free が ON のときは無料モデル一覧を返す
+    effective_provider_for_models = "free" if force_free else provider_for_models
     return {
         "plan": {
             "plan_type": plan_type,
             "byok_provider": plan.byok_provider if plan else None,
             "byok_model": getattr(plan, "byok_model", None) if plan else None,
-            "available_models": AVAILABLE_MODELS.get(provider_for_models, []),
+            "force_free_llm": force_free,
+            "available_models": AVAILABLE_MODELS.get(effective_provider_for_models, []),
         },
         "connected_services": [t.service for t in tokens],
         "api_keys": [
@@ -98,6 +102,29 @@ async def update_llm_model(
     plan.byok_model = payload.byok_model
     db.commit()
     return {"updated": True, "byok_model": plan.byok_model}
+
+
+class ForceFreeUpdate(BaseModel):
+    force_free_llm: bool
+
+
+@router.put("/llm-force-free")
+async def update_force_free(
+    payload: ForceFreeUpdate,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """BYOK ユーザーが一時的に無料 LLM (Groq) に切り替えるフラグ。"""
+    plan = db.query(models.UserPlan).filter_by(user_id=current_user.id).first()
+    if not plan:
+        plan = models.UserPlan(user_id=current_user.id, plan_type="free")
+        db.add(plan)
+    plan.force_free_llm = payload.force_free_llm
+    # 切替時は byok_model を一旦クリア（プロバイダーが変わるためモデルも変わる）
+    if payload.force_free_llm:
+        plan.byok_model = None
+    db.commit()
+    return {"updated": True, "force_free_llm": plan.force_free_llm}
 
 
 # ---- BYOK API Key management ----

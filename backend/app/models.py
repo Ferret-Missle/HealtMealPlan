@@ -124,6 +124,8 @@ class UserPlan(Base):
 
     # 利用するモデル名（adapter 内のデフォルトを上書き）
     byok_model = Column(String)
+    # True のとき BYOK 設定を持っていても無料プラン (Groq) を使用する一時切替
+    force_free_llm = Column(Boolean, default=False)
 
     user = relationship("User", back_populates="user_plan")
 

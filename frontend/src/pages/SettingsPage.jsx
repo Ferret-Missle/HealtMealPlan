@@ -1,4 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+	getNotificationPermission,
+	isNotificationEnabled,
+	isNotificationSupported,
+	requestNotificationPermission,
+	setNotificationEnabled,
+} from "../utils/notify";
 import { useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useAuth } from "../hooks/useAuth";
@@ -48,6 +55,109 @@ const DIET_STYLES = [
 	"ベジタリアン",
 	"ビーガン",
 ];
+
+// ─── 通知セクション ──────────────────────────────────────────────────────────
+function NotificationSection() {
+	const supported = isNotificationSupported();
+	const [permission, setPermission] = useState(getNotificationPermission());
+	const [enabled, setEnabled] = useState(isNotificationEnabled());
+	const [statusMsg, setStatusMsg] = useState("");
+
+	const handleEnable = async () => {
+		setStatusMsg("");
+		const result = await requestNotificationPermission();
+		setPermission(getNotificationPermission());
+		if (result.ok) {
+			setEnabled(true);
+			setStatusMsg("✅ 通知を有効化しました。献立生成完了時に通知されます。");
+			// テスト通知
+			try {
+				new Notification("通知が有効になりました", {
+					body: "献立生成の完了をお知らせします",
+					icon: "/favicon.ico",
+				});
+			} catch {
+				/* ignore */
+			}
+		} else if (result.reason === "denied") {
+			setStatusMsg(
+				"⚠ ブラウザ側で通知がブロックされています。ブラウザの設定から許可してください。",
+			);
+		} else {
+			setStatusMsg(`通知の有効化がキャンセルされました (${result.reason || "—"})`);
+		}
+	};
+
+	const handleDisable = () => {
+		setNotificationEnabled(false);
+		setEnabled(false);
+		setStatusMsg("通知を無効化しました");
+	};
+
+	return (
+		<>
+			<div className="section-title">通知</div>
+			<div className="card">
+				{!supported ? (
+					<div style={{ fontSize: 13, color: "var(--text-secondary)" }}>
+						このブラウザは通知 API に対応していません
+					</div>
+				) : (
+					<>
+						<div style={{ marginBottom: 8, fontSize: 13 }}>
+							献立生成の完了・エラー通知
+						</div>
+						<div
+							style={{
+								fontSize: 11,
+								color: "var(--text-secondary)",
+								marginBottom: 10,
+							}}
+						>
+							ブラウザ通知を有効化すると、AI による献立生成が完了したときに
+							ポップアップ通知でお知らせします。生成中は別の画面に移動していてもOKです。
+							<br />
+							<span style={{ color: "var(--primary)" }}>
+								※ 今後、スマホへのプッシュ通知に対応予定
+							</span>
+						</div>
+						{enabled ? (
+							<button
+								className="btn btn-secondary"
+								onClick={handleDisable}
+								style={{ fontSize: 13 }}
+							>
+								🔕 通知を無効化
+							</button>
+						) : (
+							<button
+								className="btn btn-primary"
+								onClick={handleEnable}
+								disabled={permission === "denied"}
+								style={{ fontSize: 13 }}
+							>
+								{permission === "denied"
+									? "🚫 ブラウザでブロック中"
+									: "🔔 ブラウザ通知を有効化"}
+							</button>
+						)}
+						{statusMsg && (
+							<div
+								style={{
+									fontSize: 12,
+									color: "var(--text-secondary)",
+									marginTop: 8,
+								}}
+							>
+								{statusMsg}
+							</div>
+						)}
+					</>
+				)}
+			</div>
+		</>
+	);
+}
 
 export default function SettingsPage() {
 	const { user, profile, logout, refreshProfile } = useAuth();
@@ -386,13 +496,70 @@ export default function SettingsPage() {
 				</div>
 			)}
 
+			{/* 通知設定 */}
+			<NotificationSection />
+
 			{/* LLM / BYOK */}
 			<div className="section-title">LLMプラン</div>
 			<div className="card">
 				<div className="card-title">
 					現在のプラン:{" "}
-					{profile?.plan_type === "byok" ? "BYOKプラン" : "無料プラン (Groq)"}
+					{settings?.plan?.force_free_llm
+						? "🆓 無料切替中 (Groq)"
+						: profile?.plan_type === "byok"
+							? "BYOKプラン"
+							: "無料プラン (Groq)"}
 				</div>
+
+				{/* BYOK ユーザー向け：無料 LLM 切替トグル */}
+				{profile?.plan_type === "byok" && (
+					<div
+						style={{
+							marginBottom: 12,
+							padding: 10,
+							background: "var(--bg)",
+							borderRadius: 8,
+						}}
+					>
+						<label
+							style={{
+								display: "flex",
+								alignItems: "center",
+								gap: 10,
+								cursor: "pointer",
+								fontSize: 13,
+							}}
+						>
+							<input
+								type="checkbox"
+								checked={!!settings?.plan?.force_free_llm}
+								onChange={(e) => {
+									settingsApi
+										.updateForceFree({ force_free_llm: e.target.checked })
+										.then(() => qc.invalidateQueries({ queryKey: ["settings"] }))
+										.catch((err) =>
+											setApiKeyError(err.response?.data?.detail || err.message),
+										);
+								}}
+							/>
+							<div>
+								<div style={{ fontWeight: 600 }}>
+									🆓 無料 LLM (Groq) に一時切替
+								</div>
+								<div
+									style={{
+										fontSize: 11,
+										color: "var(--text-secondary)",
+										marginTop: 2,
+									}}
+								>
+									ON にすると BYOK のAPIキーを使わず、無料の Groq モデルを使用します。
+									API 利用料を抑えたいときに便利。月間上限は無料プラン扱いになります。
+								</div>
+							</div>
+						</label>
+					</div>
+				)}
 
 				{/* 身体情報スコープ選択 */}
 				<div className="form-group" style={{ marginBottom: 12 }}>

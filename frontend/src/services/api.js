@@ -102,6 +102,7 @@ export const settingsApi = {
 	get: () => api.get("/api/settings/"),
 	updatePreferences: (data) => api.put("/api/settings/preferences", data),
 	updateLlmModel: (data) => api.put("/api/settings/llm-model", data),
+	updateForceFree: (data) => api.put("/api/settings/llm-force-free", data),
 	registerApiKey: (data) => api.post("/api/settings/api-keys", data),
 	deleteApiKey: (provider) => api.delete(`/api/settings/api-keys/${provider}`),
 	syncCalendars: () => api.get("/api/settings/calendars/sync"),

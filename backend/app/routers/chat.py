@@ -44,6 +44,10 @@ async def chat(
     db: Session = Depends(get_db),
 ):
     plan_type = _get_plan_type(current_user.id, db)
+    # 無料切替フラグが有効なら free 上限を適用
+    user_plan_pre = db.query(models.UserPlan).filter_by(user_id=current_user.id).first()
+    if user_plan_pre and getattr(user_plan_pre, "force_free_llm", False):
+        plan_type = "free"
     _check_usage_limit(current_user.id, "chat", plan_type, db)
 
     # Get user context (anonymized) — preferences are stored in UserGoals
@@ -79,6 +83,10 @@ async def chat(
     # Call LLM
     user_plan = db.query(models.UserPlan).filter_by(user_id=current_user.id).first()
     byok_provider = user_plan.byok_provider if user_plan else None
+    force_free = bool(getattr(user_plan, "force_free_llm", False)) if user_plan else False
+    if force_free:
+        plan_type = "free"
+        byok_provider = None
     api_key_row = None
     if byok_provider:
         api_key_row = (
@@ -90,7 +98,7 @@ async def chat(
     from ..llm.adapter import get_adapter
     from ..security import decrypt
     api_key = decrypt(api_key_row.encrypted_key) if api_key_row else None
-    byok_model = getattr(user_plan, "byok_model", None) if user_plan else None
+    byok_model = None if force_free else (getattr(user_plan, "byok_model", None) if user_plan else None)
     adapter = get_adapter(plan_type, byok_provider, api_key, byok_model)
 
     try:

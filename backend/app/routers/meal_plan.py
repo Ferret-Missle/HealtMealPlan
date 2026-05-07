@@ -434,7 +434,12 @@ async def recalculate_plan(
 
 def _get_plan_type(user_id: str, db: Session) -> str:
     plan = db.query(models.UserPlan).filter_by(user_id=user_id).first()
-    return plan.plan_type if plan else "free"
+    if not plan:
+        return "free"
+    # 無料切替フラグが有効なら BYOK でも free 扱い（上限適用）
+    if getattr(plan, "force_free_llm", False):
+        return "free"
+    return plan.plan_type
 
 
 FREE_LIMITS = {

@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { authApi, groupApi, mealPlanApi, shoppingApi } from "../services/api";
+import { notifyMealPlanResult } from "../utils/notify";
 import {
 	addJstDays,
 	formatJstDate,
@@ -1434,6 +1435,28 @@ export default function MealPlanPage() {
 		},
 		refetchIntervalInBackground: true,
 	});
+
+	// 生成完了検知 → 通知（done が false → true に変わった瞬間に発火）
+	const prevDoneRef = useRef(null);
+	useEffect(() => {
+		const prog = planDetail?.progress;
+		if (!prog) {
+			prevDoneRef.current = null;
+			return;
+		}
+		const wasGenerating = prevDoneRef.current === false;
+		const nowDone = prog.done === true;
+		if (wasGenerating && nowDone) {
+			notifyMealPlanResult({
+				success: !prog.error,
+				error: prog.error,
+				message: prog.error
+					? prog.message
+					: `${planDetail.start_date} 〜 ${planDetail.end_date} の献立が完成しました`,
+			});
+		}
+		prevDoneRef.current = prog.done;
+	}, [planDetail?.progress?.done, planDetail?.progress?.error, planDetail?.start_date, planDetail?.end_date, planDetail?.progress?.message]);
 
 	const { data: shopping } = useQuery({
 		queryKey: ["shopping", selectedPlan],

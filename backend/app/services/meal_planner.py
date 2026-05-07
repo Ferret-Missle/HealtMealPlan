@@ -695,6 +695,13 @@ def _get_llm_adapter(user_id: str, db: Session):
     plan_type = plan_rec.plan_type if plan_rec else "free"
     byok_provider = plan_rec.byok_provider if plan_rec else None
     byok_model = getattr(plan_rec, "byok_model", None) if plan_rec else None
+    force_free = bool(getattr(plan_rec, "force_free_llm", False)) if plan_rec else False
+
+    # 無料切替フラグが有効なら BYOK を無視して Groq を使う
+    if force_free:
+        plan_type = "free"
+        byok_provider = None
+        byok_model = None
 
     api_key = None
     if plan_type == "byok" and byok_provider:
