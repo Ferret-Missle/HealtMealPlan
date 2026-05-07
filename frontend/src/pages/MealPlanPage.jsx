@@ -1664,28 +1664,19 @@ export default function MealPlanPage() {
 					</div>
 				</div>
 
-				<div className="card">
-					<button
-						className="btn btn-outline btn-full"
-						style={{
-							display: "flex",
-							justifyContent: "space-between",
-							alignItems: "center",
-						}}
-						onClick={() => setShowSettings((v) => !v)}
-					>
-						<span>⚙️ メンバー別デフォルト設定</span>
-						<span>{showSettings ? "▲" : "▼"}</span>
-					</button>
-					{showSettings && (
-						<div style={{ marginTop: 12 }}>
-							<SettingsPanel
-								settings={settings}
-								onChange={setSettings}
-								members={members}
-							/>
-						</div>
-					)}
+				<div
+					style={{
+						fontSize: 12,
+						color: "var(--text-secondary)",
+						background: "var(--bg)",
+						borderRadius: 8,
+						padding: "8px 12px",
+						marginBottom: 12,
+						lineHeight: 1.6,
+					}}
+				>
+					💡 メンバー別デフォルト設定はプラン履歴画面（前のページ）で変更できます。
+					ここでは現在の設定値で 7 日間分が初期化されます。
 				</div>
 
 				<button
@@ -1799,6 +1790,50 @@ export default function MealPlanPage() {
 			</div>
 
 			{error && <div className="alert alert-error">{error}</div>}
+
+			{/* メンバー別デフォルト設定（グループ共通・cloud 同期） */}
+			{members.length > 0 && (
+				<div className="card" style={{ marginBottom: 12 }}>
+					<button
+						className="btn btn-outline btn-full"
+						style={{
+							display: "flex",
+							justifyContent: "space-between",
+							alignItems: "center",
+						}}
+						onClick={() => setShowSettings((v) => !v)}
+					>
+						<span>⚙️ メンバー別デフォルト設定</span>
+						<span style={{ fontSize: 11, color: "var(--text-secondary)" }}>
+							☁ グループ共通 {showSettings ? "▲" : "▼"}
+						</span>
+					</button>
+					{showSettings && (
+						<div style={{ marginTop: 12 }}>
+							<div
+								style={{
+									fontSize: 11,
+									color: "var(--text-secondary)",
+									marginBottom: 8,
+									padding: "6px 10px",
+									background: "var(--bg)",
+									borderRadius: 6,
+									lineHeight: 1.6,
+								}}
+							>
+								💡 ここで設定した値は次の献立生成時の初期値になります。
+								<br />
+								グループメンバー全員で共有・cloud 保存（端末を変えても同じ設定が表示されます）
+							</div>
+							<SettingsPanel
+								settings={settings}
+								onChange={setSettings}
+								members={members}
+							/>
+						</div>
+					)}
+				</div>
+			)}
 
 			{/* 献立履歴 */}
 			{plans.length > 0 && (

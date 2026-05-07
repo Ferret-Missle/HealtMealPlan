@@ -1339,12 +1339,21 @@ function SettingsPanel({ vis, onToggle }) {
 					fontSize: 12,
 					fontWeight: 700,
 					color: "var(--text-2)",
-					marginBottom: 8,
+					marginBottom: 4,
 					textTransform: "uppercase",
 					letterSpacing: "0.05em",
 				}}
 			>
 				ウィジェット表示設定
+			</div>
+			<div
+				style={{
+					fontSize: 10,
+					color: "var(--text-3, #94a3b8)",
+					marginBottom: 8,
+				}}
+			>
+				☁ cloud に保存（端末を変えても同じ設定が反映されます・並び順も同期）
 			</div>
 			{WIDGET_IDS.map((id) => {
 				const { label } = WIDGET_META[id];
