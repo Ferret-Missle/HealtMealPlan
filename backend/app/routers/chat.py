@@ -50,28 +50,163 @@ async def chat(
         plan_type = "free"
     _check_usage_limit(current_user.id, "chat", plan_type, db)
 
-    # Get user context (anonymized) — preferences are stored in UserGoals
-    goals = db.query(models.UserGoals).filter_by(user_id=current_user.id).first()
+    # === ユーザー情報をコンテキストにまとめる（チャット品質向上） ===
+    from datetime import date as dt_date, timedelta
+    from collections import defaultdict
 
-    context_parts = []
+    today = dt_date.today()
+    week_ago = str(today - timedelta(days=7))
+
+    goals = db.query(models.UserGoals).filter_by(user_id=current_user.id).first()
+    profile_lines = []
+    nutrition_lines = []
+    body_lines = []
+    activity_lines = []
+    today_meal_lines = []
+
+    # ── 健康目標 ──
     if goals:
         if goals.target_kcal:
-            context_parts.append(f"目標カロリー: {goals.target_kcal}kcal/日")
+            profile_lines.append(f"1日目標カロリー: {goals.target_kcal}kcal")
+        if getattr(goals, "target_protein_ratio", None):
+            profile_lines.append(
+                f"PFC比率: P{int((goals.target_protein_ratio or 0) * 100)}% / "
+                f"F{int((goals.target_fat_ratio or 0) * 100)}% / "
+                f"C{int((goals.target_carb_ratio or 0) * 100)}%"
+            )
         if goals.goal_type:
-            context_parts.append(f"目標タイプ: {goals.goal_type}")
+            jp = {"loss": "減量", "maintain": "維持", "gain": "増量"}.get(goals.goal_type, goals.goal_type)
+            profile_lines.append(f"目標: {jp}")
+        if goals.target_weight:
+            profile_lines.append(f"目標体重: {goals.target_weight}kg")
+        if getattr(goals, "height_cm", None):
+            profile_lines.append(f"身長: {goals.height_cm}cm")
+        if getattr(goals, "gender", None):
+            profile_lines.append(f"性別: {goals.gender}")
+        if getattr(goals, "age_group", None):
+            profile_lines.append(f"年代: {goals.age_group}")
         prefs = goals.preferences_json or {}
-        if prefs.get("diet_style"):
-            styles = prefs["diet_style"]
+        styles = prefs.get("diet_styles") or prefs.get("diet_style")
+        if styles:
             if isinstance(styles, list):
-                context_parts.append(f"食事スタイル: {', '.join(styles)}")
+                profile_lines.append(f"食事スタイル: {', '.join(styles)}")
+            else:
+                profile_lines.append(f"食事スタイル: {styles}")
         excluded = goals.excluded_foods_json or []
         if excluded:
-            context_parts.append(f"除外食材: {', '.join(excluded)}")
+            profile_lines.append(f"除外食材: {', '.join(excluded)}")
 
-    user_context = "\n".join(context_parts)
+    # ── 直近の身体データ（HealthPlanet/Fitbit同期分） ──
+    latest_weight = (
+        db.query(models.WeightLog)
+        .filter_by(user_id=current_user.id)
+        .order_by(models.WeightLog.date.desc())
+        .first()
+    )
+    if latest_weight:
+        body_lines.append(f"直近体重 ({latest_weight.date}): {latest_weight.weight}kg")
+        if latest_weight.body_fat is not None:
+            body_lines.append(f"体脂肪率: {latest_weight.body_fat}%")
+        if latest_weight.bmi is not None:
+            body_lines.append(f"BMI: {latest_weight.bmi}")
+
+    # 体重トレンド（7日比）
+    week_old_weight = (
+        db.query(models.WeightLog)
+        .filter(
+            models.WeightLog.user_id == current_user.id,
+            models.WeightLog.date <= week_ago,
+        )
+        .order_by(models.WeightLog.date.desc())
+        .first()
+    )
+    if latest_weight and week_old_weight and latest_weight.weight and week_old_weight.weight:
+        delta = latest_weight.weight - week_old_weight.weight
+        trend = "減少中" if delta < -0.1 else ("増加中" if delta > 0.1 else "ほぼ維持")
+        body_lines.append(f"体重トレンド7日: {delta:+.2f}kg ({trend})")
+
+    # ── 活動量（直近7日平均） ──
+    activities = (
+        db.query(models.ActivityLog)
+        .filter(
+            models.ActivityLog.user_id == current_user.id,
+            models.ActivityLog.date >= week_ago,
+        )
+        .all()
+    )
+    if activities:
+        steps = [a.steps for a in activities if a.steps]
+        active = [a.active_kcal for a in activities if a.active_kcal]
+        sleep = [a.sleep_hours for a in activities if a.sleep_hours]
+        if steps:
+            activity_lines.append(f"7日平均歩数: {round(sum(steps)/len(steps)):,}歩")
+        if active:
+            activity_lines.append(f"7日平均活動消費: {round(sum(active)/len(active))}kcal")
+        if sleep:
+            activity_lines.append(f"7日平均睡眠: {sum(sleep)/len(sleep):.1f}h")
+
+    # ── 直近7日の食事傾向 ──
+    meal_logs = (
+        db.query(models.MealLog)
+        .filter(
+            models.MealLog.user_id == current_user.id,
+            models.MealLog.date >= week_ago,
+        )
+        .all()
+    )
+    if meal_logs:
+        daily = defaultdict(lambda: {"k": 0.0, "p": 0.0, "f": 0.0, "c": 0.0})
+        for m in meal_logs:
+            d = daily[m.date]
+            d["k"] += m.kcal or 0
+            d["p"] += m.protein_g or 0
+            d["f"] += m.fat_g or 0
+            d["c"] += m.carb_g or 0
+        n = len(daily)
+        if n:
+            avg_k = sum(d["k"] for d in daily.values()) / n
+            avg_p = sum(d["p"] for d in daily.values()) / n
+            avg_f = sum(d["f"] for d in daily.values()) / n
+            avg_c = sum(d["c"] for d in daily.values()) / n
+            nutrition_lines.append(
+                f"直近7日平均摂取: {round(avg_k)}kcal "
+                f"(P{round(avg_p,1)}g / F{round(avg_f,1)}g / C{round(avg_c,1)}g)"
+            )
+
+    # ── 今日の食事ログ ──
+    today_logs = (
+        db.query(models.MealLog)
+        .filter(models.MealLog.user_id == current_user.id, models.MealLog.date == str(today))
+        .order_by(models.MealLog.created_at)
+        .all()
+    )
+    if today_logs:
+        for m in today_logs:
+            today_meal_lines.append(
+                f"  {m.meal_type}: {m.food_name} ({round(m.kcal or 0)}kcal)"
+            )
+
+    # ── システムプロンプト構築 ──
+    sections = []
+    if profile_lines:
+        sections.append("[プロフィール・健康目標]\n" + "\n".join(f"  - {x}" for x in profile_lines))
+    if body_lines:
+        sections.append("[身体データ（HealthPlanet/Fitbit同期）]\n" + "\n".join(f"  - {x}" for x in body_lines))
+    if activity_lines:
+        sections.append("[活動量（直近7日）]\n" + "\n".join(f"  - {x}" for x in activity_lines))
+    if nutrition_lines:
+        sections.append("[食事傾向]\n" + "\n".join(f"  - {x}" for x in nutrition_lines))
+    if today_meal_lines:
+        sections.append("[今日のここまでの食事]\n" + "\n".join(today_meal_lines))
+
+    user_context = "\n\n".join(sections)
     system = SYSTEM_PROMPT
     if user_context:
-        system += f"\n\nユーザー情報（参考）:\n{user_context}"
+        system += (
+            "\n\n=== ユーザーの実データ（連携済み） ===\n"
+            + user_context
+            + "\n\n上記データを必要に応じて参照し、具体的な数値を交えてアドバイスしてください。"
+        )
 
     # Build conversation
     messages_text = ""

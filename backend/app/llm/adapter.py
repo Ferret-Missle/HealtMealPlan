@@ -14,7 +14,7 @@ class LLMAdapter(ABC):
     supports_vision: bool = False
 
     @abstractmethod
-    async def complete(self, system: str, user: str) -> LLMResponse:
+    async def complete(self, system: str, user: str, json_mode: bool = False) -> LLMResponse:
         ...
 
     async def complete_vision(self, system: str, user: str, image_b64: str, mime: str) -> LLMResponse:

@@ -658,7 +658,7 @@ async def _call_llm(
 3. menu_name はリストにある料理名と完全一致しないこと"""
 
     try:
-        result = await adapter.complete(SYSTEM_PROMPT, user_prompt)
+        result = await adapter.complete(SYSTEM_PROMPT, user_prompt, json_mode=True)
         raw = result.text if hasattr(result, "text") else str(result)
         data = _parse_json_response(raw)
         data["_input_tokens"] = getattr(result, "input_tokens", None)

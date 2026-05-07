@@ -12,7 +12,7 @@ class MistralBYOKAdapter(LLMAdapter):
         self.api_key = api_key
         self.model = model or DEFAULT_MODEL
 
-    async def complete(self, system: str, user: str) -> LLMResponse:
+    async def complete(self, system: str, user: str, json_mode: bool = False) -> LLMResponse:
         async with httpx.AsyncClient(timeout=90) as client:
             resp = await client.post(
                 MISTRAL_API_URL,

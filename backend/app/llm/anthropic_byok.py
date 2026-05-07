@@ -20,7 +20,7 @@ class AnthropicBYOKAdapter(LLMAdapter):
             "content-type": "application/json",
         }
 
-    async def complete(self, system: str, user: str) -> LLMResponse:
+    async def complete(self, system: str, user: str, json_mode: bool = False) -> LLMResponse:
         async with httpx.AsyncClient(timeout=90) as client:
             resp = await client.post(
                 ANTHROPIC_API_URL,

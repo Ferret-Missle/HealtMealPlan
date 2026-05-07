@@ -18,7 +18,7 @@ class OpenAIBYOKAdapter(LLMAdapter):
             "Content-Type": "application/json",
         }
 
-    async def complete(self, system: str, user: str) -> LLMResponse:
+    async def complete(self, system: str, user: str, json_mode: bool = False) -> LLMResponse:
         async with httpx.AsyncClient(timeout=90) as client:
             resp = await client.post(
                 OPENAI_API_URL,

@@ -14,7 +14,7 @@ class GeminiBYOKAdapter(LLMAdapter):
     def _url(self, model: str, action: str = "generateContent") -> str:
         return f"https://generativelanguage.googleapis.com/v1beta/models/{model}:{action}?key={self.api_key}"
 
-    async def complete(self, system: str, user: str) -> LLMResponse:
+    async def complete(self, system: str, user: str, json_mode: bool = False) -> LLMResponse:
         async with httpx.AsyncClient(timeout=90) as client:
             resp = await client.post(
                 self._url(self.model),
