@@ -104,6 +104,33 @@ async def update_llm_model(
     return {"updated": True, "byok_model": plan.byok_model}
 
 
+@router.get("/dashboard")
+async def get_dashboard_settings(
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """ダッシュボードの並び順・表示設定を取得。"""
+    return {"settings": current_user.dashboard_settings_json or {}}
+
+
+class DashboardSettingsUpdate(BaseModel):
+    settings: dict
+
+
+@router.put("/dashboard")
+async def update_dashboard_settings(
+    payload: DashboardSettingsUpdate,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """ダッシュボードの並び順・表示設定を更新（cloud 同期）。"""
+    from sqlalchemy.orm.attributes import flag_modified
+    current_user.dashboard_settings_json = payload.settings
+    flag_modified(current_user, "dashboard_settings_json")
+    db.commit()
+    return {"updated": True}
+
+
 class ForceFreeUpdate(BaseModel):
     force_free_llm: bool
 

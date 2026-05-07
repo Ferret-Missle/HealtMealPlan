@@ -103,6 +103,8 @@ export const settingsApi = {
 	updatePreferences: (data) => api.put("/api/settings/preferences", data),
 	updateLlmModel: (data) => api.put("/api/settings/llm-model", data),
 	updateForceFree: (data) => api.put("/api/settings/llm-force-free", data),
+	getDashboard: () => api.get("/api/settings/dashboard").then(r => r.data),
+	updateDashboard: (settings) => api.put("/api/settings/dashboard", { settings }),
 	registerApiKey: (data) => api.post("/api/settings/api-keys", data),
 	deleteApiKey: (provider) => api.delete(`/api/settings/api-keys/${provider}`),
 	syncCalendars: () => api.get("/api/settings/calendars/sync"),
@@ -124,6 +126,8 @@ export const groupApi = {
     api.put(`/api/groups/${groupId}/transfer-owner/${targetUserId}`),
   join: (token) => api.post(`/api/groups/join/${token}`),
   leave: (groupId) => api.delete(`/api/groups/${groupId}/leave`),
+  getSharedSettings: () => api.get('/api/groups/my/shared-settings').then(r => r.data),
+  updateSharedSettings: (settings) => api.put('/api/groups/my/shared-settings', { settings }),
 };
 
 // Meal Plans

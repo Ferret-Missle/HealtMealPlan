@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useToast } from "../components/Toast";
 import {
 	getNotificationPermission,
 	isNotificationEnabled,
@@ -171,13 +172,18 @@ export default function SettingsPage() {
 	});
 	const [showApiKeyForm, setShowApiKeyForm] = useState(false);
 	const [excludedInput, setExcludedInput] = useState("");
-	// セクション別インラインエラー（グローバル通知は使わない）
-	const [serviceError, setServiceError] = useState("");   // 外部サービス連携セクション
+	// LLMキーフォーム / HealthPlanetモーダル の中だけ inline で出す
 	const [apiKeyError,  setApiKeyError]  = useState("");   // LLMプランセクション
 	const [hpError,      setHpError]      = useState("");   // HealthPlanet モーダル内
-	const [successMsg, setSuccessMsg] = useState(
-		connected ? `${connected} を連携しました！` : "",
-	);
+	const toast = useToast();
+	// 後方互換シム: setSuccessMsg / setServiceError → toast
+	const setSuccessMsg = (msg) => msg && toast.success(msg);
+	const setServiceError = (msg) => msg && toast.error(msg);
+	// クエリパラメータ ?connected=... 経由の連携完了通知
+	useEffect(() => {
+		if (connected) toast.success(`${connected} を連携しました！`);
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [connected]);
 
 	const { data: settings, isLoading } = useQuery({
 		queryKey: ["settings"],
@@ -331,12 +337,6 @@ export default function SettingsPage() {
 				</button>
 			</div>
 
-			{successMsg && (
-				<div className="alert alert-success" onClick={() => setSuccessMsg("")}>
-					{successMsg}
-				</div>
-			)}
-
 			{/* HealthPlanet manual code entry modal */}
 			{hpPendingUserId && (
 				<div
@@ -475,25 +475,14 @@ export default function SettingsPage() {
 			{connectedServices.includes("google") && (
 				<button
 					className="btn btn-outline btn-full"
-					style={{ marginBottom: serviceError ? 4 : 12 }}
-					onClick={() => { setServiceError(""); syncCalMutation.mutate(); }}
+					style={{ marginBottom: 12 }}
+					onClick={() => syncCalMutation.mutate()}
 					disabled={syncCalMutation.isPending}
 				>
 					{syncCalMutation.isPending
 						? "カレンダー同期中..."
 						: "📅 カレンダーリストを同期"}
 				</button>
-			)}
-
-			{/* 外部サービス連携セクション インラインエラー */}
-			{serviceError && (
-				<div
-					className="alert alert-error"
-					style={{ marginBottom: 12, cursor: "pointer" }}
-					onClick={() => setServiceError("")}
-				>
-					{serviceError}
-				</div>
 			)}
 
 			{/* 通知設定 */}

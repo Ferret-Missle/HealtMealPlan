@@ -46,7 +46,7 @@ import {
 	XAxis,
 	YAxis,
 } from "recharts";
-import { bodyApi, dashboardApi, mealsApi } from "../services/api";
+import { bodyApi, dashboardApi, mealsApi, settingsApi } from "../services/api";
 import {
 	addJstDays,
 	formatJstDate,
@@ -1381,7 +1381,7 @@ export default function DashboardPage() {
 	const [dateStr, setDateStr] = useState(todayStr);
 	const isToday = isTodayJst(dateStr);
 
-	// ウィジェット設定（localStorage 永続化）
+	// ウィジェット設定：cloud 同期（初期はローカルキャッシュをフォールバック）
 	const [order, setOrder] = useState(() => lsGet("db-order", DEFAULT_ORDER));
 	const [vis, setVis] = useState(() => lsGet("db-vis", DEFAULT_VIS));
 	const [periods, setPeriods] = useState(() =>
@@ -1397,16 +1397,46 @@ export default function DashboardPage() {
 		return () => window.cancelAnimationFrame(frameId);
 	}, []);
 
+	// Cloud から初回ロード
+	const dashSettingsLoadedRef = useRef(false);
+	const { data: dashSettingsData } = useQuery({
+		queryKey: ["dashboard-settings"],
+		queryFn: () => settingsApi.getDashboard(),
+		staleTime: 60 * 1000,
+	});
+	useEffect(() => {
+		if (dashSettingsData?.settings && !dashSettingsLoadedRef.current) {
+			const s = dashSettingsData.settings;
+			if (Array.isArray(s.order)) setOrder(s.order);
+			if (s.vis && typeof s.vis === "object") setVis({ ...DEFAULT_VIS, ...s.vis });
+			if (s.periods && typeof s.periods === "object") setPeriods({ ...DEFAULT_PERIODS, ...s.periods });
+			dashSettingsLoadedRef.current = true;
+		}
+	}, [dashSettingsData]);
+
+	// Cloud 保存（debounce）
+	const dashSaveTimerRef = useRef(null);
+	const persistDashSettings = (next) => {
+		if (dashSaveTimerRef.current) clearTimeout(dashSaveTimerRef.current);
+		dashSaveTimerRef.current = setTimeout(() => {
+			settingsApi.updateDashboard(next).catch((e) => {
+				console.warn("dashboard settings save failed:", e);
+			});
+		}, 800);
+	};
+
 	const toggleVis = (id, key) =>
 		setVis((prev) => {
 			const next = { ...prev, [id]: { ...prev[id], [key]: !prev[id][key] } };
 			lsSet("db-vis", next);
+			persistDashSettings({ order, vis: next, periods });
 			return next;
 		});
 	const setPeriod = (id, p) =>
 		setPeriods((prev) => {
 			const next = { ...prev, [id]: p };
 			lsSet("db-periods", next);
+			persistDashSettings({ order, vis, periods: next });
 			return next;
 		});
 
@@ -1666,6 +1696,7 @@ export default function DashboardPage() {
 				prev.indexOf(over.id),
 			);
 			lsSet("db-order", next);
+			persistDashSettings({ order: next, vis, periods });
 			return next;
 		});
 	};

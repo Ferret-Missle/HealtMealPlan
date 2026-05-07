@@ -165,6 +165,43 @@ async def get_my_group(
     }
 
 
+@router.get("/my/shared-settings")
+async def get_shared_settings(
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """グループ共通設定（プラン作成画面のメンバー別デフォルトなど）を取得。"""
+    member = db.query(models.GroupMember).filter_by(user_id=current_user.id).first()
+    if not member:
+        raise HTTPException(404, "No group found")
+    group = db.query(models.Group).filter_by(id=member.group_id).first()
+    return {"settings": group.shared_settings_json or {}}
+
+
+class SharedSettingsUpdate(BaseModel):
+    settings: dict
+
+
+@router.put("/my/shared-settings")
+async def update_shared_settings(
+    payload: SharedSettingsUpdate,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """グループ共通設定を更新（メンバー全員で共有）。"""
+    from sqlalchemy.orm.attributes import flag_modified
+    member = db.query(models.GroupMember).filter_by(user_id=current_user.id).first()
+    if not member:
+        raise HTTPException(404, "No group found")
+    group = db.query(models.Group).filter_by(id=member.group_id).first()
+    if not group:
+        raise HTTPException(404, "Group not found")
+    group.shared_settings_json = payload.settings
+    flag_modified(group, "shared_settings_json")
+    db.commit()
+    return {"updated": True}
+
+
 class GroupCreate(BaseModel):
     name: str
     type: str = "family"

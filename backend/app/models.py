@@ -42,6 +42,8 @@ class User(Base):
     name = Column(String, nullable=False)
     privacy_public = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+    # ダッシュボード並び順・表示設定（cloud 同期）
+    dashboard_settings_json = Column(JSON)
 
     oauth_tokens = relationship("OAuthToken", back_populates="user", cascade="all, delete-orphan")
     api_keys = relationship("ApiKey", back_populates="user", cascade="all, delete-orphan")
@@ -60,6 +62,8 @@ class Group(Base):
     name = Column(String, nullable=False)
     type = Column(SAEnum(GroupType), nullable=False, default=GroupType.personal)
     created_at = Column(DateTime, default=datetime.utcnow)
+    # グループ共通設定（プラン作成画面のメンバー別デフォルト設定など、メンバー全員で共有）
+    shared_settings_json = Column(JSON)
 
     members = relationship("GroupMember", back_populates="group", cascade="all, delete-orphan")
     invitations = relationship("GroupInvitation", back_populates="group", cascade="all, delete-orphan")

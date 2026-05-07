@@ -47,6 +47,8 @@ def _run_migrations():
             ("user_prompt", "ALTER TABLE meal_plan_items ADD COLUMN IF NOT EXISTS user_prompt TEXT"),
             ("byok_model", "ALTER TABLE user_plans ADD COLUMN IF NOT EXISTS byok_model VARCHAR"),
             ("force_free_llm", "ALTER TABLE user_plans ADD COLUMN IF NOT EXISTS force_free_llm BOOLEAN DEFAULT FALSE"),
+            ("dashboard_settings_json", "ALTER TABLE users ADD COLUMN IF NOT EXISTS dashboard_settings_json JSON"),
+            ("shared_settings_json", "ALTER TABLE groups ADD COLUMN IF NOT EXISTS shared_settings_json JSON"),
         ]:
             try:
                 conn.execute(text(ddl))

@@ -13,6 +13,7 @@ import MyPage from './pages/MyPage';
 import MealLogPage from './pages/MealLogPage';   // 旧食事ページ（直リンク用に残す）
 import InvitePage, { INVITE_TOKEN_KEY } from './pages/InvitePage';
 import ChatWidget from './components/ChatWidget';
+import { ToastProvider } from './components/Toast';
 import './App.css';
 
 const queryClient = new QueryClient({
@@ -40,6 +41,7 @@ function PublicRoute({ children }) {
 export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
+      <ToastProvider>
       <AuthProvider>
         <BrowserRouter>
           <Routes>
@@ -66,6 +68,7 @@ export default function App() {
           </Routes>
         </BrowserRouter>
       </AuthProvider>
+      </ToastProvider>
     </QueryClientProvider>
   );
 }

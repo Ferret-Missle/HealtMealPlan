@@ -1403,10 +1403,32 @@ export default function MealPlanPage() {
 	const [step, setStep] = useState(null); // null | 'settings' | 'configure'
 	const [startDate, setStartDate] = useState(today);
 	const [showSettings, setShowSettings] = useState(false);
-	const [settings, setSettings] = useLocalStorage(
-		"meal_plan_settings_v2",
-		DEFAULT_SETTINGS,
-	);
+	// グループ共通設定（cloud 同期）
+	const { data: sharedSettingsData } = useQuery({
+		queryKey: ["group-shared-settings"],
+		queryFn: () => groupApi.getSharedSettings(),
+		staleTime: 60 * 1000,
+	});
+	const [settings, _setSettingsLocal] = useState(DEFAULT_SETTINGS);
+	const settingsLoadedRef = useRef(false);
+	useEffect(() => {
+		if (sharedSettingsData?.settings && !settingsLoadedRef.current) {
+			_setSettingsLocal({ ...DEFAULT_SETTINGS, ...sharedSettingsData.settings });
+			settingsLoadedRef.current = true;
+		}
+	}, [sharedSettingsData]);
+	// debounce 保存
+	const saveTimerRef = useRef(null);
+	const setSettings = (next) => {
+		const value = typeof next === "function" ? next(settings) : next;
+		_setSettingsLocal(value);
+		if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+		saveTimerRef.current = setTimeout(() => {
+			groupApi.updateSharedSettings(value).catch((e) => {
+				console.warn("shared settings save failed:", e);
+			});
+		}, 800);
+	};
 	const [dayConditions, setDayConditions] = useState([]);
 
 	// 結果表示
