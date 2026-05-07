@@ -337,6 +337,23 @@ export default function SettingsPage() {
 				</button>
 			</div>
 
+			{/* ビルド情報（最新コードが配信されているか確認用） */}
+			<div
+				style={{
+					fontSize: 10,
+					color: "var(--text-3, #94a3b8)",
+					textAlign: "right",
+					marginBottom: 8,
+				}}
+				title="このバージョンが配信されているコード"
+			>
+				build: {typeof window !== "undefined" ? window.__APP_COMMIT__ || "—" : "—"}
+				{" / "}
+				{typeof window !== "undefined" && window.__APP_BUILD_TIME__
+					? new Date(window.__APP_BUILD_TIME__).toLocaleString("ja-JP")
+					: "—"}
+			</div>
+
 			{/* HealthPlanet manual code entry modal */}
 			{hpPendingUserId && (
 				<div

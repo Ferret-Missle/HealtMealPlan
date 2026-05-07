@@ -1,8 +1,21 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
+import { execSync } from 'node:child_process'
+
+let commitHash = 'unknown'
+try {
+  commitHash = execSync('git rev-parse --short HEAD').toString().trim()
+} catch {
+  commitHash = process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) || 'unknown'
+}
+const buildTime = new Date().toISOString()
 
 export default defineConfig({
+  define: {
+    __APP_COMMIT__: JSON.stringify(commitHash),
+    __APP_BUILD_TIME__: JSON.stringify(buildTime),
+  },
   plugins: [
     react(),
     VitePWA({
