@@ -1417,11 +1417,12 @@ export default function MealPlanPage() {
 			settingsLoadedRef.current = true;
 		}
 	}, [sharedSettingsData]);
-	// debounce 保存
+	// debounce 保存（初回ロード前は保存しない＝デフォルトでの上書き防止）
 	const saveTimerRef = useRef(null);
 	const setSettings = (next) => {
 		const value = typeof next === "function" ? next(settings) : next;
 		_setSettingsLocal(value);
+		if (!settingsLoadedRef.current) return;
 		if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
 		saveTimerRef.current = setTimeout(() => {
 			groupApi.updateSharedSettings(value).catch((e) => {

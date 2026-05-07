@@ -1414,9 +1414,10 @@ export default function DashboardPage() {
 		}
 	}, [dashSettingsData]);
 
-	// Cloud 保存（debounce）
+	// Cloud 保存（debounce, 初回ロード前は保存しない）
 	const dashSaveTimerRef = useRef(null);
 	const persistDashSettings = (next) => {
+		if (!dashSettingsLoadedRef.current) return;
 		if (dashSaveTimerRef.current) clearTimeout(dashSaveTimerRef.current);
 		dashSaveTimerRef.current = setTimeout(() => {
 			settingsApi.updateDashboard(next).catch((e) => {
