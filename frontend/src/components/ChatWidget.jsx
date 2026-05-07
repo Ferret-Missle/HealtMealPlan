@@ -29,7 +29,15 @@ export default function ChatWidget() {
     try {
       const history = messages.slice(-6).map(m => ({ role: m.role, content: m.content }))
       const data = await chatApi.send({ message: text, history })
-      setMessages(prev => [...prev, { role: 'assistant', content: data.reply }])
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: data.reply,
+        tokens: {
+          input: data.input_tokens,
+          output: data.output_tokens,
+          model: data.llm_model,
+        }
+      }])
       setPlanInfo(data.plan_type)
     } catch (err) {
       const msg = err.response?.data?.detail || 'エラーが発生しました。しばらくしてからお試しください。'
@@ -72,7 +80,28 @@ export default function ChatWidget() {
             {messages.map((msg, i) => (
               <div key={i} className={`chat-bubble ${msg.role}`}>
                 {msg.role === 'assistant' && <span className="chat-avatar">🤖</span>}
-                <p>{msg.content}</p>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <p style={{ margin: 0, whiteSpace: 'pre-line' }}>{msg.content}</p>
+                  {msg.tokens && (msg.tokens.input != null || msg.tokens.output != null) && (
+                    <div
+                      style={{
+                        marginTop: 4,
+                        fontSize: 10,
+                        color: 'var(--text-3, #94a3b8)',
+                        display: 'flex',
+                        gap: 6,
+                        flexWrap: 'wrap',
+                      }}
+                    >
+                      {msg.tokens.model && <span>🤖 {msg.tokens.model}</span>}
+                      {msg.tokens.input != null && <span>入力 {msg.tokens.input.toLocaleString()} tok</span>}
+                      {msg.tokens.output != null && <span>出力 {msg.tokens.output.toLocaleString()} tok</span>}
+                      {msg.tokens.input != null && msg.tokens.output != null && (
+                        <span>合計 {(msg.tokens.input + msg.tokens.output).toLocaleString()} tok</span>
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
             ))}
             {loading && (

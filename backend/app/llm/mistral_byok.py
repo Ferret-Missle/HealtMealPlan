@@ -29,5 +29,12 @@ class MistralBYOKAdapter(LLMAdapter):
                 },
             )
         resp.raise_for_status()
-        content = resp.json()["choices"][0]["message"]["content"]
-        return LLMResponse(text=content, model=DEFAULT_MODEL)
+        data = resp.json()
+        content = data["choices"][0]["message"]["content"]
+        usage = data.get("usage", {}) or {}
+        return LLMResponse(
+            text=content,
+            model=DEFAULT_MODEL,
+            input_tokens=usage.get("prompt_tokens"),
+            output_tokens=usage.get("completion_tokens"),
+        )

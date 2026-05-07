@@ -271,6 +271,10 @@ class MealPlanItem(Base):
     serving_grams = Column(Float)
     ingredients_json = Column(JSON)
     cooking_summary = Column(Text)
+    # 生成時のLLMトークン使用量
+    input_tokens = Column(Integer)
+    output_tokens = Column(Integer)
+    llm_model = Column(String)
 
     slot = relationship("MealPlanSlot", back_populates="items")
 

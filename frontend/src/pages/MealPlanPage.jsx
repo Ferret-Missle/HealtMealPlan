@@ -665,6 +665,37 @@ function ItemCard({ item, planId, isDraft }) {
 					</ul>
 				</div>
 			)}
+			{(item.input_tokens != null || item.output_tokens != null) && (
+				<div
+					style={{
+						marginTop: 6,
+						paddingTop: 6,
+						borderTop: "1px dashed var(--border)",
+						fontSize: 10,
+						color: "var(--text-3, #94a3b8)",
+						display: "flex",
+						gap: 8,
+						flexWrap: "wrap",
+					}}
+				>
+					<span>🤖 {item.llm_model || "LLM"}</span>
+					{item.input_tokens != null && (
+						<span>
+							入力 <strong>{item.input_tokens.toLocaleString()}</strong> tok
+						</span>
+					)}
+					{item.output_tokens != null && (
+						<span>
+							出力 <strong>{item.output_tokens.toLocaleString()}</strong> tok
+						</span>
+					)}
+					{item.input_tokens != null && item.output_tokens != null && (
+						<span>
+							合計 <strong>{(item.input_tokens + item.output_tokens).toLocaleString()}</strong> tok
+						</span>
+					)}
+				</div>
+			)}
 		</div>
 	);
 }
@@ -813,37 +844,49 @@ function ShoppingItemRow({ item, planId, listKey }) {
 		}
 	});
 	const toggle = () => {
-		const next = !checked;
-		setChecked(next);
-		try {
-			localStorage.setItem(storageKey, next ? "1" : "0");
-		} catch {
-			/* ignore */
-		}
+		setChecked((prev) => {
+			const next = !prev;
+			try {
+				localStorage.setItem(storageKey, next ? "1" : "0");
+			} catch {
+				/* ignore */
+			}
+			return next;
+		});
 	};
 	return (
-		<label
+		<div
+			role="button"
+			tabIndex={0}
 			onClick={toggle}
+			onKeyDown={(e) => {
+				if (e.key === "Enter" || e.key === " ") {
+					e.preventDefault();
+					toggle();
+				}
+			}}
 			style={{
 				display: "flex",
 				alignItems: "center",
 				gap: 8,
-				padding: "4px 0",
+				padding: "6px 4px",
 				fontSize: 14,
 				cursor: "pointer",
 				color: checked ? "var(--text-3, #94a3b8)" : "inherit",
 				textDecoration: checked ? "line-through" : "none",
 				userSelect: "none",
+				borderRadius: 4,
 			}}
 		>
 			<input
 				type="checkbox"
 				checked={checked}
-				onChange={toggle}
-				onClick={(e) => e.stopPropagation()}
+				readOnly
+				tabIndex={-1}
+				style={{ pointerEvents: "none" }}
 			/>
 			<span>{item.name}</span>
-		</label>
+		</div>
 	);
 }
 

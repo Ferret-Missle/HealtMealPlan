@@ -32,8 +32,15 @@ class AnthropicBYOKAdapter(LLMAdapter):
                 },
             )
         resp.raise_for_status()
-        content = resp.json()["content"][0]["text"]
-        return LLMResponse(text=content, model=DEFAULT_MODEL)
+        data = resp.json()
+        content = data["content"][0]["text"]
+        usage = data.get("usage", {}) or {}
+        return LLMResponse(
+            text=content,
+            model=DEFAULT_MODEL,
+            input_tokens=usage.get("input_tokens"),
+            output_tokens=usage.get("output_tokens"),
+        )
 
     async def complete_vision(self, system: str, user: str, image_b64: str, mime: str) -> LLMResponse:
         async with httpx.AsyncClient(timeout=90) as client:
@@ -63,5 +70,12 @@ class AnthropicBYOKAdapter(LLMAdapter):
                 },
             )
         resp.raise_for_status()
-        content = resp.json()["content"][0]["text"]
-        return LLMResponse(text=content, model=DEFAULT_MODEL)
+        data = resp.json()
+        content = data["content"][0]["text"]
+        usage = data.get("usage", {}) or {}
+        return LLMResponse(
+            text=content,
+            model=DEFAULT_MODEL,
+            input_tokens=usage.get("input_tokens"),
+            output_tokens=usage.get("output_tokens"),
+        )

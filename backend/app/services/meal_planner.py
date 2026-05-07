@@ -424,7 +424,12 @@ async def _call_llm(
     try:
         result = await adapter.complete(SYSTEM_PROMPT, user_prompt)
         raw = result.text if hasattr(result, "text") else str(result)
-        return _parse_json_response(raw)
+        data = _parse_json_response(raw)
+        # トークン使用量を結果データに付加
+        data["_input_tokens"] = getattr(result, "input_tokens", None)
+        data["_output_tokens"] = getattr(result, "output_tokens", None)
+        data["_llm_model"] = getattr(result, "model", None)
+        return data
     except Exception:
         return _fallback_menu(meal_name_jp, source_type, targets)
 
@@ -443,6 +448,9 @@ def _make_item(slot_id: str, user_label: str | None, data: dict, meal_type_str: 
         serving_grams=data.get("serving_grams"),
         ingredients_json=data.get("ingredients", []),
         cooking_summary=data.get("cooking_summary"),
+        input_tokens=data.get("_input_tokens"),
+        output_tokens=data.get("_output_tokens"),
+        llm_model=data.get("_llm_model"),
     )
 
 

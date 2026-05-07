@@ -103,4 +103,7 @@ async def chat(
     return {
         "reply": reply,
         "plan_type": plan_type,
+        "input_tokens": getattr(result, "input_tokens", None),
+        "output_tokens": getattr(result, "output_tokens", None),
+        "llm_model": getattr(result, "model", None),
     }

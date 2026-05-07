@@ -24,8 +24,15 @@ class GeminiBYOKAdapter(LLMAdapter):
                 },
             )
         resp.raise_for_status()
-        content = resp.json()["candidates"][0]["content"]["parts"][0]["text"]
-        return LLMResponse(text=content, model=DEFAULT_MODEL)
+        data = resp.json()
+        content = data["candidates"][0]["content"]["parts"][0]["text"]
+        usage = data.get("usageMetadata", {}) or {}
+        return LLMResponse(
+            text=content,
+            model=DEFAULT_MODEL,
+            input_tokens=usage.get("promptTokenCount"),
+            output_tokens=usage.get("candidatesTokenCount"),
+        )
 
     async def complete_vision(self, system: str, user: str, image_b64: str, mime: str) -> LLMResponse:
         async with httpx.AsyncClient(timeout=90) as client:
@@ -46,5 +53,12 @@ class GeminiBYOKAdapter(LLMAdapter):
                 },
             )
         resp.raise_for_status()
-        content = resp.json()["candidates"][0]["content"]["parts"][0]["text"]
-        return LLMResponse(text=content, model=DEFAULT_MODEL)
+        data = resp.json()
+        content = data["candidates"][0]["content"]["parts"][0]["text"]
+        usage = data.get("usageMetadata", {}) or {}
+        return LLMResponse(
+            text=content,
+            model=DEFAULT_MODEL,
+            input_tokens=usage.get("promptTokenCount"),
+            output_tokens=usage.get("candidatesTokenCount"),
+        )

@@ -250,14 +250,21 @@ async def estimate_from_photo(
     user_msg = f"この{payload.meal_type}の写真の栄養素を推定してください。"
 
     try:
-        raw = await adapter.complete_vision(system, user_msg, payload.image_b64, payload.mime_type)
+        response = await adapter.complete_vision(system, user_msg, payload.image_b64, payload.mime_type)
+        raw_text = response.text if hasattr(response, "text") else str(response)
         # Extract JSON from response
         import re, json
-        match = re.search(r'\{[\s\S]+\}', raw)
+        match = re.search(r'\{[\s\S]+\}', raw_text)
         if match:
             result = json.loads(match.group(0))
         else:
             raise ValueError("JSON not found in LLM response")
+        # トークン使用量を結果に付加
+        result["_token_usage"] = {
+            "input_tokens": getattr(response, "input_tokens", None),
+            "output_tokens": getattr(response, "output_tokens", None),
+            "llm_model": getattr(response, "model", None),
+        }
         return result
     except Exception as e:
         raise HTTPException(500, f"推定に失敗しました: {str(e)}")
