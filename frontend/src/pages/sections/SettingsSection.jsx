@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
+import { useToast } from "../../components/Toast";
 import { useAuth } from "../../hooks/useAuth";
 import { authApi, bodyApi, settingsApi } from "../../services/api";
 import { addJstMonths, daysUntilJst, formatJstDate } from "../../utils/date";
@@ -87,14 +88,22 @@ export default function SettingsSection() {
 	});
 	const [showApiKeyForm, setShowApiKeyForm] = useState(false);
 	const [excludedInput, setExcludedInput] = useState("");
-	const [errorMsg, setErrorMsg] = useState(
-		oauthError
-			? `連携に失敗しました (${oauthError}${oauthDetail ? `: ${oauthDetail}` : ""})`
-			: "",
-	);
-	const [successMsg, setSuccessMsg] = useState(
-		connected ? `${connected} を連携しました！` : "",
-	);
+	const toast = useToast();
+	// 後方互換シム：既存の setSuccessMsg/setErrorMsg 呼び出しはトーストへリダイレクト
+	const setSuccessMsg = (msg) => msg && toast.success(msg);
+	const setErrorMsg = (msg) => msg && toast.error(msg);
+	// OAuth リダイレクト直後の通知
+	useEffect(() => {
+		if (oauthError) {
+			toast.error(
+				`連携に失敗しました (${oauthError}${oauthDetail ? `: ${oauthDetail}` : ""})`,
+			);
+		}
+		if (connected) {
+			toast.success(`${connected} を連携しました！`);
+		}
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [oauthError, oauthDetail, connected]);
 
 	const refreshConnectedState = useCallback(async () => {
 		await Promise.allSettled([
@@ -357,16 +366,23 @@ export default function SettingsSection() {
 
 	return (
 		<div>
-			{successMsg && (
-				<div className="alert alert-success" onClick={() => setSuccessMsg("")}>
-					{successMsg}
-				</div>
-			)}
-			{errorMsg && (
-				<div className="alert alert-error" onClick={() => setErrorMsg("")}>
-					{errorMsg}
-				</div>
-			)}
+			{/* ビルド情報（最新コードが配信されているか確認用） */}
+			<div
+				style={{
+					fontSize: 10,
+					color: "var(--text-3, #94a3b8)",
+					textAlign: "right",
+					marginBottom: 8,
+				}}
+				title="このバージョンが配信されているコード"
+			>
+				build:{" "}
+				{typeof window !== "undefined" ? window.__APP_COMMIT__ || "—" : "—"}
+				{" / "}
+				{typeof window !== "undefined" && window.__APP_BUILD_TIME__
+					? new Date(window.__APP_BUILD_TIME__).toLocaleString("ja-JP")
+					: "—"}
+			</div>
 
 			{/* Profile */}
 			<div className="card">
@@ -738,8 +754,100 @@ export default function SettingsSection() {
 			<div className="card">
 				<div className="card-title">
 					現在のプラン:{" "}
-					{profile?.plan_type === "byok" ? "BYOKプラン" : "無料プラン (Groq)"}
+					{settings?.plan?.force_free_llm
+						? "🆓 無料切替中 (Groq)"
+						: profile?.plan_type === "byok"
+							? "BYOKプラン"
+							: "無料プラン (Groq)"}
 				</div>
+
+				{/* 無料 LLM 切替トグル：APIキー登録済みの全ユーザーに表示 */}
+				{(settings?.plan?.plan_type === "byok" || apiKeys.length > 0) && (
+					<div
+						style={{
+							marginBottom: 12,
+							padding: 10,
+							background: "var(--bg)",
+							borderRadius: 8,
+						}}
+					>
+						<label
+							style={{
+								display: "flex",
+								alignItems: "flex-start",
+								gap: 10,
+								cursor: "pointer",
+								fontSize: 13,
+							}}
+						>
+							<input
+								type="checkbox"
+								checked={!!settings?.plan?.force_free_llm}
+								onChange={(e) => {
+									settingsApi
+										.updateForceFree({ force_free_llm: e.target.checked })
+										.then(() => qc.invalidateQueries({ queryKey: ["settings"] }))
+										.catch((err) =>
+											toast.error(err.response?.data?.detail || err.message),
+										);
+								}}
+								style={{ marginTop: 2 }}
+							/>
+							<div>
+								<div style={{ fontWeight: 600 }}>
+									🆓 無料 LLM (Groq) に一時切替
+								</div>
+								<div
+									style={{
+										fontSize: 11,
+										color: "var(--text-secondary)",
+										marginTop: 2,
+									}}
+								>
+									ON にすると BYOK のAPIキーを使わず、無料の Groq モデルを使用します。
+									API 利用料を抑えたいときに便利。月間上限は無料プラン扱いになります。
+								</div>
+							</div>
+						</label>
+					</div>
+				)}
+
+				{/* 使用モデル選択 */}
+				{settings?.plan?.available_models?.length > 0 && (
+					<div className="form-group" style={{ marginBottom: 12 }}>
+						<label className="form-label">使用モデル</label>
+						<select
+							className="form-input"
+							value={settings.plan.byok_model || ""}
+							onChange={(e) => {
+								const model = e.target.value || null;
+								settingsApi
+									.updateLlmModel({ byok_model: model })
+									.then(() => qc.invalidateQueries({ queryKey: ["settings"] }))
+									.catch((err) =>
+										toast.error(err.response?.data?.detail || err.message),
+									);
+							}}
+						>
+							<option value="">デフォルト（自動）</option>
+							{settings.plan.available_models.map((m) => (
+								<option key={m.id} value={m.id}>
+									{m.label}
+								</option>
+							))}
+						</select>
+						<div
+							style={{
+								fontSize: 11,
+								color: "var(--text-secondary)",
+								marginTop: 4,
+							}}
+						>
+							※ プランによって選択できるモデルが変わります。高品質モデルほどコストとトークンが増えます。
+						</div>
+					</div>
+				)}
+
 				{apiKeys.map((k) => (
 					<div key={k.provider} className="list-item">
 						<div>
