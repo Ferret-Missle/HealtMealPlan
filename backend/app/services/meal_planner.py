@@ -65,7 +65,7 @@ SYSTEM_PROMPT = """あなたは家庭料理に詳しい管理栄養士です。�
 - 各手順は「番号. 動詞で始まる短い指示」の形式
 - 良い例: "1. 鶏むね肉を一口大に切る\\n2. 塩こしょうを振り片栗粉をまぶす\\n3. フライパンに油を熱する\\n4. 鶏肉を中火で両面焼く\\n5. 醤油・みりん・砂糖を加え煮絡める"
 - 悪い例（NG）: "鶏肉を切って塩こしょうしてから片栗粉をまぶし、フライパンで焼いて..." ← 改行なし禁止
-- コンビニの場合は "セブンイレブン購入" の1行のみでOK"""
+- コンビニの場合は "コンビニ購入" の1行のみでOK"""
 
 
 def _meal_ratio(meal_type: str, light_breakfast: bool) -> float:
@@ -84,6 +84,154 @@ def _slot_targets(meal_type: str, light_breakfast: bool, member_contexts: list) 
     f = sum(mc["target_kcal"] * ratio * mc["f_ratio"] / 9 for mc in member_contexts) / n
     c = sum(mc["target_kcal"] * ratio * mc["c_ratio"] / 4 for mc in member_contexts) / n
     return {"kcal": round(kcal), "protein": round(p, 1), "fat": round(f, 1), "carb": round(c, 1)}
+
+
+def _gather_body_info(user_id: str, db: Session, scope: str, goals) -> dict | None:
+    """ユーザーの身体情報を scope に応じてまとめる。
+    scope: "off" | "minimal" | "medium" | "full"
+    - off:     何も渡さない（None を返す）
+    - minimal: 体重・体脂肪・BMI・目標体重・身長・年齢/性別
+    - medium:  + 7日活動量平均、体重トレンド
+    - full:    + 直近7日食事量平均（過不足の傾向）
+    """
+    if scope == "off" or not scope:
+        return None
+
+    info: dict = {}
+
+    # 直近の体重ログ
+    latest_weight = (
+        db.query(models.WeightLog)
+        .filter_by(user_id=user_id)
+        .order_by(models.WeightLog.date.desc(), models.WeightLog.created_at.desc())
+        .first()
+    )
+    if latest_weight:
+        info["weight_kg"] = latest_weight.weight
+        if latest_weight.body_fat is not None:
+            info["body_fat_pct"] = latest_weight.body_fat
+        if latest_weight.bmi is not None:
+            info["bmi"] = latest_weight.bmi
+        info["weight_date"] = latest_weight.date
+
+    # 目標体重・身長・属性
+    if goals:
+        if goals.target_weight is not None:
+            info["target_weight_kg"] = goals.target_weight
+        if getattr(goals, "height_cm", None) is not None:
+            info["height_cm"] = goals.height_cm
+        if getattr(goals, "age_group", None):
+            info["age_group"] = goals.age_group
+        if getattr(goals, "gender", None):
+            info["gender"] = goals.gender
+
+    if scope == "minimal":
+        return info
+
+    # === medium 以上：活動量と体重トレンド ===
+    from datetime import timedelta as _td
+    today = dt_date.today()
+    seven_ago = str(today - _td(days=7))
+
+    activities = (
+        db.query(models.ActivityLog)
+        .filter(
+            models.ActivityLog.user_id == user_id,
+            models.ActivityLog.date >= seven_ago,
+        )
+        .all()
+    )
+    if activities:
+        steps_vals = [a.steps for a in activities if a.steps]
+        kcal_vals = [a.active_kcal for a in activities if a.active_kcal]
+        if steps_vals:
+            info["avg_steps_7d"] = round(sum(steps_vals) / len(steps_vals))
+        if kcal_vals:
+            info["avg_active_kcal_7d"] = round(sum(kcal_vals) / len(kcal_vals))
+
+    # 体重トレンド（7日前との差）
+    week_ago_weight = (
+        db.query(models.WeightLog)
+        .filter(
+            models.WeightLog.user_id == user_id,
+            models.WeightLog.date <= seven_ago,
+        )
+        .order_by(models.WeightLog.date.desc())
+        .first()
+    )
+    if latest_weight and week_ago_weight and latest_weight.weight and week_ago_weight.weight:
+        info["weight_delta_7d_kg"] = round(latest_weight.weight - week_ago_weight.weight, 2)
+
+    if scope == "medium":
+        return info
+
+    # === full：食事傾向 ===
+    meal_logs = (
+        db.query(models.MealLog)
+        .filter(
+            models.MealLog.user_id == user_id,
+            models.MealLog.date >= seven_ago,
+        )
+        .all()
+    )
+    if meal_logs:
+        from collections import defaultdict
+        daily = defaultdict(lambda: {"kcal": 0.0, "p": 0.0, "f": 0.0, "c": 0.0})
+        for m in meal_logs:
+            d = daily[m.date]
+            d["kcal"] += m.kcal or 0
+            d["p"] += m.protein_g or 0
+            d["f"] += m.fat_g or 0
+            d["c"] += m.carb_g or 0
+        n = len(daily)
+        if n:
+            info["avg_intake_kcal_7d"] = round(sum(d["kcal"] for d in daily.values()) / n)
+            info["avg_intake_p_7d"] = round(sum(d["p"] for d in daily.values()) / n, 1)
+            info["avg_intake_f_7d"] = round(sum(d["f"] for d in daily.values()) / n, 1)
+            info["avg_intake_c_7d"] = round(sum(d["c"] for d in daily.values()) / n, 1)
+
+    return info
+
+
+def _format_body_info(body_info: dict | None) -> str:
+    """body_info dict をプロンプト用テキストに整形。Noneや空なら空文字。"""
+    if not body_info:
+        return ""
+    lines = []
+    if "weight_kg" in body_info:
+        line = f"  - 体重: {body_info['weight_kg']}kg"
+        if "target_weight_kg" in body_info:
+            diff = body_info["weight_kg"] - body_info["target_weight_kg"]
+            phase = "減量" if diff > 0 else ("増量" if diff < 0 else "維持")
+            line += f" / 目標: {body_info['target_weight_kg']}kg ({diff:+.1f}kg / {phase}フェーズ)"
+        lines.append(line)
+    if "body_fat_pct" in body_info:
+        lines.append(f"  - 体脂肪率: {body_info['body_fat_pct']}%")
+    if "bmi" in body_info:
+        lines.append(f"  - BMI: {body_info['bmi']}")
+    if "height_cm" in body_info:
+        lines.append(f"  - 身長: {body_info['height_cm']}cm")
+    if "gender" in body_info or "age_group" in body_info:
+        attr = []
+        if "gender" in body_info:
+            attr.append(body_info["gender"])
+        if "age_group" in body_info:
+            attr.append(body_info["age_group"])
+        lines.append(f"  - 属性: {' / '.join(attr)}")
+    if "avg_steps_7d" in body_info:
+        lines.append(f"  - 直近7日平均歩数: {body_info['avg_steps_7d']:,}歩")
+    if "avg_active_kcal_7d" in body_info:
+        lines.append(f"  - 直近7日平均活動消費: {body_info['avg_active_kcal_7d']}kcal")
+    if "weight_delta_7d_kg" in body_info:
+        d = body_info["weight_delta_7d_kg"]
+        trend = "減少中" if d < -0.1 else ("増加中" if d > 0.1 else "ほぼ維持")
+        lines.append(f"  - 体重トレンド7日: {d:+.2f}kg ({trend})")
+    if "avg_intake_kcal_7d" in body_info:
+        lines.append(
+            f"  - 直近7日平均食事量: {body_info['avg_intake_kcal_7d']}kcal "
+            f"(P{body_info.get('avg_intake_p_7d')}g / F{body_info.get('avg_intake_f_7d')}g / C{body_info.get('avg_intake_c_7d')}g)"
+        )
+    return "\n".join(lines)
 
 
 def _get_day_cond_members(day_date: str, conditions: dict) -> list:
@@ -128,6 +276,8 @@ async def generate_menus(plan_id: str, user_id: str, db: Session, conditions: di
         if not goals:
             continue
         prefs = goals.preferences_json or {}
+        scope = (prefs.get("body_data_scope") if isinstance(prefs, dict) else None) or "off"
+        body_info = _gather_body_info(member.user_id, db, scope, goals)
         member_contexts.append({
             "user_id": member.user_id,
             "label": labels[idx],
@@ -140,6 +290,7 @@ async def generate_menus(plan_id: str, user_id: str, db: Session, conditions: di
             "excluded_foods": goals.excluded_foods_json or [],
             # plan-time に渡された frequent_menus を後段でマージできるようキー予約
             "frequent_menus": (prefs.get("frequent_menus") if isinstance(prefs, dict) else None) or {},
+            "body_info": body_info,
         })
 
     if not member_contexts:
@@ -296,8 +447,9 @@ async def _call_llm(
             "  - 皮を剥いたりカットが必要な丸ごと果物（りんご・オレンジなど）\n"
             "  - 生の魚・肉、未調理の野菜（人参・ジャガイモ等）\n"
             "  - 米・パスタ・小麦粉などの未調理食品\n"
-            "menu_name は商品名を改行区切りで具体的に書く（例：\"セブンイレブン 鮭おにぎり\\nセブンイレブン サラダチキン プレーン\\nセブンイレブン 千切りキャベツ\"）\n"
-            "cooking_summary は \"セブンイレブン購入\" と記載"
+            "menu_name は商品名を改行区切りで具体的に書く（例：\"鮭おにぎり\\nサラダチキン プレーン\\n千切りキャベツ\"）\n"
+            "  ※ 商品名の先頭に「セブンイレブン」「セブン」などの店舗名は付けないこと（冗長になるため）\n"
+            "cooking_summary は \"コンビニ購入\" と記載"
         )
     elif source_type == "bento":
         source_note = (
@@ -337,13 +489,18 @@ async def _call_llm(
     # メンバー情報（よく食べるメニューも反映）
     member_lines = []
     fav_lines = []
+    body_sections = []
     for mc in member_contexts:
         member_lines.append(f"  - メンバー{mc['label']}: 1日目標 {mc['target_kcal']}kcal / 目標:{mc['goal_type']}")
         favs = (mc.get("frequent_menus") or {}).get(meal_type_str, [])
         if favs:
             fav_lines.append(f"  - メンバー{mc['label']} がよく食べる{ {'breakfast':'朝食','lunch':'昼食','dinner':'夕食'}.get(meal_type_str,'食事') }: {', '.join(favs)}")
+        body_text = _format_body_info(mc.get("body_info"))
+        if body_text:
+            body_sections.append(f"[メンバー{mc['label']} の身体情報]\n{body_text}")
     member_info = "\n".join(member_lines)
     fav_section = ("\n[よく食べるメニュー（参考にしてバリエーションを混ぜる）]\n" + "\n".join(fav_lines)) if fav_lines else ""
+    body_section = ("\n\n" + "\n\n".join(body_sections) + "\n→ 上記の身体情報・トレンドを踏まえ、減量/維持/増量フェーズに合った料理（タンパク質量や調理法）を選んでください。") if body_sections else ""
 
     excluded = list(set(food for mc in member_contexts for food in mc.get("excluded_foods", [])))
 
@@ -396,7 +553,7 @@ async def _call_llm(
 {breakfast_note}{source_note}
 
 [メンバー情報]
-{member_info}{fav_section}
+{member_info}{fav_section}{body_section}
 
 [除外/重複]
 除外食材: {", ".join(excluded) if excluded else "なし"}
@@ -425,13 +582,17 @@ async def _call_llm(
         result = await adapter.complete(SYSTEM_PROMPT, user_prompt)
         raw = result.text if hasattr(result, "text") else str(result)
         data = _parse_json_response(raw)
-        # トークン使用量を結果データに付加
         data["_input_tokens"] = getattr(result, "input_tokens", None)
         data["_output_tokens"] = getattr(result, "output_tokens", None)
         data["_llm_model"] = getattr(result, "model", None)
+        data["_system_prompt"] = SYSTEM_PROMPT
+        data["_user_prompt"] = user_prompt
         return data
     except Exception:
-        return _fallback_menu(meal_name_jp, source_type, targets)
+        fallback = _fallback_menu(meal_name_jp, source_type, targets)
+        fallback["_system_prompt"] = SYSTEM_PROMPT
+        fallback["_user_prompt"] = user_prompt
+        return fallback
 
 
 def _make_item(slot_id: str, user_label: str | None, data: dict, meal_type_str: str) -> models.MealPlanItem:
@@ -451,6 +612,8 @@ def _make_item(slot_id: str, user_label: str | None, data: dict, meal_type_str: 
         input_tokens=data.get("_input_tokens"),
         output_tokens=data.get("_output_tokens"),
         llm_model=data.get("_llm_model"),
+        system_prompt=data.get("_system_prompt"),
+        user_prompt=data.get("_user_prompt"),
     )
 
 
@@ -458,6 +621,7 @@ def _get_llm_adapter(user_id: str, db: Session):
     plan_rec = db.query(models.UserPlan).filter_by(user_id=user_id).first()
     plan_type = plan_rec.plan_type if plan_rec else "free"
     byok_provider = plan_rec.byok_provider if plan_rec else None
+    byok_model = getattr(plan_rec, "byok_model", None) if plan_rec else None
 
     api_key = None
     if plan_type == "byok" and byok_provider:
@@ -465,7 +629,7 @@ def _get_llm_adapter(user_id: str, db: Session):
         if key_rec:
             api_key = security.decrypt(key_rec.encrypted_key)
 
-    return get_adapter(plan_type, byok_provider, api_key)
+    return get_adapter(plan_type, byok_provider, api_key, byok_model)
 
 
 def _get_past_ingredients(group_id: str, start_date: str, db: Session) -> list:
@@ -498,9 +662,9 @@ def _parse_json_response(text: str) -> dict:
 def _fallback_menu(meal_name: str, source_type: str = "auto", targets: dict | None = None) -> dict:
     """LLM呼び出しが失敗した場合のフォールバック。targetsがあればそれを使う。"""
     name_map = {
-        ("conbini", "朝食"): "セブンイレブン 鮭おにぎり\nセブンイレブン ゆで卵\nセブンイレブン 野菜サラダ",
-        ("conbini", "昼食"): "セブンイレブン サラダチキン\nセブンイレブン 玄米おにぎり\nセブンイレブン 野菜スープ",
-        ("conbini", "夕食"): "セブンイレブン 鶏むね弁当\nセブンイレブン ミニサラダ\nセブンイレブン ヨーグルト",
+        ("conbini", "朝食"): "鮭おにぎり\nゆで卵\n野菜サラダ",
+        ("conbini", "昼食"): "サラダチキン\n玄米おにぎり\n野菜スープ",
+        ("conbini", "夕食"): "鶏むね弁当\nミニサラダ\nヨーグルト",
         ("bento", "朝食"): "鮭おにぎり\nゆで卵\nミニサラダ",
         ("bento", "昼食"): "鶏むね唐揚げ\n卵焼き\nブロッコリー胡麻和え\n玄米",
         ("bento", "夕食"): "焼き魚\n卵焼き\n煮物\nご飯",
@@ -528,7 +692,7 @@ def _fallback_menu(meal_name: str, source_type: str = "auto", targets: dict | No
         "carb_g": c,
         "serving_grams": max(200, round(kcal * 0.6)),  # 大まかに kcal × 0.6 (g)
         "ingredients": [],
-        "cooking_summary": "セブンイレブン購入" if source_type == "conbini" else "",
+        "cooking_summary": "コンビニ購入" if source_type == "conbini" else "",
     }
 
 
@@ -566,6 +730,8 @@ async def generate_slot_menu(
         if not goals:
             continue
         prefs = goals.preferences_json or {}
+        scope = (prefs.get("body_data_scope") if isinstance(prefs, dict) else None) or "off"
+        body_info = _gather_body_info(member.user_id, db, scope, goals)
         member_contexts.append({
             "user_id": member.user_id,
             "label": labels[idx],
@@ -578,6 +744,7 @@ async def generate_slot_menu(
             "excluded_foods": goals.excluded_foods_json or [],
             # plan-time に渡された frequent_menus を後段でマージできるようキー予約
             "frequent_menus": (prefs.get("frequent_menus") if isinstance(prefs, dict) else None) or {},
+            "body_info": body_info,
         })
 
     if member_contexts:

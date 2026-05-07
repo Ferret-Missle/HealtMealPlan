@@ -393,6 +393,73 @@ export default function SettingsPage() {
 					現在のプラン:{" "}
 					{profile?.plan_type === "byok" ? "BYOKプラン" : "無料プラン (Groq)"}
 				</div>
+
+				{/* 身体情報スコープ選択 */}
+				<div className="form-group" style={{ marginBottom: 12 }}>
+					<label className="form-label">献立に反映する身体情報の量</label>
+					<select
+						className="form-input"
+						value={settings?.preferences?.body_data_scope || "off"}
+						onChange={(e) => {
+							const newPrefs = {
+								...(settings?.preferences || {}),
+								body_data_scope: e.target.value,
+							};
+							preferencesMutation.mutate({ preferences: newPrefs });
+						}}
+					>
+						<option value="off">使わない（最低トークン）</option>
+						<option value="minimal">最小：体重・体脂肪・BMI・目標体重</option>
+						<option value="medium">中：+ 活動量・体重トレンド</option>
+						<option value="full">大：+ 直近7日の食事量比較</option>
+					</select>
+					<div
+						style={{
+							fontSize: 11,
+							color: "var(--text-secondary)",
+							marginTop: 4,
+						}}
+					>
+						※ 量を増やすほど精度が上がりますが、LLMトークン使用量が増えます（off→full で約 +500〜1500 tok/食）
+					</div>
+				</div>
+
+				{/* モデル選択 */}
+				{settings?.plan?.available_models?.length > 0 && (
+					<div className="form-group" style={{ marginBottom: 12 }}>
+						<label className="form-label">使用モデル</label>
+						<select
+							className="form-input"
+							value={settings.plan.byok_model || ""}
+							onChange={(e) => {
+								const model = e.target.value || null;
+								settingsApi
+									.updateLlmModel({ byok_model: model })
+									.then(() => qc.invalidateQueries({ queryKey: ["settings"] }))
+									.catch((err) =>
+										setApiKeyError(err.response?.data?.detail || err.message),
+									);
+							}}
+						>
+							<option value="">デフォルト（自動）</option>
+							{settings.plan.available_models.map((m) => (
+								<option key={m.id} value={m.id}>
+									{m.label}
+								</option>
+							))}
+						</select>
+						<div
+							style={{
+								fontSize: 11,
+								color: "var(--text-secondary)",
+								marginTop: 4,
+							}}
+						>
+							※ プランによって選択できるモデルが変わります。高品質モデルほどコストとトークンが増えます。
+						</div>
+					</div>
+				)}
+
 				{apiKeys.map((k) => (
 					<div key={k.provider} className="list-item">
 						<div>

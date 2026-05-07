@@ -27,10 +27,15 @@ async def get_settings(
     api_keys = db.query(models.ApiKey).filter_by(user_id=current_user.id).all()
     calendar_settings = db.query(models.CalendarSetting).filter_by(user_id=current_user.id).all()
 
+    from ..llm.adapter import AVAILABLE_MODELS
+    plan_type = plan.plan_type if plan else "free"
+    provider_for_models = (plan.byok_provider if plan and plan_type == "byok" and plan.byok_provider else "free")
     return {
         "plan": {
-            "plan_type": plan.plan_type if plan else "free",
+            "plan_type": plan_type,
             "byok_provider": plan.byok_provider if plan else None,
+            "byok_model": getattr(plan, "byok_model", None) if plan else None,
+            "available_models": AVAILABLE_MODELS.get(provider_for_models, []),
         },
         "connected_services": [t.service for t in tokens],
         "api_keys": [
@@ -74,6 +79,25 @@ async def update_preferences(
 
     db.commit()
     return {"updated": True}
+
+
+class ModelUpdate(BaseModel):
+    byok_model: str | None = None
+
+
+@router.put("/llm-model")
+async def update_llm_model(
+    payload: ModelUpdate,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    plan = db.query(models.UserPlan).filter_by(user_id=current_user.id).first()
+    if not plan:
+        plan = models.UserPlan(user_id=current_user.id, plan_type="free")
+        db.add(plan)
+    plan.byok_model = payload.byok_model
+    db.commit()
+    return {"updated": True, "byok_model": plan.byok_model}
 
 
 # ---- BYOK API Key management ----

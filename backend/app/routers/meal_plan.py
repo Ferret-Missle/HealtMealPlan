@@ -479,6 +479,8 @@ def _plan_detail(plan: models.MealPlan) -> dict:
                     "input_tokens": getattr(item, "input_tokens", None),
                     "output_tokens": getattr(item, "output_tokens", None),
                     "llm_model": getattr(item, "llm_model", None),
+                    "system_prompt": getattr(item, "system_prompt", None),
+                    "user_prompt": getattr(item, "user_prompt", None),
                 })
             total_kcal = sum(it["kcal"] for it in items if it["kcal"] is not None) if items else None
             slots.append({

@@ -700,6 +700,161 @@ function ItemCard({ item, planId, isDraft }) {
 	);
 }
 
+// ─── プロンプト原文ビューア（デバッグ用、折りたたみ） ─────────────────────
+function PlanPromptViewer({ plan }) {
+	const [expanded, setExpanded] = useState(false);
+	const [selectedIdx, setSelectedIdx] = useState(0);
+
+	// 全 item を平坦化（プロンプトを持つもののみ）
+	const promptItems = [];
+	plan.days?.forEach((day) => {
+		day.slots?.forEach((slot) => {
+			slot.items?.forEach((item) => {
+				if (item.user_prompt) {
+					promptItems.push({
+						label: `${day.date} ${MEAL_FULL[slot.meal_type]}${
+							item.user_id ? ` (${item.user_id})` : "（共有）"
+						}`,
+						item,
+					});
+				}
+			});
+		});
+	});
+
+	if (promptItems.length === 0) return null;
+
+	const current = promptItems[selectedIdx] || promptItems[0];
+
+	return (
+		<div
+			style={{
+				marginTop: 12,
+				border: "1px solid var(--border)",
+				borderRadius: 8,
+				overflow: "hidden",
+			}}
+		>
+			<button
+				onClick={() => setExpanded((v) => !v)}
+				style={{
+					width: "100%",
+					padding: "10px 12px",
+					background: "var(--surface)",
+					border: "none",
+					cursor: "pointer",
+					display: "flex",
+					justifyContent: "space-between",
+					alignItems: "center",
+					fontSize: 13,
+					fontWeight: 600,
+					color: "var(--text-secondary)",
+				}}
+			>
+				<span>🔍 LLMに送信したプロンプト原文を見る（デバッグ）</span>
+				<span>{expanded ? "▲" : "▼"}</span>
+			</button>
+			{expanded && (
+				<div style={{ padding: 12, background: "var(--bg)" }}>
+					<div className="form-group">
+						<label className="form-label" style={{ fontSize: 12 }}>
+							確認するスロット（{promptItems.length}件）
+						</label>
+						<select
+							className="form-input"
+							value={selectedIdx}
+							onChange={(e) => setSelectedIdx(Number(e.target.value))}
+							style={{ fontSize: 12 }}
+						>
+							{promptItems.map((p, i) => (
+								<option key={i} value={i}>
+									{p.label} — {p.item.menu_name?.split("\n")[0] || "(no menu)"}
+								</option>
+							))}
+						</select>
+					</div>
+
+					{current?.item?.system_prompt && (
+						<div style={{ marginBottom: 10 }}>
+							<div
+								style={{
+									fontSize: 11,
+									fontWeight: 600,
+									color: "var(--text-secondary)",
+									marginBottom: 4,
+								}}
+							>
+								SYSTEM プロンプト
+							</div>
+							<pre
+								style={{
+									fontSize: 11,
+									background: "var(--surface)",
+									padding: 10,
+									borderRadius: 6,
+									maxHeight: 200,
+									overflow: "auto",
+									whiteSpace: "pre-wrap",
+									wordBreak: "break-word",
+									margin: 0,
+									lineHeight: 1.5,
+								}}
+							>
+								{current.item.system_prompt}
+							</pre>
+						</div>
+					)}
+
+					{current?.item?.user_prompt && (
+						<div>
+							<div
+								style={{
+									fontSize: 11,
+									fontWeight: 600,
+									color: "var(--text-secondary)",
+									marginBottom: 4,
+								}}
+							>
+								USER プロンプト
+							</div>
+							<pre
+								style={{
+									fontSize: 11,
+									background: "var(--surface)",
+									padding: 10,
+									borderRadius: 6,
+									maxHeight: 400,
+									overflow: "auto",
+									whiteSpace: "pre-wrap",
+									wordBreak: "break-word",
+									margin: 0,
+									lineHeight: 1.5,
+								}}
+							>
+								{current.item.user_prompt}
+							</pre>
+						</div>
+					)}
+
+					{(current?.item?.input_tokens || current?.item?.output_tokens) && (
+						<div
+							style={{
+								marginTop: 8,
+								fontSize: 11,
+								color: "var(--text-secondary)",
+							}}
+						>
+							🤖 {current.item.llm_model || "LLM"} / 入力{" "}
+							{current.item.input_tokens?.toLocaleString() || "—"} tok / 出力{" "}
+							{current.item.output_tokens?.toLocaleString() || "—"} tok
+						</div>
+					)}
+				</div>
+			)}
+		</div>
+	);
+}
+
 // ─── 生成中の進捗表示 ─────────────────────────────────────────────────────
 function GenerationProgress({ progress }) {
 	if (!progress) return null;
@@ -1679,34 +1834,40 @@ export default function MealPlanPage() {
 
 					{planDetail.status === "draft" &&
 						(!planDetail.progress || planDetail.progress.done) && (
-							<div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
-								<button
-									className="btn btn-secondary"
-									style={{ flex: 1 }}
-									onClick={handleRecalculate}
-									disabled={recalculating}
-								>
-									{recalculating ? "再計算中..." : "🔄 再計算"}
-								</button>
-								<button
-									className="btn btn-primary"
-									style={{ flex: 1 }}
-									onClick={() => confirmMutation.mutate(selectedPlan)}
-									disabled={confirmMutation.isPending}
-								>
-									{confirmMutation.isPending ? "確定中..." : "✓ 献立を確定"}
-								</button>
-							</div>
+							<>
+								<div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+									<button
+										className="btn btn-secondary"
+										style={{ flex: 1 }}
+										onClick={handleRecalculate}
+										disabled={recalculating}
+									>
+										{recalculating ? "再計算中..." : "🔄 再計算"}
+									</button>
+									<button
+										className="btn btn-primary"
+										style={{ flex: 1 }}
+										onClick={() => confirmMutation.mutate(selectedPlan)}
+										disabled={confirmMutation.isPending}
+									>
+										{confirmMutation.isPending ? "確定中..." : "✓ 献立を確定"}
+									</button>
+								</div>
+								<PlanPromptViewer plan={planDetail} />
+							</>
 						)}
 
 					{planDetail.status === "confirmed" && (
-						<button
-							className="btn btn-secondary btn-full"
-							style={{ marginBottom: 12 }}
-							onClick={() => setShowShopping(!showShopping)}
-						>
-							🛒 {showShopping ? "献立に戻る" : "買い物リストを見る"}
-						</button>
+						<>
+							<button
+								className="btn btn-secondary btn-full"
+								style={{ marginBottom: 12 }}
+								onClick={() => setShowShopping(!showShopping)}
+							>
+								🛒 {showShopping ? "献立に戻る" : "買い物リストを見る"}
+							</button>
+							<PlanPromptViewer plan={planDetail} />
+						</>
 					)}
 
 					{showShopping && shopping ? (

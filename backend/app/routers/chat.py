@@ -90,7 +90,8 @@ async def chat(
     from ..llm.adapter import get_adapter
     from ..security import decrypt
     api_key = decrypt(api_key_row.encrypted_key) if api_key_row else None
-    adapter = get_adapter(plan_type, byok_provider, api_key)
+    byok_model = getattr(user_plan, "byok_model", None) if user_plan else None
+    adapter = get_adapter(plan_type, byok_provider, api_key, byok_model)
 
     try:
         result = await adapter.complete(system, messages_text)

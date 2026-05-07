@@ -122,6 +122,9 @@ class UserPlan(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
+    # 利用するモデル名（adapter 内のデフォルトを上書き）
+    byok_model = Column(String)
+
     user = relationship("User", back_populates="user_plan")
 
 
@@ -275,6 +278,9 @@ class MealPlanItem(Base):
     input_tokens = Column(Integer)
     output_tokens = Column(Integer)
     llm_model = Column(String)
+    # 生成時に LLM へ送ったプロンプト（デバッグ用）
+    system_prompt = Column(Text)
+    user_prompt = Column(Text)
 
     slot = relationship("MealPlanSlot", back_populates="items")
 

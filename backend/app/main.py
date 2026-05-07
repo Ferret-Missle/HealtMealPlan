@@ -38,11 +38,14 @@ def _run_migrations():
             ))
         except Exception as e:
             logger.warning("Migration kcal_budget skipped: %s", e)
-        # meal_plan_items に LLM トークン情報
+        # meal_plan_items に LLM トークン情報・プロンプト
         for col, ddl in [
             ("input_tokens", "ALTER TABLE meal_plan_items ADD COLUMN IF NOT EXISTS input_tokens INTEGER"),
             ("output_tokens", "ALTER TABLE meal_plan_items ADD COLUMN IF NOT EXISTS output_tokens INTEGER"),
             ("llm_model", "ALTER TABLE meal_plan_items ADD COLUMN IF NOT EXISTS llm_model VARCHAR"),
+            ("system_prompt", "ALTER TABLE meal_plan_items ADD COLUMN IF NOT EXISTS system_prompt TEXT"),
+            ("user_prompt", "ALTER TABLE meal_plan_items ADD COLUMN IF NOT EXISTS user_prompt TEXT"),
+            ("byok_model", "ALTER TABLE user_plans ADD COLUMN IF NOT EXISTS byok_model VARCHAR"),
         ]:
             try:
                 conn.execute(text(ddl))

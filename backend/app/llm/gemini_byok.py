@@ -7,8 +7,9 @@ DEFAULT_MODEL = "gemini-1.5-flash"
 class GeminiBYOKAdapter(LLMAdapter):
     supports_vision = True
 
-    def __init__(self, api_key: str):
+    def __init__(self, api_key: str, model: str | None = None):
         self.api_key = api_key
+        self.model = model or DEFAULT_MODEL
 
     def _url(self, model: str, action: str = "generateContent") -> str:
         return f"https://generativelanguage.googleapis.com/v1beta/models/{model}:{action}?key={self.api_key}"
@@ -16,7 +17,7 @@ class GeminiBYOKAdapter(LLMAdapter):
     async def complete(self, system: str, user: str) -> LLMResponse:
         async with httpx.AsyncClient(timeout=90) as client:
             resp = await client.post(
-                self._url(DEFAULT_MODEL),
+                self._url(self.model),
                 json={
                     "system_instruction": {"parts": [{"text": system}]},
                     "contents": [{"role": "user", "parts": [{"text": user}]}],
@@ -29,7 +30,7 @@ class GeminiBYOKAdapter(LLMAdapter):
         usage = data.get("usageMetadata", {}) or {}
         return LLMResponse(
             text=content,
-            model=DEFAULT_MODEL,
+            model=self.model,
             input_tokens=usage.get("promptTokenCount"),
             output_tokens=usage.get("candidatesTokenCount"),
         )
@@ -37,7 +38,7 @@ class GeminiBYOKAdapter(LLMAdapter):
     async def complete_vision(self, system: str, user: str, image_b64: str, mime: str) -> LLMResponse:
         async with httpx.AsyncClient(timeout=90) as client:
             resp = await client.post(
-                self._url(DEFAULT_MODEL),
+                self._url(self.model),
                 json={
                     "system_instruction": {"parts": [{"text": system}]},
                     "contents": [
@@ -58,7 +59,7 @@ class GeminiBYOKAdapter(LLMAdapter):
         usage = data.get("usageMetadata", {}) or {}
         return LLMResponse(
             text=content,
-            model=DEFAULT_MODEL,
+            model=self.model,
             input_tokens=usage.get("promptTokenCount"),
             output_tokens=usage.get("candidatesTokenCount"),
         )

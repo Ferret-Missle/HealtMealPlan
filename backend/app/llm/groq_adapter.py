@@ -8,8 +8,9 @@ DEFAULT_MODEL = "llama-3.3-70b-versatile"
 class GroqAdapter(LLMAdapter):
     supports_vision = False
 
-    def __init__(self, api_key: str):
+    def __init__(self, api_key: str, model: str | None = None):
         self.api_key = api_key
+        self.model = model or DEFAULT_MODEL
 
     async def complete(self, system: str, user: str) -> LLMResponse:
         async with httpx.AsyncClient(timeout=60) as client:
@@ -20,7 +21,7 @@ class GroqAdapter(LLMAdapter):
                     "Content-Type": "application/json",
                 },
                 json={
-                    "model": DEFAULT_MODEL,
+                    "model": self.model,
                     "messages": [
                         {"role": "system", "content": system},
                         {"role": "user", "content": user},
@@ -47,7 +48,7 @@ class GroqAdapter(LLMAdapter):
         usage = data.get("usage", {}) or {}
         return LLMResponse(
             text=content,
-            model=DEFAULT_MODEL,
+            model=self.model,
             input_tokens=usage.get("prompt_tokens"),
             output_tokens=usage.get("completion_tokens"),
         )

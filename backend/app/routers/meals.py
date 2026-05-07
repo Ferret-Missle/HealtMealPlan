@@ -213,7 +213,8 @@ async def estimate_from_photo(
         raise HTTPException(400, f"APIキーが未登録です: {byok_provider}")
 
     api_key = decrypt(api_key_row.encrypted_key)
-    adapter = get_adapter(plan_type, byok_provider, api_key)
+    byok_model = getattr(user_plan, "byok_model", None) if user_plan else None
+    adapter = get_adapter(plan_type, byok_provider, api_key, byok_model)
 
     if not adapter.supports_vision:
         raise HTTPException(

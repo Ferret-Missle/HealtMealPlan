@@ -8,8 +8,9 @@ DEFAULT_MODEL = "gpt-4o-mini"
 class OpenAIBYOKAdapter(LLMAdapter):
     supports_vision = True
 
-    def __init__(self, api_key: str):
+    def __init__(self, api_key: str, model: str | None = None):
         self.api_key = api_key
+        self.model = model or DEFAULT_MODEL
 
     def _headers(self) -> dict:
         return {
@@ -23,7 +24,7 @@ class OpenAIBYOKAdapter(LLMAdapter):
                 OPENAI_API_URL,
                 headers=self._headers(),
                 json={
-                    "model": DEFAULT_MODEL,
+                    "model": self.model,
                     "messages": [
                         {"role": "system", "content": system},
                         {"role": "user", "content": user},
@@ -37,7 +38,7 @@ class OpenAIBYOKAdapter(LLMAdapter):
         usage = data.get("usage", {}) or {}
         return LLMResponse(
             text=content,
-            model=DEFAULT_MODEL,
+            model=self.model,
             input_tokens=usage.get("prompt_tokens"),
             output_tokens=usage.get("completion_tokens"),
         )
