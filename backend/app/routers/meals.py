@@ -435,6 +435,27 @@ async def get_daily_nutrition(
     ]
 
 
+@router.post("/sync-fatsecret-bulk")
+async def sync_fatsecret_bulk(
+    days: int = 7,
+    base_date: str | None = None,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """過去 N 日分の FatSecret 食事ログをまとめて同期。"""
+    from datetime import timedelta
+    anchor = dt_date.fromisoformat(base_date) if base_date else dt_date.today()
+    results = []
+    for i in range(days):
+        target = str(anchor - timedelta(days=i))
+        try:
+            synced = await fatsecret.sync_food_diary(current_user.id, target, db)
+            results.append({"date": target, "synced": synced})
+        except Exception as e:
+            results.append({"date": target, "synced": 0, "error": str(e)[:120]})
+    return {"results": results, "total_dates": len(results)}
+
+
 @router.post("/sync-fatsecret")
 async def sync_fatsecret_logs(
     date: str | None = None,

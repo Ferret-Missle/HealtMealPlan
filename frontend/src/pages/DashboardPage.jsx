@@ -1624,21 +1624,24 @@ export default function DashboardPage() {
 			(shouldLoadDailyKcal && isDailyKcalFetching),
 	};
 
-	// 一括同期：すべてのデータソースをまとめて更新
+	// 一括同期：すべてのデータソースをまとめて更新（食事は過去8日分まとめて）
 	const syncMutation = useMutation({
 		mutationFn: async () => {
 			await bodyApi.sync(dateStr);
 			await Promise.allSettled([
 				bodyApi.syncWeightHistory(weightDays),
 				bodyApi.syncActivityHistory(Math.max(sleepDays, stepsDays)),
-				mealsApi.syncFatSecret(dateStr),
+				// 過去8日分の FatSecret を bulk 同期
+				mealsApi.syncFatSecretBulk(dateStr, 8),
 			]);
 		},
 		onSuccess: () => {
 			qc.invalidateQueries({ queryKey: ["dashboard"] });
 			qc.invalidateQueries({ queryKey: ["weight-history"] });
 			qc.invalidateQueries({ queryKey: ["activity-history"] });
-			qc.invalidateQueries({ queryKey: ["meals", dateStr] });
+			qc.invalidateQueries({ queryKey: ["meals"] });
+			qc.invalidateQueries({ queryKey: ["meals-daily-kcal"] });
+			qc.invalidateQueries({ queryKey: ["meals-daily-nutrition"] });
 			qc.invalidateQueries({ queryKey: ["dashboard-calendar", dateStr] });
 		},
 	});

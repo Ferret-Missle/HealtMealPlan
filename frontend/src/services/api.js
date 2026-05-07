@@ -83,6 +83,7 @@ export const mealsApi = {
   copy: (data) => api.post('/api/meals/copy', data).then(r => r.data),
   // FatSecret の食事ログを指定日付で同期
   syncFatSecret: (date) => api.post('/api/meals/sync-fatsecret', null, { params: { date } }).then(r => r.data),
+  syncFatSecretBulk: (baseDate, days = 7) => api.post('/api/meals/sync-fatsecret-bulk', null, { params: { base_date: baseDate, days } }).then(r => r.data),
 };
 
 // Body
