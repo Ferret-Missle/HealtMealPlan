@@ -500,8 +500,8 @@ export default function SettingsPage() {
 							: "無料プラン (Groq)"}
 				</div>
 
-				{/* BYOK ユーザー向け：無料 LLM 切替トグル */}
-				{profile?.plan_type === "byok" && (
+				{/* BYOK ユーザー向け：無料 LLM 切替トグル（API キーが1つでも登録されていれば表示） */}
+				{(settings?.plan?.plan_type === "byok" || apiKeys.length > 0) && (
 					<div
 						style={{
 							marginBottom: 12,
