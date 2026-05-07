@@ -37,10 +37,12 @@ SYSTEM_PROMPT = """あなたは家庭料理に詳しい管理栄養士です。�
 - 同じタンパク源でも調理法・味付け・系統（和洋中）を変えてバラエティを出す
 - 食材は集約しつつ、料理としては別物に見せる工夫を
 
-【cooking_summary の書き方】
-- 手順は改行(\\n)区切りで番号付きで列挙
-- 例: "1. 鶏むね肉を一口大に切る\\n2. 醤油・みりん・砂糖を合わせる\\n3. フライパンで両面焼く\\n4. 調味料を加えて煮絡める"
-- コンビニの場合は "コンビニ購入" の1行のみでOK"""
+【cooking_summary の書き方（重要）】
+- 手順は **必ず1手順ごとに改行(\\n)** で区切ること。1行に複数手順を詰め込まない
+- 各手順は「番号. 動詞で始まる短い指示」の形式
+- 良い例: "1. 鶏むね肉を一口大に切る\\n2. 塩こしょうを振り片栗粉をまぶす\\n3. フライパンに油を熱する\\n4. 鶏肉を中火で両面焼く\\n5. 醤油・みりん・砂糖を加え煮絡める"
+- 悪い例（NG）: "鶏肉を切って塩こしょうしてから片栗粉をまぶし、フライパンで焼いて..." ← 改行なし禁止
+- コンビニの場合は "セブンイレブン購入" の1行のみでOK"""
 
 
 def _meal_ratio(meal_type: str, light_breakfast: bool) -> float:
@@ -240,9 +242,13 @@ async def _call_llm(
     if source_type == "conbini":
         source_note = (
             "【購入スタイル: コンビニ・スーパー購入】\n"
-            "コンビニやスーパーで購入してそのまま食べられる商品の組み合わせを提案してください。\n"
+            "★店舗統一ルール: 必ず【セブンイレブン】1店舗で買える商品のみで構成すること。\n"
+            "  - 複数のコンビニを跨いで買い回るような提案は厳禁\n"
+            "  - セブンイレブンで通常販売されている定番商品名を使う\n"
+            "  - どうしてもセブンに該当商品がない場合のみ、代わりに『大手スーパー（イトーヨーカドー等）』で代用可\n"
+            "そのまま食べられる商品の組み合わせを提案してください。\n"
             "★許可されるもの:\n"
-            "  - おにぎり、サンドイッチ、サラダチキン、惣菜パック\n"
+            "  - おにぎり（鮭/梅/ツナマヨ/昆布等の定番）、サンドイッチ、サラダチキン、惣菜パック\n"
             "  - カット済み果物（パイン・バナナ等のすぐ食べられるもの）\n"
             "  - 野菜ジュース・果汁ジュース・スムージー\n"
             "  - ヨーグルト、プリン、納豆、豆腐\n"
@@ -251,8 +257,8 @@ async def _call_llm(
             "  - 皮を剥いたりカットが必要な丸ごと果物（りんご・オレンジなど）\n"
             "  - 生の魚・肉、未調理の野菜（人参・ジャガイモ等）\n"
             "  - 米・パスタ・小麦粉などの未調理食品\n"
-            "menu_name は商品名を改行区切りで具体的に書く（例：\"鮭おにぎり\\nサラダチキン\\n野菜サラダ\"）\n"
-            "cooking_summary は \"コンビニ購入\" と記載"
+            "menu_name は商品名を改行区切りで具体的に書く（例：\"セブンイレブン 鮭おにぎり\\nセブンイレブン サラダチキン プレーン\\nセブンイレブン 千切りキャベツ\"）\n"
+            "cooking_summary は \"セブンイレブン購入\" と記載"
         )
     elif source_type == "bento":
         source_note = (
@@ -445,9 +451,9 @@ def _parse_json_response(text: str) -> dict:
 def _fallback_menu(meal_name: str, source_type: str = "auto", targets: dict | None = None) -> dict:
     """LLM呼び出しが失敗した場合のフォールバック。targetsがあればそれを使う。"""
     name_map = {
-        ("conbini", "朝食"): "鮭おにぎり\nゆで卵\n野菜サラダ",
-        ("conbini", "昼食"): "サラダチキン\n玄米おにぎり\n野菜スープ",
-        ("conbini", "夕食"): "鶏むね弁当\nミニサラダ\nヨーグルト",
+        ("conbini", "朝食"): "セブンイレブン 鮭おにぎり\nセブンイレブン ゆで卵\nセブンイレブン 野菜サラダ",
+        ("conbini", "昼食"): "セブンイレブン サラダチキン\nセブンイレブン 玄米おにぎり\nセブンイレブン 野菜スープ",
+        ("conbini", "夕食"): "セブンイレブン 鶏むね弁当\nセブンイレブン ミニサラダ\nセブンイレブン ヨーグルト",
         ("bento", "朝食"): "鮭おにぎり\nゆで卵\nミニサラダ",
         ("bento", "昼食"): "鶏むね唐揚げ\n卵焼き\nブロッコリー胡麻和え\n玄米",
         ("bento", "夕食"): "焼き魚\n卵焼き\n煮物\nご飯",
@@ -475,7 +481,7 @@ def _fallback_menu(meal_name: str, source_type: str = "auto", targets: dict | No
         "carb_g": c,
         "serving_grams": max(200, round(kcal * 0.6)),  # 大まかに kcal × 0.6 (g)
         "ingredients": [],
-        "cooking_summary": "コンビニ購入" if source_type == "conbini" else "",
+        "cooking_summary": "セブンイレブン購入" if source_type == "conbini" else "",
     }
 
 
@@ -582,44 +588,128 @@ async def generate_slot_menu(
         )
 
 
+# 保存可能な食材のキーワード（調味料・乾物・缶詰・レトルトなど 1週間分まとめ買いOK）
+SHELF_STABLE_KEYWORDS = [
+    "醤油", "しょうゆ", "みりん", "酒", "料理酒", "砂糖", "塩", "コショウ", "胡椒", "こしょう",
+    "味噌", "みそ", "だし", "出汁", "コンソメ", "ブイヨン", "鶏ガラ", "中華だし", "鶏がら",
+    "ケチャップ", "マヨネーズ", "ソース", "ウスター", "中濃", "とんかつ", "オイスター",
+    "酢", "ポン酢", "ドレッシング", "オリーブオイル", "ごま油", "サラダ油", "油",
+    "片栗粉", "小麦粉", "薄力粉", "強力粉", "パン粉", "天ぷら粉", "唐揚げ粉",
+    "カレー粉", "カレールー", "シチュールー", "ハヤシ", "中華調味料",
+    "胡麻", "ごま", "すりごま", "海苔", "のり", "ふりかけ", "ゆかり", "わかめ",
+    "かつお節", "鰹節", "煮干し", "昆布", "干し椎茸",
+    "米", "玄米", "もち米", "麦", "雑穀",
+    "パスタ", "スパゲッティ", "マカロニ", "そうめん", "うどん", "蕎麦", "そば",
+    "ラーメン", "中華麺", "焼きそば麺",
+    "ツナ缶", "ツナ", "鯖缶", "サバ缶", "コーン缶", "トマト缶", "ホール", "水煮",
+    "豆乳", "ジャム", "蜂蜜", "はちみつ", "メープル", "シロップ",
+    "レトルト", "インスタント", "カレー（レトルト）", "パスタソース", "ミートソース",
+    "オリーブ", "ピクルス", "梅干し", "梅干", "漬物", "佃煮",
+    "わさび", "からし", "マスタード", "豆板醤", "甜麺醤", "コチュジャン",
+    "バター", "マーガリン",  # 比較的長持ち
+]
+
+# 生鮮で短期使用が望ましいもの（3日以内に消費したい食材のキーワード）
+PERISHABLE_KEYWORDS = [
+    "鶏", "豚", "牛", "ひき肉", "挽肉", "挽き肉", "ハム", "ベーコン", "ソーセージ",
+    "魚", "鮭", "鯖", "サバ", "鯵", "アジ", "鰤", "ブリ", "鱈", "タラ", "鯛", "タイ",
+    "イカ", "タコ", "海老", "エビ", "ホタテ", "あさり", "しじみ",
+    "刺身", "切り身",
+    "豆腐", "厚揚げ", "油揚げ", "がんもどき", "納豆",
+    "卵", "玉子", "牛乳", "ヨーグルト", "チーズ", "生クリーム", "生クリーム",
+    "葉物", "レタス", "サラダ", "ほうれん草", "小松菜", "水菜", "春菊", "白菜",
+    "キャベツ", "もやし", "豆苗", "ニラ", "ねぎ", "長ねぎ", "青ねぎ", "万能ねぎ",
+    "きのこ", "しめじ", "えのき", "舞茸", "しいたけ", "椎茸", "エリンギ", "なめこ",
+    "トマト", "きゅうり", "茄子", "なす", "ピーマン", "パプリカ", "ブロッコリー", "アスパラ",
+]
+
+
+def _classify_ingredient(name: str) -> str:
+    """食材名から保存可能(shelf_stable)か生鮮(perishable)かを判定。"""
+    if not name:
+        return "perishable"
+    n = name.lower()
+    # 保存可能優先（醤油・米など）
+    for kw in SHELF_STABLE_KEYWORDS:
+        if kw in name:
+            return "shelf_stable"
+    for kw in PERISHABLE_KEYWORDS:
+        if kw in name:
+            return "perishable"
+    # デフォルトは生鮮扱い（安全側）
+    return "perishable"
+
+
 async def generate_shopping_list(plan_id: str, db: Session):
+    """買い物リストを生成。
+    items_json の構造（新形式）:
+    [
+      { "name": "鶏むね肉", "category": "perishable" | "shelf_stable",
+        "first_day_offset": 0..6 },
+      ...
+    ]
+    """
     plan = db.query(models.MealPlan).filter_by(id=plan_id).first()
     if not plan:
         return
 
-    shared_ingredients: list[str] = []
-    individual_ingredients: dict[str, list[str]] = {}
+    # 既存の shopping_list を削除（再生成時の重複を防ぐ）
+    existing = db.query(models.ShoppingList).filter_by(meal_plan_id=plan_id).all()
+    for s in existing:
+        db.delete(s)
+    db.commit()
 
-    for day in plan.days:
+    sorted_days = sorted(plan.days, key=lambda d: d.date)
+
+    # 各食材の最初に登場する day_offset を記録
+    shared_first_day: dict[str, int] = {}
+    individual_first_day: dict[str, dict[str, int]] = {}
+
+    for day_idx, day in enumerate(sorted_days):
         for slot in day.slots:
-            if getattr(slot, "source_type", None) in ("conbini", "bento"):
+            # コンビニ・弁当・飲み物のみは買い物リストから除外（自炊のみ）
+            if getattr(slot, "source_type", None) in ("conbini", "bento", "drink_only"):
                 continue
             for item in slot.items:
-                ingredients = item.ingredients_json or []
-                if item.user_id is None:
-                    shared_ingredients.extend(ingredients)
-                else:
-                    if item.user_id not in individual_ingredients:
-                        individual_ingredients[item.user_id] = []
-                    individual_ingredients[item.user_id].extend(ingredients)
+                ings = item.ingredients_json or []
+                for ing in ings:
+                    name = str(ing).strip()
+                    if not name:
+                        continue
+                    if item.user_id is None:
+                        if name not in shared_first_day:
+                            shared_first_day[name] = day_idx
+                    else:
+                        d = individual_first_day.setdefault(item.user_id, {})
+                        if name not in d:
+                            d[name] = day_idx
 
-    shared_unique = list(dict.fromkeys(shared_ingredients))
+    def _build_items(first_day_map: dict[str, int]) -> list[dict]:
+        return [
+            {
+                "name": name,
+                "category": _classify_ingredient(name),
+                "first_day_offset": offset,
+            }
+            for name, offset in first_day_map.items()
+        ]
+
     sl = models.ShoppingList(
         id=str(uuid.uuid4()),
         meal_plan_id=plan_id,
         list_type="shared",
         user_id=None,
-        items_json=shared_unique,
+        items_json=_build_items(shared_first_day),
     )
     db.add(sl)
 
-    for user_label, items in individual_ingredients.items():
+    for user_label, ing_map in individual_first_day.items():
         sl_ind = models.ShoppingList(
             id=str(uuid.uuid4()),
             meal_plan_id=plan_id,
             list_type="individual",
             user_id=user_label,
-            items_json=list(dict.fromkeys(items)),
+            items_json=_build_items(ing_map),
         )
         db.add(sl_ind)
 

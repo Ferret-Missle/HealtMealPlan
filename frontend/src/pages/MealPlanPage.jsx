@@ -669,6 +669,138 @@ function ItemCard({ item, planId, isDraft }) {
 	);
 }
 
+// ─── 買い物リスト：セクション分け + チェック機能 ─────────────────────────────
+// 文字列配列（旧形式）と { name, category, first_day_offset } 配列（新形式）両対応
+function _normalizeShoppingItems(rawList) {
+	if (!Array.isArray(rawList)) return [];
+	return rawList.map((it) => {
+		if (typeof it === "string") {
+			return { name: it, category: "perishable", first_day_offset: 0 };
+		}
+		return {
+			name: it.name ?? "",
+			category: it.category || "perishable",
+			first_day_offset: typeof it.first_day_offset === "number" ? it.first_day_offset : 0,
+		};
+	});
+}
+
+function ShoppingItemRow({ item, planId, listKey }) {
+	const storageKey = `shopping_check_${planId}_${listKey}_${item.name}`;
+	const [checked, setChecked] = useState(() => {
+		try {
+			return localStorage.getItem(storageKey) === "1";
+		} catch {
+			return false;
+		}
+	});
+	const toggle = () => {
+		const next = !checked;
+		setChecked(next);
+		try {
+			localStorage.setItem(storageKey, next ? "1" : "0");
+		} catch {
+			/* ignore */
+		}
+	};
+	return (
+		<label
+			onClick={toggle}
+			style={{
+				display: "flex",
+				alignItems: "center",
+				gap: 8,
+				padding: "4px 0",
+				fontSize: 14,
+				cursor: "pointer",
+				color: checked ? "var(--text-3, #94a3b8)" : "inherit",
+				textDecoration: checked ? "line-through" : "none",
+				userSelect: "none",
+			}}
+		>
+			<input
+				type="checkbox"
+				checked={checked}
+				onChange={toggle}
+				onClick={(e) => e.stopPropagation()}
+			/>
+			<span>{item.name}</span>
+		</label>
+	);
+}
+
+function ShoppingSection({ title, hint, items, planId, listKey }) {
+	if (!items?.length) return null;
+	return (
+		<div style={{ marginBottom: 14 }}>
+			<div style={{ fontWeight: 600, fontSize: 13, marginBottom: 2 }}>{title}</div>
+			{hint && (
+				<div style={{ fontSize: 11, color: "var(--text-secondary)", marginBottom: 4 }}>
+					{hint}
+				</div>
+			)}
+			{items.map((item, i) => (
+				<ShoppingItemRow
+					key={`${item.name}-${i}`}
+					item={item}
+					planId={planId}
+					listKey={listKey}
+				/>
+			))}
+		</div>
+	);
+}
+
+function ShoppingListBlock({ title, rawItems, planId, listKey }) {
+	const items = _normalizeShoppingItems(rawItems);
+	if (!items.length) return null;
+
+	const shelf = items.filter((it) => it.category === "shelf_stable");
+	const freshEarly = items.filter(
+		(it) => it.category !== "shelf_stable" && it.first_day_offset <= 2,
+	);
+	const freshLate = items.filter(
+		(it) => it.category !== "shelf_stable" && it.first_day_offset > 2,
+	);
+
+	return (
+		<div style={{ marginBottom: 16 }}>
+			<div
+				style={{
+					fontWeight: 700,
+					fontSize: 14,
+					marginBottom: 6,
+					borderBottom: "1px solid var(--border)",
+					paddingBottom: 4,
+				}}
+			>
+				{title}
+			</div>
+			<ShoppingSection
+				title="🧂 調味料・乾物・保存食"
+				hint="1週間分まとめて購入OK"
+				items={shelf}
+				planId={planId}
+				listKey={listKey}
+			/>
+			<ShoppingSection
+				title="🥬 生鮮（前半 1〜3日目）"
+				hint="開始から 3日以内に消費する食材"
+				items={freshEarly}
+				planId={planId}
+				listKey={listKey}
+			/>
+			<ShoppingSection
+				title="🥩 生鮮（後半 4日目以降）"
+				hint="後半に必要 — 開始3日後ごろの追加買い物推奨"
+				items={freshLate}
+				planId={planId}
+				listKey={listKey}
+			/>
+		</div>
+	);
+}
+
 // ─── 日カード × メンバーごとの折りたたみ表示 ─────────────────────────────────
 function MemberDayCard({
 	memberLabel,
@@ -1408,55 +1540,22 @@ export default function MealPlanPage() {
 					{showShopping && shopping ? (
 						<div className="card">
 							<div className="card-title">🛒 買い物リスト（自炊分）</div>
-							{shopping.shared && shopping.shared.length > 0 && (
-								<div style={{ marginBottom: 12 }}>
-									<div
-										style={{ fontWeight: 600, fontSize: 13, marginBottom: 6 }}
-									>
-										共有食材
-									</div>
-									{shopping.shared.map((item, i) => (
-										<div
-											key={i}
-											style={{
-												display: "flex",
-												alignItems: "center",
-												gap: 8,
-												padding: "4px 0",
-												fontSize: 14,
-											}}
-										>
-											<input type="checkbox" />
-											<span>{item}</span>
-										</div>
-									))}
-								</div>
-							)}
+							<ShoppingListBlock
+								title="共有食材"
+								rawItems={shopping.shared}
+								planId={planDetail.id}
+								listKey="shared"
+							/>
 							{Object.entries(shopping)
 								.filter(([k]) => k !== "shared")
 								.map(([key, items]) => (
-									<div key={key} style={{ marginBottom: 8 }}>
-										<div
-											style={{ fontWeight: 600, fontSize: 13, marginBottom: 6 }}
-										>
-											個別（{key.replace("individual_", "")}）
-										</div>
-										{items.map((item, i) => (
-											<div
-												key={i}
-												style={{
-													display: "flex",
-													alignItems: "center",
-													gap: 8,
-													padding: "4px 0",
-													fontSize: 14,
-												}}
-											>
-												<input type="checkbox" />
-												<span>{item}</span>
-											</div>
-										))}
-									</div>
+									<ShoppingListBlock
+										key={key}
+										title={`個別（${key.replace("individual_", "")}）`}
+										rawItems={items}
+										planId={planDetail.id}
+										listKey={key}
+									/>
 								))}
 							{(!shopping.shared || shopping.shared.length === 0) &&
 								Object.keys(shopping).filter((k) => k !== "shared").length ===
