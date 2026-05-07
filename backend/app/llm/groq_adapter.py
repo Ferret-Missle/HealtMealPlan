@@ -26,8 +26,14 @@ class GroqAdapter(LLMAdapter):
                         {"role": "system", "content": system},
                         {"role": "user", "content": user},
                     ],
-                    "temperature": 0.7,
+                    # Groq の Llama 系は 0.7 だと繰り返しが起きやすい。
+                    # 0.9 + top_p 0.95 でバラエティを増やす
+                    "temperature": 0.9,
+                    "top_p": 0.95,
+                    "frequency_penalty": 0.3,  # 直近の単語繰り返しを抑制
                     "max_completion_tokens": 2048,
+                    # JSON 強制（Groq は OpenAI 互換のフォーマット指定をサポート）
+                    "response_format": {"type": "json_object"},
                 },
             )
         if resp.is_error:

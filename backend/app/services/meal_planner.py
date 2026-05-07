@@ -649,7 +649,13 @@ async def _call_llm(
   "serving_grams": 数値,
   "ingredients": ["食材1", "食材2"],
   "cooking_summary": "調理手順またはコンビニ購入"
-}}"""
+}}
+
+【最終チェック（必ず守る）】
+1. 上記「同日内で既に提案済み」「他日の同食事タイプ」のリストにある料理と
+   主食・主菜・タンパク源・調理法のいずれかが重複していないか確認
+2. 重複していれば違うタンパク源（鶏/豚/牛/魚/海鮮/卵/大豆）に変えて再考
+3. menu_name はリストにある料理名と完全一致しないこと"""
 
     try:
         result = await adapter.complete(SYSTEM_PROMPT, user_prompt)
