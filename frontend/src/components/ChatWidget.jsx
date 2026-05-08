@@ -152,18 +152,16 @@ export default function ChatWidget() {
 	return (
 		<>
 			{/* Floating button */}
-			<button
-				className="chat-fab"
-				onClick={() => setOpen((o) => !o)}
-				aria-label="AIチャット相談"
-				title="AIアドバイザーに相談"
-			>
-				{open ? (
-					<X size={22} strokeWidth={2.5} />
-				) : (
+			{!open && (
+				<button
+					className="chat-fab"
+					onClick={() => setOpen(true)}
+					aria-label="AIチャット相談"
+					title="AIアドバイザーに相談"
+				>
 					<Sparkles size={22} strokeWidth={2} />
-				)}
-			</button>
+				</button>
+			)}
 
 			{open && (
 				<div className="chat-panel-v2">

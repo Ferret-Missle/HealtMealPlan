@@ -1825,6 +1825,17 @@ select.form-input {
 @media (min-width: 640px) {
   .chat-panel-v2 { left: auto; }
 }
+@media (max-width: 639px) {
+  .chat-panel-v2 {
+    top: max(8px, env(safe-area-inset-top, 0px));
+    bottom: 0;
+    left: 0;
+    right: 0;
+    max-width: none;
+    height: auto;
+    border-radius: 18px 18px 0 0;
+  }
+}
 
 .chat-panel-header-v2 {
   padding: 12px 14px;
@@ -2053,6 +2064,11 @@ select.form-input {
   border-top: 1px solid var(--border);
   align-items: flex-end;
   flex-shrink: 0;
+}
+@media (max-width: 639px) {
+  .chat-input-row-v2 {
+    padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+  }
 }
 .chat-input-row-v2 textarea {
   flex: 1;

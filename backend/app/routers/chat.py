@@ -24,58 +24,66 @@ SYSTEM_PROMPT = """あなたは「健康ナビ」アプリの栄養・食事ア�
 
 
 def _build_latest_body_lines(db: Session, user_id: str) -> tuple[list[str], dict | None]:
-    latest_date = (
-        db.query(models.WeightLog.date)
-        .filter_by(user_id=user_id)
-        .order_by(models.WeightLog.date.desc())
-        .limit(1)
-        .scalar()
-    )
-    if not latest_date:
-        return [], None
-
-    latest_logs = (
+    logs = (
         db.query(models.WeightLog)
-        .filter_by(user_id=user_id, date=latest_date)
-        .order_by(models.WeightLog.created_at.desc())
+        .filter_by(user_id=user_id)
+        .order_by(models.WeightLog.date.desc(), models.WeightLog.created_at.desc())
         .all()
     )
-    if not latest_logs:
+    if not logs:
         return [], None
 
-    snapshot: dict[str, float | int | str | None] = {"date": latest_date}
-    for log in latest_logs:
-        for field in [
-            "weight",
-            "body_fat",
-            "muscle_mass",
-            "bmi",
-            "basal_metabolism_kcal",
-            "body_age",
-            "bone_mass",
-            "visceral_fat_level",
-        ]:
+    metric_fields = [
+        "weight",
+        "body_fat",
+        "muscle_mass",
+        "bmi",
+        "basal_metabolism_kcal",
+        "body_age",
+        "bone_mass",
+        "visceral_fat_level",
+    ]
+    snapshot: dict[str, float | int | str | None] = {}
+    for log in logs:
+        for field in metric_fields:
+            if snapshot.get(field) is not None:
+                continue
             value = getattr(log, field, None)
-            if value is not None and snapshot.get(field) is None:
-                snapshot[field] = value
+            if value is None:
+                continue
+            snapshot[field] = value
+            snapshot[f"{field}_date"] = log.date
+        if all(snapshot.get(field) is not None for field in metric_fields):
+            break
+
+    if not snapshot:
+        return [], None
+
+    latest_weight_date = snapshot.get("weight_date")
+
+    def _line_with_optional_date(label: str, field: str, suffix: str = "") -> str | None:
+        value = snapshot.get(field)
+        if value is None:
+            return None
+        metric_date = snapshot.get(f"{field}_date")
+        if latest_weight_date and metric_date and metric_date != latest_weight_date:
+            return f"{label} ({metric_date}): {value}{suffix}"
+        return f"{label}: {value}{suffix}"
 
     body_lines = []
     if snapshot.get("weight") is not None:
-        body_lines.append(f"直近体重 ({latest_date}): {snapshot['weight']}kg")
-    if snapshot.get("body_fat") is not None:
-        body_lines.append(f"体脂肪率: {snapshot['body_fat']}%")
-    if snapshot.get("muscle_mass") is not None:
-        body_lines.append(f"筋肉量: {snapshot['muscle_mass']}kg")
-    if snapshot.get("bmi") is not None:
-        body_lines.append(f"BMI: {snapshot['bmi']}")
-    if snapshot.get("basal_metabolism_kcal") is not None:
-        body_lines.append(f"基礎代謝量: {snapshot['basal_metabolism_kcal']}kcal")
-    if snapshot.get("body_age") is not None:
-        body_lines.append(f"体内年齢: {snapshot['body_age']}才")
-    if snapshot.get("bone_mass") is not None:
-        body_lines.append(f"推定骨量: {snapshot['bone_mass']}kg")
-    if snapshot.get("visceral_fat_level") is not None:
-        body_lines.append(f"内臓脂肪レベル: {snapshot['visceral_fat_level']}")
+        body_lines.append(f"直近体重 ({latest_weight_date}): {snapshot['weight']}kg")
+    for candidate in [
+        _line_with_optional_date("体脂肪率", "body_fat", "%"),
+        _line_with_optional_date("筋肉量", "muscle_mass", "kg"),
+        _line_with_optional_date("BMI", "bmi"),
+        _line_with_optional_date("基礎代謝量", "basal_metabolism_kcal", "kcal"),
+        _line_with_optional_date("体内年齢", "body_age", "才"),
+        _line_with_optional_date("推定骨量", "bone_mass", "kg"),
+        _line_with_optional_date("内臓脂肪レベル", "visceral_fat_level"),
+    ]:
+        if candidate:
+            body_lines.append(candidate)
 
     return body_lines, snapshot
 
