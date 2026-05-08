@@ -29,6 +29,7 @@ SYSTEM_PROMPT = """あなたは「健康ナビ」アプリの栄養・食事ア�
 MEAL_CHANGE_KEYWORDS = ("献立", "メニュー", "朝食", "昼食", "夕食", "朝ごはん", "昼ごはん", "夜ごはん")
 MEAL_CHANGE_VERBS = ("変え", "変更", "差し替", "再提案", "入れ替", "置き換", "別の", "違う")
 BASAL_METABOLISM_KEYWORDS = ("基礎代謝", "基礎代謝量", "bmr")
+HEALTHPLANET_KEYWORDS = ("healthplanet", "ヘルスプラネット")
 
 
 def _is_meal_change_request(message: str) -> bool:
@@ -147,6 +148,11 @@ def _build_basal_metabolism_reply(message: str, latest_body_snapshot: dict | Non
     )
 
 
+def _mentions_healthplanet(message: str) -> bool:
+    lowered = (message or "").lower()
+    return any(keyword in lowered for keyword in HEALTHPLANET_KEYWORDS)
+
+
 def _build_latest_body_lines(db: Session, user_id: str) -> tuple[list[str], dict | None]:
     logs = (
         db.query(models.WeightLog)
@@ -263,6 +269,60 @@ async def _backfill_healthplanet_body_metrics(db: Session, user_id: str, days: i
     return saved
 
 
+def _build_healthplanet_dataset_lines(db: Session, user_id: str) -> list[str]:
+    connected = (
+        db.query(models.OAuthToken)
+        .filter_by(user_id=user_id, service="healthplanet")
+        .first()
+    )
+    if not connected:
+        return ["連携状態: 未接続"]
+
+    logs = (
+        db.query(models.WeightLog)
+        .filter_by(user_id=user_id, source="healthplanet")
+        .order_by(models.WeightLog.date.desc(), models.WeightLog.created_at.desc())
+        .all()
+    )
+    if not logs:
+        return ["連携状態: 接続済み", "取得データ: まだ保存されていません"]
+
+    metric_fields = [
+        ("weight", "体重", "kg"),
+        ("body_fat", "体脂肪率", "%"),
+        ("muscle_mass", "筋肉量", "kg"),
+        ("basal_metabolism_kcal", "基礎代謝量", "kcal"),
+        ("body_age", "体内年齢", "才"),
+        ("bone_mass", "推定骨量", "kg"),
+        ("visceral_fat_level", "内臓脂肪レベル", ""),
+    ]
+    snapshot: dict[str, object] = {}
+    for log in logs:
+        for field, _label, _suffix in metric_fields:
+            if snapshot.get(field) is not None:
+                continue
+            value = getattr(log, field, None)
+            if value is None:
+                continue
+            snapshot[field] = value
+            snapshot[f"{field}_date"] = log.date
+
+    latest_date = logs[0].date if logs else None
+    lines = ["連携状態: 接続済み"]
+    if latest_date:
+        lines.append(f"直近測定日: {latest_date}")
+    for field, label, suffix in metric_fields:
+        value = snapshot.get(field)
+        if value is None:
+            continue
+        metric_date = snapshot.get(f"{field}_date")
+        date_prefix = f" ({metric_date})" if metric_date and metric_date != latest_date else ""
+        lines.append(f"{label}{date_prefix}: {value}{suffix}")
+    if len(lines) == 2:
+        lines.append("体組成データ: 有効な測定値なし")
+    return lines
+
+
 class ChatMessage(BaseModel):
     message: str
 
@@ -345,6 +405,11 @@ async def chat(
     body_lines.extend(initial_body_lines)
 
     direct_basal_reply = _build_basal_metabolism_reply(payload.message, latest_body_snapshot)
+    healthplanet_dataset_lines = (
+        _build_healthplanet_dataset_lines(db, current_user.id)
+        if _mentions_healthplanet(payload.message)
+        else []
+    )
 
     # 体重トレンド（7日比）
     week_old_weight = (
@@ -429,6 +494,8 @@ async def chat(
         sections.append("[プロフィール・健康目標]\n" + "\n".join(f"  - {x}" for x in profile_lines))
     if body_lines:
         sections.append("[身体データ（HealthPlanet/Fitbit同期）]\n" + "\n".join(f"  - {x}" for x in body_lines))
+    if healthplanet_dataset_lines:
+        sections.append("[HealthPlanet連携データセット]\n" + "\n".join(f"  - {x}" for x in healthplanet_dataset_lines))
     if activity_lines:
         sections.append("[活動量（直近7日）]\n" + "\n".join(f"  - {x}" for x in activity_lines))
     if nutrition_lines:
@@ -449,6 +516,12 @@ async def chat(
             "\n基礎代謝量は HealthPlanet/Fitbit 同期済みデータとして利用可能です。"
             "基礎代謝量について聞かれたら、未連携・未取得とは案内せず、"
             f"連携済みの数値 {latest_body_snapshot['basal_metabolism_kcal']}kcal を使って回答してください。"
+        )
+    if healthplanet_dataset_lines:
+        system += (
+            "\nユーザーが HealthPlanet に言及しているため、"
+            "上記の [HealthPlanet連携データセット] セクションを優先して参照してください。"
+            "HealthPlanet の値について聞かれたら、そのセクションにある数値を事実として扱って回答してください。"
         )
 
     # Build conversation
