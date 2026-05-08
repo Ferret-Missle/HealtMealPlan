@@ -9,6 +9,7 @@ from ..database import get_db
 from .. import models
 from ..auth_deps import get_current_user
 from .meal_plan import _get_plan_type, _check_usage_limit, _record_usage
+from ..services import healthplanet
 
 router = APIRouter()
 
@@ -187,6 +188,57 @@ def _build_latest_body_lines(db: Session, user_id: str) -> tuple[list[str], dict
     return body_lines, snapshot
 
 
+async def _backfill_healthplanet_body_metrics(db: Session, user_id: str, days: int = 90) -> bool:
+    connected = {
+        token.service
+        for token in db.query(models.OAuthToken).filter_by(user_id=user_id).all()
+    }
+    if "healthplanet" not in connected:
+        return False
+
+    end = dt_date.today()
+    start = end - timedelta(days=days)
+    try:
+        entries = await healthplanet.get_innerscan_range(user_id, str(start), str(end), db)
+    except Exception:
+        return False
+
+    saved = False
+    for entry in entries:
+        date = entry.get("date")
+        if not date:
+            continue
+        existing = (
+            db.query(models.WeightLog)
+            .filter_by(user_id=user_id, date=date, source="healthplanet")
+            .first()
+        )
+        payload = {
+            "weight": entry.get("weight"),
+            "body_fat": entry.get("body_fat"),
+            "muscle_mass": entry.get("muscle_mass"),
+            "basal_metabolism_kcal": entry.get("basal_metabolism_kcal"),
+            "body_age": entry.get("body_age"),
+            "bone_mass": entry.get("bone_mass"),
+            "visceral_fat_level": entry.get("visceral_fat_level"),
+        }
+        if existing:
+            for field, value in payload.items():
+                if value is not None:
+                    setattr(existing, field, value)
+                    saved = True
+            continue
+
+        if payload["weight"] is None and not any(value is not None for value in payload.values()):
+            continue
+        db.add(models.WeightLog(user_id=user_id, date=date, source="healthplanet", **payload))
+        saved = True
+
+    if saved:
+        db.commit()
+    return saved
+
+
 class ChatMessage(BaseModel):
     message: str
 
@@ -262,6 +314,10 @@ async def chat(
 
     # ── 直近の身体データ（HealthPlanet/Fitbit同期分） ──
     initial_body_lines, latest_body_snapshot = _build_latest_body_lines(db, current_user.id)
+    if latest_body_snapshot is None or latest_body_snapshot.get("basal_metabolism_kcal") is None:
+        backfilled = await _backfill_healthplanet_body_metrics(db, current_user.id)
+        if backfilled:
+            initial_body_lines, latest_body_snapshot = _build_latest_body_lines(db, current_user.id)
     body_lines.extend(initial_body_lines)
 
     # 体重トレンド（7日比）
