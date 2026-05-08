@@ -647,6 +647,50 @@ def _record_usage(user_id: str, feature: str, plan_type: str, db: Session):
     db.commit()
 
 
+def _plan_ai_usage_summary(plan: models.MealPlan) -> dict:
+    from ..llm.adapter import estimate_model_cost_jpy
+
+    model_order: list[str] = []
+    input_tokens_total = 0
+    output_tokens_total = 0
+    has_input_tokens = False
+    has_output_tokens = False
+    estimated_total_cost_jpy = 0.0
+    has_cost = False
+
+    for day in plan.days:
+        for slot in day.slots:
+            for item in slot.items:
+                model_name = getattr(item, "llm_model", None)
+                if model_name and model_name not in model_order:
+                    model_order.append(model_name)
+
+                input_tokens = getattr(item, "input_tokens", None)
+                output_tokens = getattr(item, "output_tokens", None)
+                if input_tokens is not None:
+                    input_tokens_total += int(input_tokens)
+                    has_input_tokens = True
+                if output_tokens is not None:
+                    output_tokens_total += int(output_tokens)
+                    has_output_tokens = True
+
+                cost_info = estimate_model_cost_jpy(model_name, input_tokens, output_tokens)
+                total_cost = cost_info.get("estimated_total_cost_jpy")
+                if total_cost is not None:
+                    estimated_total_cost_jpy += float(total_cost)
+                    has_cost = True
+
+    return {
+        "llm_models": model_order,
+        "primary_llm_model": model_order[0] if model_order else None,
+        "llm_model_count": len(model_order),
+        "input_tokens_total": input_tokens_total if has_input_tokens else None,
+        "output_tokens_total": output_tokens_total if has_output_tokens else None,
+        "total_tokens": (input_tokens_total + output_tokens_total) if (has_input_tokens or has_output_tokens) else None,
+        "estimated_total_cost_jpy": round(estimated_total_cost_jpy, 4) if has_cost else None,
+    }
+
+
 def _plan_summary(plan: models.MealPlan) -> dict:
     return {
         "id": plan.id,
@@ -655,6 +699,7 @@ def _plan_summary(plan: models.MealPlan) -> dict:
         "status": plan.status,
         "conditions": plan.conditions_json or {},
         "created_at": plan.created_at.isoformat(),
+        **_plan_ai_usage_summary(plan),
     }
 
 

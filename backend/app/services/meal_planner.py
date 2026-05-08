@@ -35,6 +35,7 @@ DRINK_ONLY_CANDIDATES = [
         "serving_grams": 400,
     },
 ]
+STORE_PREFIX_PATTERN = r"^(?:セブンイレブン|セブン|Seven-?Eleven|7-?Eleven)\s*[:：]?[\s-]*"
 
 
 def _set_progress(plan_id: str, db: Session, step: int, total: int, message: str, done: bool = False, error: bool = False):
@@ -73,7 +74,29 @@ def _single_drink_fallback(targets: dict | None = None) -> dict:
     }
 
 
+def _strip_store_prefix(value: str) -> str:
+    import re
+
+    return re.sub(STORE_PREFIX_PATTERN, "", value.strip(), flags=re.IGNORECASE)
+
+
+def _normalize_conbini_menu(data: dict) -> dict:
+    menu_name = str(data.get("menu_name") or "").strip()
+    if menu_name:
+        lines = [_strip_store_prefix(line) for line in menu_name.splitlines()]
+        lines = [line for line in lines if line]
+        data["menu_name"] = "\n".join(lines)
+
+    ingredients = [str(x).strip() for x in (data.get("ingredients") or []) if str(x).strip()]
+    if ingredients:
+        data["ingredients"] = [_strip_store_prefix(ingredient) for ingredient in ingredients]
+    return data
+
+
 def _normalize_generated_menu(data: dict, source_type: str, targets: dict | None = None) -> dict:
+    if source_type == "conbini":
+        return _normalize_conbini_menu(data)
+
     if source_type != "drink_only":
         return data
 

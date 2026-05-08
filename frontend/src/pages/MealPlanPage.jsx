@@ -46,6 +46,12 @@ function formatYen(value) {
 	return `¥${amount.toFixed(4)}`;
 }
 
+function formatTokenCount(value) {
+	const amount = Number(value);
+	if (!Number.isFinite(amount)) return null;
+	return amount.toLocaleString();
+}
+
 // ─── localStorage フック ──────────────────────────────────────────────────────
 function useLocalStorage(key, initial) {
 	const [value, setValue] = useState(() => {
@@ -2109,6 +2115,31 @@ export default function MealPlanPage() {
 											minute: "2-digit",
 										})}
 									</div>
+									{(plan.primary_llm_model || plan.total_tokens != null) && (
+										<div
+											style={{
+												marginTop: 8,
+												padding: "8px 10px",
+												borderRadius: 10,
+												background: "var(--bg)",
+												border: "1px solid var(--border)",
+												display: "grid",
+												gap: 4,
+											}}
+										>
+											{plan.primary_llm_model && (
+												<div style={{ fontSize: 12, color: "var(--text)", fontWeight: 600, lineHeight: 1.5 }}>
+													🤖 {plan.primary_llm_model}
+													{plan.llm_model_count > 1 && ` ほか ${plan.llm_model_count - 1} モデル`}
+												</div>
+											)}
+											<div style={{ fontSize: 11, color: "var(--text-secondary)", display: "flex", gap: 8, flexWrap: "wrap" }}>
+												{plan.input_tokens_total != null && <span>入力 {formatTokenCount(plan.input_tokens_total)} tok</span>}
+												{plan.output_tokens_total != null && <span>出力 {formatTokenCount(plan.output_tokens_total)} tok</span>}
+												{plan.estimated_total_cost_jpy != null && <span>概算 {formatYen(plan.estimated_total_cost_jpy)}</span>}
+											</div>
+										</div>
+									)}
 								</div>
 								<div
 									style={{
