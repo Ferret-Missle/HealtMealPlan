@@ -3,7 +3,7 @@ import base64
 from .adapter import LLMAdapter, LLMResponse
 
 ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages"
-DEFAULT_MODEL = "claude-sonnet-4-5"
+DEFAULT_MODEL = "claude-sonnet-4-6"
 
 
 class AnthropicBYOKAdapter(LLMAdapter):

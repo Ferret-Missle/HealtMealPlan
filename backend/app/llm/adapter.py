@@ -51,36 +51,126 @@ def _get_byok_adapter(provider: str, api_key: str, model: str | None = None) -> 
         raise ValueError(f"Unknown BYOK provider: {provider}")
 
 
-# プロバイダーごとの利用可能モデル（フロントへ提供）
-AVAILABLE_MODELS = {
+USD_TO_JPY = 155.0
+
+
+def _yen(value: float | None) -> float | None:
+    if value is None:
+        return None
+    return round(value * USD_TO_JPY, 2)
+
+
+def _yen_label(value: float | None) -> str | None:
+    if value is None:
+        return None
+    if float(value).is_integer():
+        return f"¥{int(value):,}"
+    return f"¥{value:,.2f}"
+
+
+def _model_entry(
+    provider: str,
+    model_id: str,
+    label: str,
+    input_usd_per_1m: float | None = None,
+    output_usd_per_1m: float | None = None,
+) -> dict:
+    input_jpy = _yen(input_usd_per_1m)
+    output_jpy = _yen(output_usd_per_1m)
+    entry = {
+        "id": model_id,
+        "provider": provider,
+        "label": label,
+        "input_cost_jpy_per_1m": input_jpy,
+        "output_cost_jpy_per_1m": output_jpy,
+    }
+    if input_jpy is not None and output_jpy is not None:
+        entry["pricing_note"] = f"入力 {_yen_label(input_jpy)} / 出力 {_yen_label(output_jpy)} / 1M tok"
+    return entry
+
+
+_MODEL_GROUPS = {
     "anthropic": [
-        {"id": "claude-sonnet-4-5", "label": "Claude Sonnet 4.5（標準）"},
-        {"id": "claude-opus-4-1", "label": "Claude Opus 4.1（高品質・高コスト）"},
-        {"id": "claude-haiku-4-5", "label": "Claude Haiku 4.5（高速・低コスト）"},
+        _model_entry("anthropic", "claude-sonnet-4-6", "Claude Sonnet 4.6（標準）", 3.0, 15.0),
+        _model_entry("anthropic", "claude-opus-4-7", "Claude Opus 4.7（高品質）", 5.0, 25.0),
+        _model_entry("anthropic", "claude-haiku-4-5", "Claude Haiku 4.5（高速）", 1.0, 5.0),
     ],
     "openai": [
-        {"id": "gpt-4o-mini", "label": "GPT-4o mini（標準・低コスト）"},
-        {"id": "gpt-4o", "label": "GPT-4o（高品質）"},
-        {"id": "gpt-4-turbo", "label": "GPT-4 Turbo"},
+        _model_entry("openai", "gpt-5.4-mini", "GPT-5.4 mini（標準・低コスト）", 0.75, 4.5),
+        _model_entry("openai", "gpt-5.4", "GPT-5.4（高品質）", 2.5, 15.0),
+        _model_entry("openai", "gpt-5.5", "GPT-5.5（最上位）", 5.0, 30.0),
     ],
     "gemini": [
-        {"id": "gemini-1.5-flash", "label": "Gemini 1.5 Flash（標準）"},
-        {"id": "gemini-1.5-pro", "label": "Gemini 1.5 Pro（高品質）"},
-        {"id": "gemini-2.0-flash-exp", "label": "Gemini 2.0 Flash（実験版）"},
+        _model_entry("gemini", "gemini-2.5-flash-lite", "Gemini 2.5 Flash-Lite（最安）", 0.10, 0.40),
+        _model_entry("gemini", "gemini-2.5-flash", "Gemini 2.5 Flash（標準）", 0.30, 2.50),
+        _model_entry("gemini", "gemini-2.5-pro", "Gemini 2.5 Pro（高品質）", 1.25, 10.0),
     ],
     "groq": [
-        {"id": "llama-3.3-70b-versatile", "label": "Llama 3.3 70B（標準）"},
-        {"id": "llama-3.1-8b-instant", "label": "Llama 3.1 8B（高速）"},
-        {"id": "mixtral-8x7b-32768", "label": "Mixtral 8x7B"},
+        _model_entry("groq", "llama-3.3-70b-versatile", "Llama 3.3 70B（標準）", 0.59, 0.79),
+        _model_entry("groq", "llama-3.1-8b-instant", "Llama 3.1 8B（高速）", 0.05, 0.08),
+        _model_entry("groq", "llama-4-scout-17b-16e-instruct", "Llama 4 Scout（新しめ）", 0.11, 0.34),
     ],
     "mistral": [
-        {"id": "mistral-large-latest", "label": "Mistral Large（標準）"},
-        {"id": "mistral-medium-latest", "label": "Mistral Medium"},
-        {"id": "ministral-8b-latest", "label": "Ministral 8B（高速）"},
-    ],
-    # 無料プランのデフォルト（Groq）でも選択可
-    "free": [
-        {"id": "llama-3.3-70b-versatile", "label": "Llama 3.3 70B（標準）"},
-        {"id": "llama-3.1-8b-instant", "label": "Llama 3.1 8B（高速）"},
+        _model_entry("mistral", "mistral-large-latest", "Mistral Large（標準）"),
+        _model_entry("mistral", "mistral-medium-latest", "Mistral Medium"),
+        _model_entry("mistral", "ministral-8b-latest", "Ministral 8B（高速）"),
     ],
 }
+
+
+AVAILABLE_MODELS = {
+    **_MODEL_GROUPS,
+    "free": [
+        dict(item)
+        for item in _MODEL_GROUPS["groq"]
+    ],
+}
+
+MODEL_METADATA_BY_ID = {
+    item["id"]: item
+    for models in AVAILABLE_MODELS.values()
+    for item in models
+}
+
+
+def get_model_metadata(model_id: str | None) -> dict | None:
+    if not model_id:
+        return None
+    return MODEL_METADATA_BY_ID.get(model_id)
+
+
+def estimate_model_cost_jpy(
+    model_id: str | None,
+    input_tokens: int | None = None,
+    output_tokens: int | None = None,
+) -> dict:
+    meta = get_model_metadata(model_id)
+    result = {
+        "input_cost_jpy_per_1m": meta.get("input_cost_jpy_per_1m") if meta else None,
+        "output_cost_jpy_per_1m": meta.get("output_cost_jpy_per_1m") if meta else None,
+        "pricing_note": meta.get("pricing_note") if meta else None,
+        "estimated_input_cost_jpy": None,
+        "estimated_output_cost_jpy": None,
+        "estimated_total_cost_jpy": None,
+    }
+    if not meta:
+        return result
+    subtotal = 0.0
+    has_cost = False
+    if input_tokens is not None and meta.get("input_cost_jpy_per_1m") is not None:
+        result["estimated_input_cost_jpy"] = round(
+            meta["input_cost_jpy_per_1m"] * input_tokens / 1_000_000,
+            4,
+        )
+        subtotal += result["estimated_input_cost_jpy"]
+        has_cost = True
+    if output_tokens is not None and meta.get("output_cost_jpy_per_1m") is not None:
+        result["estimated_output_cost_jpy"] = round(
+            meta["output_cost_jpy_per_1m"] * output_tokens / 1_000_000,
+            4,
+        )
+        subtotal += result["estimated_output_cost_jpy"]
+        has_cost = True
+    if has_cost:
+        result["estimated_total_cost_jpy"] = round(subtotal, 4)
+    return result

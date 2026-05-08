@@ -1,7 +1,7 @@
 import httpx
 from .adapter import LLMAdapter, LLMResponse
 
-DEFAULT_MODEL = "gemini-1.5-flash"
+DEFAULT_MODEL = "gemini-2.5-flash"
 
 
 class GeminiBYOKAdapter(LLMAdapter):

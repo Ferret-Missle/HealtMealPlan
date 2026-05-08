@@ -21,6 +21,14 @@ const INITIAL_MSG = {
     'こんにちは！🥗 栄養・食事・健康習慣についてお気軽に質問してください。\n体重・歩数・食事ログなど、連携済みのデータを参考にお答えします。',
 }
 
+function formatYen(value) {
+  const amount = Number(value)
+  if (!Number.isFinite(amount)) return null
+  if (amount >= 10) return `¥${amount.toFixed(0)}`
+  if (amount >= 1) return `¥${amount.toFixed(2)}`
+  return `¥${amount.toFixed(4)}`
+}
+
 function loadStoredMessages() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
@@ -86,6 +94,7 @@ export default function ChatWidget() {
             input: data.input_tokens,
             output: data.output_tokens,
             model: data.llm_model,
+            estimatedTotalCostJpy: data.estimated_total_cost_jpy,
           },
         },
       ])
@@ -191,6 +200,9 @@ export default function ChatWidget() {
                       )}
                       {msg.tokens.output != null && (
                         <span>出力 {msg.tokens.output.toLocaleString()}</span>
+                      )}
+                      {msg.tokens.estimatedTotalCostJpy != null && (
+                        <span>概算 {formatYen(msg.tokens.estimatedTotalCostJpy)}</span>
                       )}
                     </div>
                   )}

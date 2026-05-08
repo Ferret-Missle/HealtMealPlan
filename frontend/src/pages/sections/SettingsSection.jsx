@@ -866,7 +866,7 @@ export default function SettingsSection() {
 							<option value="">デフォルト（自動）</option>
 							{settings.plan.available_models.map((m) => (
 								<option key={m.id} value={m.id}>
-									{m.label}
+									{m.label}{m.pricing_note ? ` ｜ ${m.pricing_note}` : ""}
 								</option>
 							))}
 						</select>
@@ -877,7 +877,7 @@ export default function SettingsSection() {
 								marginTop: 4,
 							}}
 						>
-							※ プランによって選択できるモデルが変わります。高品質モデルほどコストとトークンが増えます。
+							※ 円換算は概算です（1 USD = 155円）。プランによって選択できるモデルが変わります。
 						</div>
 					</div>
 				)}

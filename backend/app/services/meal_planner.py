@@ -107,6 +107,7 @@ def _slot_targets(
     light_breakfast: bool,
     member_contexts: list,
     day_sources_per_member: dict[str, dict[str, str]] | None = None,
+    slot_kcal_budget: float | None = None,
 ) -> dict:
     """グループ平均のkcal/PFC目標を返す。
     day_sources_per_member: {user_id: {breakfast: src, lunch: src, dinner: src}}
@@ -125,12 +126,32 @@ def _slot_targets(
         total_p += kcal * mc["p_ratio"] / 4
         total_f += kcal * mc["f_ratio"] / 9
         total_c += kcal * mc["c_ratio"] / 4
+    target_kcal = slot_kcal_budget if slot_kcal_budget is not None else (total_kcal / n)
+    if total_kcal > 0 and target_kcal is not None:
+        scale = target_kcal / (total_kcal / n)
+        total_p *= scale
+        total_f *= scale
+        total_c *= scale
     return {
-        "kcal": round(total_kcal / n),
+        "kcal": round(target_kcal) if target_kcal is not None else None,
         "protein": round(total_p / n, 1),
         "fat": round(total_f / n, 1),
         "carb": round(total_c / n, 1),
     }
+
+
+def _menu_feedback_from_preferences(prefs: dict | None) -> dict[str, dict[str, list[str]]]:
+    raw = prefs.get("menu_feedback") if isinstance(prefs, dict) else None
+    normalized: dict[str, dict[str, list[str]]] = {}
+    for meal_type in ("breakfast", "lunch", "dinner"):
+        meal_data = raw.get(meal_type) if isinstance(raw, dict) else {}
+        if not isinstance(meal_data, dict):
+            meal_data = {}
+        normalized[meal_type] = {
+            "good": [str(x).strip() for x in meal_data.get("good", []) if str(x).strip()],
+            "bad": [str(x).strip() for x in meal_data.get("bad", []) if str(x).strip()],
+        }
+    return normalized
 
 
 def _gather_body_info(user_id: str, db: Session, scope: str, goals) -> dict | None:
@@ -323,6 +344,7 @@ async def generate_menus(plan_id: str, user_id: str, db: Session, conditions: di
         if not goals:
             continue
         prefs = goals.preferences_json or {}
+        menu_feedback = _menu_feedback_from_preferences(prefs)
         scope = (prefs.get("body_data_scope") if isinstance(prefs, dict) else None) or "off"
         body_info = _gather_body_info(member.user_id, db, scope, goals)
         member_contexts.append({
@@ -337,6 +359,8 @@ async def generate_menus(plan_id: str, user_id: str, db: Session, conditions: di
             "excluded_foods": goals.excluded_foods_json or [],
             # plan-time に渡された frequent_menus を後段でマージできるようキー予約
             "frequent_menus": (prefs.get("frequent_menus") if isinstance(prefs, dict) else None) or {},
+            "liked_menus": {meal: menu_feedback[meal]["good"] for meal in ("breakfast", "lunch", "dinner")},
+            "disliked_menus": {meal: menu_feedback[meal]["bad"] for meal in ("breakfast", "lunch", "dinner")},
             "body_info": body_info,
         })
 
@@ -500,7 +524,13 @@ async def _call_llm(
     members_count = len(member_contexts)
 
     # グループ平均の kcal/PFC 目標を計算（ソース別倍率を考慮）
-    targets = _slot_targets(meal_type_str, light_breakfast, member_contexts, day_sources_per_member)
+    targets = _slot_targets(
+        meal_type_str,
+        light_breakfast,
+        member_contexts,
+        day_sources_per_member,
+        slot_kcal_budget=getattr(slot, "kcal_budget", None),
+    )
 
     if source_type == "conbini":
         source_note = (
@@ -562,17 +592,27 @@ async def _call_llm(
     # メンバー情報（よく食べるメニューも反映）
     member_lines = []
     fav_lines = []
+    liked_lines = []
+    disliked_lines = []
     body_sections = []
     for mc in member_contexts:
         member_lines.append(f"  - メンバー{mc['label']}: 1日目標 {mc['target_kcal']}kcal / 目標:{mc['goal_type']}")
         favs = (mc.get("frequent_menus") or {}).get(meal_type_str, [])
         if favs:
             fav_lines.append(f"  - メンバー{mc['label']} がよく食べる{ {'breakfast':'朝食','lunch':'昼食','dinner':'夕食'}.get(meal_type_str,'食事') }: {', '.join(favs)}")
+        liked = (mc.get("liked_menus") or {}).get(meal_type_str, [])
+        if liked:
+            liked_lines.append(f"  - メンバー{mc['label']} がまた食べたい{ {'breakfast':'朝食','lunch':'昼食','dinner':'夕食'}.get(meal_type_str,'食事') }: {', '.join(liked)}")
+        disliked = (mc.get("disliked_menus") or {}).get(meal_type_str, [])
+        if disliked:
+            disliked_lines.append(f"  - メンバー{mc['label']} が避けたい{ {'breakfast':'朝食','lunch':'昼食','dinner':'夕食'}.get(meal_type_str,'食事') }: {', '.join(disliked)}")
         body_text = _format_body_info(mc.get("body_info"))
         if body_text:
             body_sections.append(f"[メンバー{mc['label']} の身体情報]\n{body_text}")
     member_info = "\n".join(member_lines)
     fav_section = ("\n[よく食べるメニュー（参考にしてバリエーションを混ぜる）]\n" + "\n".join(fav_lines)) if fav_lines else ""
+    liked_section = ("\n[また食べたいメニュー（優先候補）]\n" + "\n".join(liked_lines) + "\n上記に近いメニューは優先候補として扱い、栄養目標を満たす範囲で積極的に採用してください。") if liked_lines else ""
+    disliked_section = ("\n[避けたいメニュー（再提案しない）]\n" + "\n".join(disliked_lines) + "\n上記は今回の候補から外し、類似の主食・主菜・タンパク源も避けてください。") if disliked_lines else ""
     body_section = ("\n\n" + "\n\n".join(body_sections) + "\n→ 上記の身体情報・トレンドを踏まえ、減量/維持/増量フェーズに合った料理（タンパク質量や調理法）を選んでください。") if body_sections else ""
 
     excluded = list(set(food for mc in member_contexts for food in mc.get("excluded_foods", [])))
@@ -626,7 +666,7 @@ async def _call_llm(
 {breakfast_note}{source_note}
 
 [メンバー情報]
-{member_info}{fav_section}{body_section}
+{member_info}{fav_section}{liked_section}{disliked_section}{body_section}
 
 [除外/重複]
 除外食材: {", ".join(excluded) if excluded else "なし"}
@@ -816,6 +856,7 @@ async def generate_slot_menu(
         if not goals:
             continue
         prefs = goals.preferences_json or {}
+        menu_feedback = _menu_feedback_from_preferences(prefs)
         scope = (prefs.get("body_data_scope") if isinstance(prefs, dict) else None) or "off"
         body_info = _gather_body_info(member.user_id, db, scope, goals)
         member_contexts.append({
@@ -830,6 +871,8 @@ async def generate_slot_menu(
             "excluded_foods": goals.excluded_foods_json or [],
             # plan-time に渡された frequent_menus を後段でマージできるようキー予約
             "frequent_menus": (prefs.get("frequent_menus") if isinstance(prefs, dict) else None) or {},
+            "liked_menus": {meal: menu_feedback[meal]["good"] for meal in ("breakfast", "lunch", "dinner")},
+            "disliked_menus": {meal: menu_feedback[meal]["bad"] for meal in ("breakfast", "lunch", "dinner")},
             "body_info": body_info,
         })
 

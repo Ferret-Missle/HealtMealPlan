@@ -11,6 +11,8 @@ from ..auth_deps import get_current_user
 
 router = APIRouter()
 
+MENU_FEEDBACK_LIMIT = 50
+
 
 async def _run_generation_bg(plan_id: str, user_id: str, conditions: dict):
     """バックグラウンドで献立生成を実行。独自の DB セッションを使う。"""
@@ -67,7 +69,7 @@ async def get_meal_plan(
     plan = db.query(models.MealPlan).filter_by(id=plan_id).first()
     if not plan:
         raise HTTPException(404, "Plan not found")
-    return _plan_detail(plan)
+    return _plan_detail(plan, current_user.id, db)
 
 
 class MemberDayCondition(BaseModel):
@@ -244,7 +246,7 @@ async def generate_meal_plan(
     background_tasks.add_task(_run_generation_bg, plan_id, current_user.id, conditions_json)
 
     db.refresh(plan)
-    return _plan_detail(plan)
+    return _plan_detail(plan, current_user.id, db)
 
 
 @router.delete("/{plan_id}/delete")
@@ -325,6 +327,62 @@ class ItemPortionUpdate(BaseModel):
     carb_g: float | None = None
 
 
+def _normalize_menu_feedback(data: dict | None) -> dict[str, dict[str, list[str]]]:
+    normalized: dict[str, dict[str, list[str]]] = {}
+    for meal_type in ("breakfast", "lunch", "dinner"):
+        meal_data = data.get(meal_type) if isinstance(data, dict) else {}
+        if not isinstance(meal_data, dict):
+            meal_data = {}
+        normalized[meal_type] = {
+            "good": [str(x).strip() for x in meal_data.get("good", []) if str(x).strip()],
+            "bad": [str(x).strip() for x in meal_data.get("bad", []) if str(x).strip()],
+        }
+    return normalized
+
+
+def _feedback_status(
+    menu_feedback: dict[str, dict[str, list[str]]] | None,
+    meal_type: str,
+    menu_name: str | None,
+) -> str | None:
+    if not menu_feedback or not menu_name:
+        return None
+    if menu_name in menu_feedback.get(meal_type, {}).get("good", []):
+        return "good"
+    if menu_name in menu_feedback.get(meal_type, {}).get("bad", []):
+        return "bad"
+    return None
+
+
+def _get_user_menu_feedback(user_id: str, db: Session) -> dict[str, dict[str, list[str]]]:
+    goals = db.query(models.UserGoals).filter_by(user_id=user_id).first()
+    prefs = goals.preferences_json if goals else {}
+    raw = prefs.get("menu_feedback") if isinstance(prefs, dict) else None
+    return _normalize_menu_feedback(raw)
+
+
+def _apply_menu_feedback(
+    preferences: dict | None,
+    meal_type: str,
+    menu_name: str,
+    feedback: str | None,
+) -> dict:
+    prefs = dict(preferences or {})
+    feedback_map = _normalize_menu_feedback(prefs.get("menu_feedback"))
+    for bucket in ("good", "bad"):
+        feedback_map[meal_type][bucket] = [name for name in feedback_map[meal_type][bucket] if name != menu_name]
+    if feedback in {"good", "bad"}:
+        feedback_map[meal_type][feedback].insert(0, menu_name)
+    for bucket in ("good", "bad"):
+        unique_names: list[str] = []
+        for name in feedback_map[meal_type][bucket]:
+            if name not in unique_names:
+                unique_names.append(name)
+        feedback_map[meal_type][bucket] = unique_names[:MENU_FEEDBACK_LIMIT]
+    prefs["menu_feedback"] = feedback_map
+    return prefs
+
+
 @router.put("/{plan_id}/items/{item_id}")
 async def update_plan_item(
     plan_id: str,
@@ -341,6 +399,58 @@ async def update_plan_item(
         setattr(item, field, value)
     db.commit()
     return {"updated": True, "item_id": item_id}
+
+
+class ItemFeedbackUpdate(BaseModel):
+    feedback: str | None = None
+
+
+@router.put("/{plan_id}/items/{item_id}/feedback")
+async def update_plan_item_feedback(
+    plan_id: str,
+    item_id: str,
+    payload: ItemFeedbackUpdate,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    plan = db.query(models.MealPlan).filter_by(id=plan_id).first()
+    if not plan:
+        raise HTTPException(404, "Plan not found")
+
+    item = db.query(models.MealPlanItem).filter_by(id=item_id).first()
+    if not item:
+        raise HTTPException(404, "Item not found")
+    if not item.menu_name:
+        raise HTTPException(400, "Item has no menu name")
+
+    slot = db.query(models.MealPlanSlot).filter_by(id=item.meal_plan_slot_id).first()
+    if not slot:
+        raise HTTPException(404, "Slot not found")
+    day = db.query(models.MealPlanDay).filter_by(id=slot.meal_plan_day_id, meal_plan_id=plan_id).first()
+    if not day:
+        raise HTTPException(400, "Item does not belong to the specified plan")
+
+    feedback = (payload.feedback or "").strip().lower() or None
+    if feedback not in {None, "good", "bad"}:
+        raise HTTPException(400, "feedback must be good, bad, or null")
+
+    goals = db.query(models.UserGoals).filter_by(user_id=current_user.id).first()
+    if not goals:
+        goals = models.UserGoals(user_id=current_user.id)
+        db.add(goals)
+
+    prefs = _apply_menu_feedback(goals.preferences_json or {}, str(slot.meal_type), item.menu_name, feedback)
+    goals.preferences_json = prefs
+    db.commit()
+
+    return {
+        "updated": True,
+        "feedback_status": _feedback_status(
+            _normalize_menu_feedback(prefs.get("menu_feedback")),
+            str(slot.meal_type),
+            item.menu_name,
+        ),
+    }
 
 
 class ReplaceMenuRequest(BaseModel):
@@ -384,7 +494,7 @@ async def replace_slot_menu(
 
     _record_usage(current_user.id, "recalculate", plan_type, db)
     db.refresh(plan)
-    return _plan_detail(plan)
+    return _plan_detail(plan, current_user.id, db)
 
 
 @router.post("/{plan_id}/recalculate")
@@ -429,7 +539,7 @@ async def recalculate_plan(
     background_tasks.add_task(_run_generation_bg, plan_id, current_user.id, plan.conditions_json)
 
     db.refresh(plan)
-    return _plan_detail(plan)
+    return _plan_detail(plan, current_user.id, db)
 
 
 def _get_plan_type(user_id: str, db: Session) -> str:
@@ -496,13 +606,21 @@ def _plan_summary(plan: models.MealPlan) -> dict:
     }
 
 
-def _plan_detail(plan: models.MealPlan) -> dict:
+def _plan_detail(plan: models.MealPlan, current_user_id: str | None = None, db: Session | None = None) -> dict:
+    from ..llm.adapter import estimate_model_cost_jpy
+
+    menu_feedback = _get_user_menu_feedback(current_user_id, db) if current_user_id and db else None
     days = []
     for day in sorted(plan.days, key=lambda d: d.date):
         slots = []
         for slot in day.slots:
             items = []
             for item in slot.items:
+                cost_info = estimate_model_cost_jpy(
+                    getattr(item, "llm_model", None),
+                    getattr(item, "input_tokens", None),
+                    getattr(item, "output_tokens", None),
+                )
                 items.append({
                     "id": item.id,
                     "user_id": item.user_id,
@@ -519,6 +637,8 @@ def _plan_detail(plan: models.MealPlan) -> dict:
                     "llm_model": getattr(item, "llm_model", None),
                     "system_prompt": getattr(item, "system_prompt", None),
                     "user_prompt": getattr(item, "user_prompt", None),
+                    "feedback_status": _feedback_status(menu_feedback, str(slot.meal_type), item.menu_name),
+                    **cost_info,
                 })
             total_kcal = sum(it["kcal"] for it in items if it["kcal"] is not None) if items else None
             slots.append({

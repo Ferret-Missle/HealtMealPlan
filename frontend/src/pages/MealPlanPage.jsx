@@ -27,6 +27,14 @@ function dateLabel(dateStr) {
 	return `${formatJstDate(dateStr, { month: "numeric", day: "numeric" })}(${weekday})`;
 }
 
+function formatYen(value) {
+	const amount = Number(value);
+	if (!Number.isFinite(amount)) return null;
+	if (amount >= 10) return `¥${amount.toFixed(0)}`;
+	if (amount >= 1) return `¥${amount.toFixed(2)}`;
+	return `¥${amount.toFixed(4)}`;
+}
+
 // ─── localStorage フック ──────────────────────────────────────────────────────
 function useLocalStorage(key, initial) {
 	const [value, setValue] = useState(() => {
@@ -529,6 +537,7 @@ function ItemCard({ item, planId, isDraft }) {
 	const [editGrams, setEditGrams] = useState(false);
 	const [gramsValue, setGramsValue] = useState(item.serving_grams || "");
 	const [saving, setSaving] = useState(false);
+	const [feedbackSaving, setFeedbackSaving] = useState(false);
 
 	const saveGrams = async () => {
 		if (!gramsValue) return;
@@ -551,6 +560,20 @@ function ItemCard({ item, planId, isDraft }) {
 		}
 	};
 
+	const saveFeedback = async (nextFeedback) => {
+		setFeedbackSaving(true);
+		try {
+			await mealPlanApi.updateItemFeedback(planId, item.id, {
+				feedback: item.feedback_status === nextFeedback ? null : nextFeedback,
+			});
+			qc.invalidateQueries({ queryKey: ["meal-plan", planId] });
+		} catch {
+			alert("評価の保存に失敗しました");
+		} finally {
+			setFeedbackSaving(false);
+		}
+	};
+
 	return (
 		<div
 			style={{
@@ -562,6 +585,33 @@ function ItemCard({ item, planId, isDraft }) {
 		>
 			<div style={{ fontWeight: 500, fontSize: 14, whiteSpace: "pre-line" }}>
 				{(item.menu_name || "").replace(/\s*[＋+]\s*/g, "\n")}
+			</div>
+			<div
+				style={{
+					display: "flex",
+					gap: 6,
+					flexWrap: "wrap",
+					marginTop: 6,
+				}}
+			>
+				<button
+					type="button"
+					onClick={() => saveFeedback("good")}
+					disabled={feedbackSaving}
+					className={`btn ${item.feedback_status === "good" ? "btn-primary" : "btn-outline"}`}
+					style={{ padding: "3px 8px", fontSize: 11 }}
+				>
+					👍 また食べたい
+				</button>
+				<button
+					type="button"
+					onClick={() => saveFeedback("bad")}
+					disabled={feedbackSaving}
+					className={`btn ${item.feedback_status === "bad" ? "btn-primary" : "btn-outline"}`}
+					style={{ padding: "3px 8px", fontSize: 11 }}
+				>
+					👎 いまいち
+				</button>
 			</div>
 			{item.kcal && (
 				<div
@@ -710,6 +760,11 @@ function ItemCard({ item, planId, isDraft }) {
 					{item.input_tokens != null && item.output_tokens != null && (
 						<span>
 							合計 <strong>{(item.input_tokens + item.output_tokens).toLocaleString()}</strong> tok
+						</span>
+					)}
+					{item.estimated_total_cost_jpy != null && (
+						<span>
+							概算 <strong>{formatYen(item.estimated_total_cost_jpy)}</strong>
 						</span>
 					)}
 				</div>
@@ -865,6 +920,11 @@ function PlanPromptViewer({ plan }) {
 							🤖 {current.item.llm_model || "LLM"} / 入力{" "}
 							{current.item.input_tokens?.toLocaleString() || "—"} tok / 出力{" "}
 							{current.item.output_tokens?.toLocaleString() || "—"} tok
+							{current.item.estimated_total_cost_jpy != null && (
+								<>
+									{" "}/ 概算 {formatYen(current.item.estimated_total_cost_jpy)}
+								</>
+							)}
 						</div>
 					)}
 				</div>

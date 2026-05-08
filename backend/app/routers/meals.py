@@ -261,10 +261,17 @@ async def estimate_from_photo(
         else:
             raise ValueError("JSON not found in LLM response")
         # トークン使用量を結果に付加
+        from ..llm.adapter import estimate_model_cost_jpy
+        cost_info = estimate_model_cost_jpy(
+            getattr(response, "model", None),
+            getattr(response, "input_tokens", None),
+            getattr(response, "output_tokens", None),
+        )
         result["_token_usage"] = {
             "input_tokens": getattr(response, "input_tokens", None),
             "output_tokens": getattr(response, "output_tokens", None),
             "llm_model": getattr(response, "model", None),
+            **cost_info,
         }
         return result
     except Exception as e:

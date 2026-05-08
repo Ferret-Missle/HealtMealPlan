@@ -49,7 +49,7 @@ class OpenAIBYOKAdapter(LLMAdapter):
                 OPENAI_API_URL,
                 headers=self._headers(),
                 json={
-                    "model": "gpt-4o",
+                    "model": self.model,
                     "messages": [
                         {"role": "system", "content": system},
                         {
@@ -74,7 +74,7 @@ class OpenAIBYOKAdapter(LLMAdapter):
         usage = data.get("usage", {}) or {}
         return LLMResponse(
             text=content,
-            model="gpt-4o",
+            model=self.model,
             input_tokens=usage.get("prompt_tokens"),
             output_tokens=usage.get("completion_tokens"),
         )

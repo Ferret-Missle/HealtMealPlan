@@ -244,10 +244,18 @@ async def chat(
 
     _record_usage(current_user.id, "chat", plan_type, db)
 
+    from ..llm.adapter import estimate_model_cost_jpy
+    cost_info = estimate_model_cost_jpy(
+        getattr(result, "model", None),
+        getattr(result, "input_tokens", None),
+        getattr(result, "output_tokens", None),
+    )
+
     return {
         "reply": reply,
         "plan_type": plan_type,
         "input_tokens": getattr(result, "input_tokens", None),
         "output_tokens": getattr(result, "output_tokens", None),
         "llm_model": getattr(result, "model", None),
+        **cost_info,
     }
