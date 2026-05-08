@@ -96,6 +96,7 @@ _MODEL_GROUPS = {
         _model_entry("anthropic", "claude-haiku-4-5", "Claude Haiku 4.5（高速）", 1.0, 5.0),
     ],
     "openai": [
+        _model_entry("openai", "gpt-4o-mini", "GPT-4o mini（旧標準）", 0.15, 0.60),
         _model_entry("openai", "gpt-5.4-mini", "GPT-5.4 mini（標準・低コスト）", 0.75, 4.5),
         _model_entry("openai", "gpt-5.4", "GPT-5.4（高品質）", 2.5, 15.0),
         _model_entry("openai", "gpt-5.5", "GPT-5.5（最上位）", 5.0, 30.0),
@@ -132,11 +133,38 @@ MODEL_METADATA_BY_ID = {
     for item in models
 }
 
+MODEL_METADATA_ALIASES = {
+    "models/gemini-2.5-flash": "gemini-2.5-flash",
+    "models/gemini-2.5-flash-lite": "gemini-2.5-flash-lite",
+    "models/gemini-2.5-pro": "gemini-2.5-pro",
+}
 
-def get_model_metadata(model_id: str | None) -> dict | None:
+
+def _normalize_model_id(model_id: str | None) -> str | None:
     if not model_id:
         return None
-    return MODEL_METADATA_BY_ID.get(model_id)
+    normalized = str(model_id).strip()
+    if not normalized:
+        return None
+    if normalized in MODEL_METADATA_BY_ID:
+        return normalized
+    alias = MODEL_METADATA_ALIASES.get(normalized)
+    if alias:
+        return alias
+    lowered = normalized.lower()
+    if lowered in MODEL_METADATA_BY_ID:
+        return lowered
+    alias = MODEL_METADATA_ALIASES.get(lowered)
+    if alias:
+        return alias
+    return normalized
+
+
+def get_model_metadata(model_id: str | None) -> dict | None:
+    normalized = _normalize_model_id(model_id)
+    if not normalized:
+        return None
+    return MODEL_METADATA_BY_ID.get(normalized)
 
 
 def estimate_model_cost_jpy(

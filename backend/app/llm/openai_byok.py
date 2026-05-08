@@ -2,7 +2,7 @@ import httpx
 from .adapter import LLMAdapter, LLMResponse
 
 OPENAI_API_URL = "https://api.openai.com/v1/chat/completions"
-DEFAULT_MODEL = "gpt-4o-mini"
+DEFAULT_MODEL = "gpt-5.4-mini"
 
 
 class OpenAIBYOKAdapter(LLMAdapter):

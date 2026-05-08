@@ -2115,7 +2115,7 @@ export default function MealPlanPage() {
 											minute: "2-digit",
 										})}
 									</div>
-									{(plan.primary_llm_model || plan.total_tokens != null) && (
+									{(plan.primary_llm_model || plan.total_tokens != null || plan.estimated_total_cost_jpy != null) && (
 										<div
 											style={{
 												marginTop: 8,
