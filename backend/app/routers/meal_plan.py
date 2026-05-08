@@ -354,6 +354,18 @@ def _feedback_status(
     return None
 
 
+def _split_menu_entries(menu_name: str | None) -> list[str]:
+    if not menu_name:
+        return []
+    normalized = str(menu_name).replace("＋", "\n").replace("+", "\n")
+    entries: list[str] = []
+    for raw in normalized.splitlines():
+        name = raw.strip(" ・-\t")
+        if name and name not in entries:
+            entries.append(name)
+    return entries
+
+
 def _get_user_menu_feedback(user_id: str, db: Session) -> dict[str, dict[str, list[str]]]:
     goals = db.query(models.UserGoals).filter_by(user_id=user_id).first()
     prefs = goals.preferences_json if goals else {}
@@ -403,6 +415,7 @@ async def update_plan_item(
 
 class ItemFeedbackUpdate(BaseModel):
     feedback: str | None = None
+    menu_name: str | None = None
 
 
 @router.put("/{plan_id}/items/{item_id}/feedback")
@@ -423,6 +436,12 @@ async def update_plan_item_feedback(
     if not item.menu_name:
         raise HTTPException(400, "Item has no menu name")
 
+    target_menu_name = (payload.menu_name or "").strip() or item.menu_name
+    if target_menu_name != item.menu_name:
+        menu_entries = _split_menu_entries(item.menu_name)
+        if target_menu_name not in menu_entries:
+            raise HTTPException(400, "menu_name is not part of the item")
+
     slot = db.query(models.MealPlanSlot).filter_by(id=item.meal_plan_slot_id).first()
     if not slot:
         raise HTTPException(404, "Slot not found")
@@ -439,16 +458,17 @@ async def update_plan_item_feedback(
         goals = models.UserGoals(user_id=current_user.id)
         db.add(goals)
 
-    prefs = _apply_menu_feedback(goals.preferences_json or {}, str(slot.meal_type), item.menu_name, feedback)
+    prefs = _apply_menu_feedback(goals.preferences_json or {}, str(slot.meal_type), target_menu_name, feedback)
     goals.preferences_json = prefs
     db.commit()
 
     return {
         "updated": True,
+        "menu_name": target_menu_name,
         "feedback_status": _feedback_status(
             _normalize_menu_feedback(prefs.get("menu_feedback")),
             str(slot.meal_type),
-            item.menu_name,
+            target_menu_name,
         ),
     }
 
@@ -718,10 +738,18 @@ def _plan_detail(plan: models.MealPlan, current_user_id: str | None = None, db: 
                     getattr(item, "input_tokens", None),
                     getattr(item, "output_tokens", None),
                 )
+                menu_entries = _split_menu_entries(item.menu_name)
                 items.append({
                     "id": item.id,
                     "user_id": item.user_id,
                     "menu_name": item.menu_name,
+                    "menu_entries": [
+                        {
+                            "name": menu_entry,
+                            "feedback_status": _feedback_status(menu_feedback, str(slot.meal_type), menu_entry),
+                        }
+                        for menu_entry in menu_entries
+                    ],
                     "kcal": item.kcal,
                     "protein_g": item.protein_g,
                     "fat_g": item.fat_g,

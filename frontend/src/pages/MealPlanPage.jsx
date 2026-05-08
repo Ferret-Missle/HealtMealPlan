@@ -52,6 +52,28 @@ function formatTokenCount(value) {
 	return amount.toLocaleString();
 }
 
+function normalizeMenuEntries(item) {
+	if (Array.isArray(item?.menu_entries) && item.menu_entries.length > 0) {
+		return item.menu_entries
+			.map((entry) => {
+				if (typeof entry === "string") {
+					const name = entry.trim();
+					return name ? { name, feedback_status: null } : null;
+				}
+				const name = String(entry?.name || "").trim();
+				if (!name) return null;
+				return { name, feedback_status: entry?.feedback_status || null };
+			})
+			.filter(Boolean);
+	}
+	return String(item?.menu_name || "")
+		.replace(/\s*[＋+]\s*/g, "\n")
+		.split("\n")
+		.map((name) => name.trim())
+		.filter(Boolean)
+		.map((name) => ({ name, feedback_status: item?.feedback_status || null }));
+}
+
 // ─── localStorage フック ──────────────────────────────────────────────────────
 function useLocalStorage(key, initial) {
 	const [value, setValue] = useState(() => {
@@ -556,6 +578,7 @@ function ItemCard({ item, planId, isDraft }) {
 	const [gramsValue, setGramsValue] = useState(item.serving_grams || "");
 	const [saving, setSaving] = useState(false);
 	const [feedbackSaving, setFeedbackSaving] = useState(false);
+	const menuEntries = normalizeMenuEntries(item);
 
 	const saveGrams = async () => {
 		if (!gramsValue) return;
@@ -578,11 +601,12 @@ function ItemCard({ item, planId, isDraft }) {
 		}
 	};
 
-	const saveFeedback = async (nextFeedback) => {
+	const saveFeedback = async (menuName, currentStatus, nextFeedback) => {
 		setFeedbackSaving(true);
 		try {
 			await mealPlanApi.updateItemFeedback(planId, item.id, {
-				feedback: item.feedback_status === nextFeedback ? null : nextFeedback,
+				menu_name: menuName,
+				feedback: currentStatus === nextFeedback ? null : nextFeedback,
 			});
 			qc.invalidateQueries({ queryKey: ["meal-plan", planId] });
 		} catch {
@@ -601,35 +625,48 @@ function ItemCard({ item, planId, isDraft }) {
 				marginBottom: 6,
 			}}
 		>
-			<div style={{ fontWeight: 500, fontSize: 14, whiteSpace: "pre-line" }}>
-				{(item.menu_name || "").replace(/\s*[＋+]\s*/g, "\n")}
-			</div>
-			<div
-				style={{
-					display: "flex",
-					gap: 6,
-					flexWrap: "wrap",
-					marginTop: 6,
-				}}
-			>
-				<button
-					type="button"
-					onClick={() => saveFeedback("good")}
-					disabled={feedbackSaving}
-					className={`btn ${item.feedback_status === "good" ? "btn-primary" : "btn-outline"}`}
-					style={{ padding: "3px 8px", fontSize: 11 }}
-				>
-					👍 また食べたい
-				</button>
-				<button
-					type="button"
-					onClick={() => saveFeedback("bad")}
-					disabled={feedbackSaving}
-					className={`btn ${item.feedback_status === "bad" ? "btn-primary" : "btn-outline"}`}
-					style={{ padding: "3px 8px", fontSize: 11 }}
-				>
-					👎 いまいち
-				</button>
+			<div style={{ display: "grid", gap: 6 }}>
+				{menuEntries.map((entry) => (
+					<div
+						key={entry.name}
+						style={{
+							paddingBottom: 6,
+							borderBottom:
+								menuEntries.length > 1 ? "1px dashed var(--border)" : "none",
+						}}
+					>
+						<div style={{ fontWeight: 500, fontSize: 14, whiteSpace: "pre-line" }}>
+							{entry.name}
+						</div>
+						<div
+							style={{
+								display: "flex",
+								gap: 6,
+								flexWrap: "wrap",
+								marginTop: 6,
+							}}
+						>
+							<button
+								type="button"
+								onClick={() => saveFeedback(entry.name, entry.feedback_status, "good")}
+								disabled={feedbackSaving}
+								className={`btn ${entry.feedback_status === "good" ? "btn-primary" : "btn-outline"}`}
+								style={{ padding: "3px 8px", fontSize: 11 }}
+							>
+								👍 また食べたい
+							</button>
+							<button
+								type="button"
+								onClick={() => saveFeedback(entry.name, entry.feedback_status, "bad")}
+								disabled={feedbackSaving}
+								className={`btn ${entry.feedback_status === "bad" ? "btn-primary" : "btn-outline"}`}
+								style={{ padding: "3px 8px", fontSize: 11 }}
+							>
+								👎 いまいち
+							</button>
+						</div>
+					</div>
+				))}
 			</div>
 			{item.kcal && (
 				<div
