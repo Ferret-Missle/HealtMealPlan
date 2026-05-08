@@ -1931,6 +1931,50 @@ select.form-input {
   white-space: pre-wrap;
   word-break: break-word;
 }
+.chat-markdown {
+  white-space: normal;
+  line-height: 1.65;
+}
+.chat-markdown > :first-child {
+  margin-top: 0;
+}
+.chat-markdown > :last-child {
+  margin-bottom: 0;
+}
+.chat-markdown p {
+  margin: 0 0 0.7em;
+}
+.chat-markdown h1,
+.chat-markdown h2,
+.chat-markdown h3 {
+  margin: 0.2em 0 0.5em;
+  line-height: 1.45;
+  font-weight: 800;
+}
+.chat-markdown h1 {
+  font-size: 1rem;
+}
+.chat-markdown h2 {
+  font-size: 0.95rem;
+}
+.chat-markdown h3 {
+  font-size: 0.9rem;
+}
+.chat-markdown ul,
+.chat-markdown ol {
+  margin: 0 0 0.7em 1.2em;
+  padding: 0;
+}
+.chat-markdown li + li {
+  margin-top: 0.2em;
+}
+.chat-markdown strong {
+  font-weight: 800;
+}
+.chat-markdown a {
+  color: inherit;
+  text-decoration: underline;
+}
 .chat-tokens {
   margin-top: 6px;
   padding-top: 6px;

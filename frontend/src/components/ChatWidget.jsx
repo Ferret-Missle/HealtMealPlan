@@ -1,5 +1,7 @@
 import { Bot, Send, Sparkles, Trash2, User as UserIcon, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkBreaks from "remark-breaks";
 import { chatApi } from "../services/api";
 
 /**
@@ -38,6 +40,25 @@ function loadStoredMessages() {
 	} catch {
 		return [INITIAL_MSG];
 	}
+}
+
+function ChatMessageBody({ content, renderMarkdown = false }) {
+	if (!renderMarkdown) {
+		return <div className="chat-bubble-text">{content}</div>;
+	}
+
+	return (
+		<div className="chat-bubble-text chat-markdown">
+			<ReactMarkdown
+				remarkPlugins={[remarkBreaks]}
+				components={{
+					a: ({ ...props }) => <a {...props} target="_blank" rel="noreferrer" />,
+				}}
+			>
+				{content}
+			</ReactMarkdown>
+		</div>
+	);
 }
 
 export default function ChatWidget() {
@@ -201,7 +222,10 @@ export default function ChatWidget() {
 									data-role={msg.role}
 									data-error={msg.error || false}
 								>
-									<div className="chat-bubble-text">{msg.content}</div>
+									<ChatMessageBody
+										content={msg.content}
+										renderMarkdown={msg.role === "assistant" && !msg.error}
+									/>
 									{msg.tokens &&
 										(msg.tokens.input != null || msg.tokens.output != null) && (
 											<div className="chat-tokens">
