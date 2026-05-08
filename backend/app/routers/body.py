@@ -17,6 +17,10 @@ class WeightLogCreate(BaseModel):
     body_fat: float | None = None
     muscle_mass: float | None = None
     bmi: float | None = None
+    basal_metabolism_kcal: float | None = None
+    body_age: int | None = None
+    bone_mass: float | None = None
+    visceral_fat_level: float | None = None
     source: str = "manual"
 
 
@@ -64,6 +68,10 @@ async def add_weight_log(
         body_fat=payload.body_fat,
         muscle_mass=payload.muscle_mass,
         bmi=payload.bmi,
+        basal_metabolism_kcal=payload.basal_metabolism_kcal,
+        body_age=payload.body_age,
+        bone_mass=payload.bone_mass,
+        visceral_fat_level=payload.visceral_fat_level,
         source=payload.source,
     )
     db.add(log)
@@ -157,20 +165,26 @@ async def sync_weight_history(
 
     saved = 0
 
-    async def _save_weight(date: str, weight: float, source: str, **extra):
+    async def _save_weight(date: str, weight: float | None, source: str, **extra):
         nonlocal saved
-        if not weight:
+        if weight is None and not any(value is not None for value in extra.values()):
             return
         existing = (
             db.query(models.WeightLog)
             .filter_by(user_id=current_user.id, date=date, source=source)
             .first()
         )
-        if not existing:
-            db.add(models.WeightLog(
-                user_id=current_user.id, date=date, weight=weight, source=source, **extra
-            ))
-            saved += 1
+        if existing:
+            if weight is not None:
+                existing.weight = weight
+            for field, value in extra.items():
+                if value is not None:
+                    setattr(existing, field, value)
+            return
+        db.add(models.WeightLog(
+            user_id=current_user.id, date=date, weight=weight, source=source, **extra
+        ))
+        saved += 1
 
     if "fitbit" in connected:
         try:
@@ -185,6 +199,11 @@ async def sync_weight_history(
                 await _save_weight(
                     e["date"], e.get("weight"), "healthplanet",
                     body_fat=e.get("body_fat"),
+                    muscle_mass=e.get("muscle_mass"),
+                    basal_metabolism_kcal=e.get("basal_metabolism_kcal"),
+                    body_age=e.get("body_age"),
+                    bone_mass=e.get("bone_mass"),
+                    visceral_fat_level=e.get("visceral_fat_level"),
                 )
         except Exception as exc:
             print(f"[sync-weight-history healthplanet] {exc}")
@@ -358,6 +377,10 @@ def _weight_to_dict(log: models.WeightLog) -> dict:
         "body_fat": log.body_fat,
         "muscle_mass": log.muscle_mass,
         "bmi": log.bmi,
+        "basal_metabolism_kcal": log.basal_metabolism_kcal,
+        "body_age": log.body_age,
+        "bone_mass": log.bone_mass,
+        "visceral_fat_level": log.visceral_fat_level,
         "source": log.source,
     }
 

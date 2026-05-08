@@ -23,6 +23,63 @@ SYSTEM_PROMPT = """あなたは「健康ナビ」アプリの栄養・食事ア�
 """
 
 
+def _build_latest_body_lines(db: Session, user_id: str) -> tuple[list[str], dict | None]:
+    latest_date = (
+        db.query(models.WeightLog.date)
+        .filter_by(user_id=user_id)
+        .order_by(models.WeightLog.date.desc())
+        .limit(1)
+        .scalar()
+    )
+    if not latest_date:
+        return [], None
+
+    latest_logs = (
+        db.query(models.WeightLog)
+        .filter_by(user_id=user_id, date=latest_date)
+        .order_by(models.WeightLog.created_at.desc())
+        .all()
+    )
+    if not latest_logs:
+        return [], None
+
+    snapshot: dict[str, float | int | str | None] = {"date": latest_date}
+    for log in latest_logs:
+        for field in [
+            "weight",
+            "body_fat",
+            "muscle_mass",
+            "bmi",
+            "basal_metabolism_kcal",
+            "body_age",
+            "bone_mass",
+            "visceral_fat_level",
+        ]:
+            value = getattr(log, field, None)
+            if value is not None and snapshot.get(field) is None:
+                snapshot[field] = value
+
+    body_lines = []
+    if snapshot.get("weight") is not None:
+        body_lines.append(f"直近体重 ({latest_date}): {snapshot['weight']}kg")
+    if snapshot.get("body_fat") is not None:
+        body_lines.append(f"体脂肪率: {snapshot['body_fat']}%")
+    if snapshot.get("muscle_mass") is not None:
+        body_lines.append(f"筋肉量: {snapshot['muscle_mass']}kg")
+    if snapshot.get("bmi") is not None:
+        body_lines.append(f"BMI: {snapshot['bmi']}")
+    if snapshot.get("basal_metabolism_kcal") is not None:
+        body_lines.append(f"基礎代謝量: {snapshot['basal_metabolism_kcal']}kcal")
+    if snapshot.get("body_age") is not None:
+        body_lines.append(f"体内年齢: {snapshot['body_age']}才")
+    if snapshot.get("bone_mass") is not None:
+        body_lines.append(f"推定骨量: {snapshot['bone_mass']}kg")
+    if snapshot.get("visceral_fat_level") is not None:
+        body_lines.append(f"内臓脂肪レベル: {snapshot['visceral_fat_level']}")
+
+    return body_lines, snapshot
+
+
 class ChatMessage(BaseModel):
     message: str
 
@@ -97,18 +154,8 @@ async def chat(
             profile_lines.append(f"除外食材: {', '.join(excluded)}")
 
     # ── 直近の身体データ（HealthPlanet/Fitbit同期分） ──
-    latest_weight = (
-        db.query(models.WeightLog)
-        .filter_by(user_id=current_user.id)
-        .order_by(models.WeightLog.date.desc())
-        .first()
-    )
-    if latest_weight:
-        body_lines.append(f"直近体重 ({latest_weight.date}): {latest_weight.weight}kg")
-        if latest_weight.body_fat is not None:
-            body_lines.append(f"体脂肪率: {latest_weight.body_fat}%")
-        if latest_weight.bmi is not None:
-            body_lines.append(f"BMI: {latest_weight.bmi}")
+    initial_body_lines, latest_body_snapshot = _build_latest_body_lines(db, current_user.id)
+    body_lines.extend(initial_body_lines)
 
     # 体重トレンド（7日比）
     week_old_weight = (
@@ -120,8 +167,9 @@ async def chat(
         .order_by(models.WeightLog.date.desc())
         .first()
     )
-    if latest_weight and week_old_weight and latest_weight.weight and week_old_weight.weight:
-        delta = latest_weight.weight - week_old_weight.weight
+    latest_weight_value = latest_body_snapshot.get("weight") if latest_body_snapshot else None
+    if latest_weight_value is not None and week_old_weight and week_old_weight.weight:
+        delta = latest_weight_value - week_old_weight.weight
         trend = "減少中" if delta < -0.1 else ("増加中" if delta > 0.1 else "ほぼ維持")
         body_lines.append(f"体重トレンド7日: {delta:+.2f}kg ({trend})")
 

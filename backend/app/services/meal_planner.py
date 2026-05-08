@@ -178,8 +178,18 @@ def _gather_body_info(user_id: str, db: Session, scope: str, goals) -> dict | No
         info["weight_kg"] = latest_weight.weight
         if latest_weight.body_fat is not None:
             info["body_fat_pct"] = latest_weight.body_fat
+        if latest_weight.muscle_mass is not None:
+            info["muscle_mass_kg"] = latest_weight.muscle_mass
         if latest_weight.bmi is not None:
             info["bmi"] = latest_weight.bmi
+        if getattr(latest_weight, "basal_metabolism_kcal", None) is not None:
+            info["basal_metabolism_kcal"] = latest_weight.basal_metabolism_kcal
+        if getattr(latest_weight, "body_age", None) is not None:
+            info["body_age"] = latest_weight.body_age
+        if getattr(latest_weight, "bone_mass", None) is not None:
+            info["bone_mass_kg"] = latest_weight.bone_mass
+        if getattr(latest_weight, "visceral_fat_level", None) is not None:
+            info["visceral_fat_level"] = latest_weight.visceral_fat_level
         info["weight_date"] = latest_weight.date
 
     # 目標体重・身長・属性
@@ -275,8 +285,18 @@ def _format_body_info(body_info: dict | None) -> str:
         lines.append(line)
     if "body_fat_pct" in body_info:
         lines.append(f"  - 体脂肪率: {body_info['body_fat_pct']}%")
+    if "muscle_mass_kg" in body_info:
+        lines.append(f"  - 筋肉量: {body_info['muscle_mass_kg']}kg")
     if "bmi" in body_info:
         lines.append(f"  - BMI: {body_info['bmi']}")
+    if "basal_metabolism_kcal" in body_info:
+        lines.append(f"  - 基礎代謝量: {body_info['basal_metabolism_kcal']}kcal")
+    if "body_age" in body_info:
+        lines.append(f"  - 体内年齢: {body_info['body_age']}才")
+    if "bone_mass_kg" in body_info:
+        lines.append(f"  - 推定骨量: {body_info['bone_mass_kg']}kg")
+    if "visceral_fat_level" in body_info:
+        lines.append(f"  - 内臓脂肪レベル: {body_info['visceral_fat_level']}")
     if "height_cm" in body_info:
         lines.append(f"  - 身長: {body_info['height_cm']}cm")
     if "gender" in body_info or "age_group" in body_info:

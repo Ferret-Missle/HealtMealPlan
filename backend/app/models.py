@@ -186,6 +186,10 @@ class WeightLog(Base):
     body_fat = Column(Float)
     muscle_mass = Column(Float)
     bmi = Column(Float)
+    basal_metabolism_kcal = Column(Float)
+    body_age = Column(Integer)
+    bone_mass = Column(Float)
+    visceral_fat_level = Column(Float)
     source = Column(String, default="manual")  # healthplanet / fitbit / manual
     created_at = Column(DateTime, default=datetime.utcnow)
 

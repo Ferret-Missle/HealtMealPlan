@@ -51,6 +51,10 @@ def _run_migrations():
             ("force_free_llm", "ALTER TABLE user_plans ADD COLUMN IF NOT EXISTS force_free_llm BOOLEAN DEFAULT FALSE"),
             ("dashboard_settings_json", "ALTER TABLE users ADD COLUMN IF NOT EXISTS dashboard_settings_json JSON"),
             ("shared_settings_json", "ALTER TABLE groups ADD COLUMN IF NOT EXISTS shared_settings_json JSON"),
+            ("basal_metabolism_kcal", "ALTER TABLE weight_logs ADD COLUMN IF NOT EXISTS basal_metabolism_kcal FLOAT"),
+            ("body_age", "ALTER TABLE weight_logs ADD COLUMN IF NOT EXISTS body_age INTEGER"),
+            ("bone_mass", "ALTER TABLE weight_logs ADD COLUMN IF NOT EXISTS bone_mass FLOAT"),
+            ("visceral_fat_level", "ALTER TABLE weight_logs ADD COLUMN IF NOT EXISTS visceral_fat_level FLOAT"),
         ]:
             try:
                 conn.execute(text(ddl))

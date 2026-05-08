@@ -7,6 +7,16 @@ from .. import models, security
 HEALTHPLANET_CLIENT_ID = os.getenv("HEALTHPLANET_CLIENT_ID", "")
 HEALTHPLANET_CLIENT_SECRET = os.getenv("HEALTHPLANET_CLIENT_SECRET", "")
 BASE_URL = "https://www.healthplanet.jp"
+HP_INNERSCAN_TAGS = {
+    "6021": ("weight", float),
+    "6022": ("body_fat", float),
+    "6023": ("muscle_mass", float),
+    "6026": ("visceral_fat_level", float),
+    "6027": ("basal_metabolism_kcal", float),
+    "6028": ("body_age", lambda value: int(float(value))),
+    "6029": ("bone_mass", float),
+}
+HP_INNERSCAN_TAG_LIST = ",".join(HP_INNERSCAN_TAGS.keys())
 
 
 async def _get_access_token(user_id: str, db: Session) -> str:
@@ -45,7 +55,11 @@ async def _refresh_token(token: models.OAuthToken, db: Session):
 
 
 async def get_innerscan(user_id: str, date: str, db: Session) -> dict | None:
-    """Get body composition data (weight, body fat, muscle, BMI)."""
+    """Get body composition data from HealthPlanet.
+
+    HealthPlanet 公式仕様では 6023/6026/6027/6028/6029 は 2020-06-29 に連携終了扱いのため、
+    返ってこないケースがある。その場合は None のまま扱う。
+    """
     access_token = await _get_access_token(user_id, db)
 
     # HealthPlanet requires a date range (max 3 months)
@@ -60,9 +74,7 @@ async def get_innerscan(user_id: str, date: str, db: Session) -> dict | None:
                 "date": "1",
                 "from": f"{from_date}000000",
                 "to": f"{to_date}235959",
-                # 6021: weight, 6022: body_fat_pct
-                # 6023/6024 discontinued on 2020-06-29
-                "tag": "6021,6022",
+                "tag": HP_INNERSCAN_TAG_LIST,
             },
         )
     if resp.status_code != 200:
@@ -77,10 +89,11 @@ async def get_innerscan(user_id: str, date: str, db: Session) -> dict | None:
     for item in data_list:
         tag = item.get("tag")
         keydata = item.get("keydata")
-        if tag == "6021":
-            result["weight"] = float(keydata)
-        elif tag == "6022":
-            result["body_fat"] = float(keydata)
+        mapping = HP_INNERSCAN_TAGS.get(tag)
+        if not mapping or keydata in (None, ""):
+            continue
+        field_name, caster = mapping
+        result[field_name] = caster(keydata)
 
     return result if len(result) > 1 else None
 
@@ -99,7 +112,7 @@ async def get_innerscan_range(user_id: str, from_date: str, to_date: str, db: Se
                 "date": "1",
                 "from": from_fmt,
                 "to":   to_fmt,
-                "tag":  "6021,6022",
+                "tag":  HP_INNERSCAN_TAG_LIST,
             },
         )
     if resp.status_code != 200:
@@ -113,9 +126,10 @@ async def get_innerscan_range(user_id: str, from_date: str, to_date: str, db: Se
         by_date.setdefault(formatted, {"source": "healthplanet"})
         tag     = item.get("tag")
         keydata = item.get("keydata")
-        if tag == "6021" and keydata:
-            by_date[formatted]["weight"] = float(keydata)
-        elif tag == "6022" and keydata:
-            by_date[formatted]["body_fat"] = float(keydata)
+        mapping = HP_INNERSCAN_TAGS.get(tag)
+        if not mapping or keydata in (None, ""):
+            continue
+        field_name, caster = mapping
+        by_date[formatted][field_name] = caster(keydata)
 
-    return [{"date": d, **v} for d, v in by_date.items() if "weight" in v]
+    return [{"date": d, **v} for d, v in by_date.items() if len(v) > 1]
