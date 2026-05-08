@@ -1,8 +1,10 @@
+import { useQueryClient } from "@tanstack/react-query";
 import { Bot, Send, Sparkles, Trash2, User as UserIcon, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
+import { useNavigate } from "react-router-dom";
 import remarkBreaks from "remark-breaks";
-import { chatApi } from "../services/api";
+import { chatApi, mealPlanApi } from "../services/api";
 
 /**
  * S2-04: AI チャット相談ウィジェット
@@ -52,7 +54,9 @@ function ChatMessageBody({ content, renderMarkdown = false }) {
 			<ReactMarkdown
 				remarkPlugins={[remarkBreaks]}
 				components={{
-					a: ({ ...props }) => <a {...props} target="_blank" rel="noreferrer" />,
+					a: ({ ...props }) => (
+						<a {...props} target="_blank" rel="noreferrer" />
+					),
 				}}
 			>
 				{content}
@@ -62,11 +66,14 @@ function ChatMessageBody({ content, renderMarkdown = false }) {
 }
 
 export default function ChatWidget() {
+	const qc = useQueryClient();
+	const navigate = useNavigate();
 	const [open, setOpen] = useState(false);
 	const [messages, setMessages] = useState(loadStoredMessages);
 	const [input, setInput] = useState("");
 	const [loading, setLoading] = useState(false);
 	const [planInfo, setPlanInfo] = useState(null);
+	const [actionLoadingKey, setActionLoadingKey] = useState(null);
 	const bottomRef = useRef(null);
 	const textareaRef = useRef(null);
 
@@ -111,6 +118,7 @@ export default function ChatWidget() {
 				{
 					role: "assistant",
 					content: data.reply,
+					planAction: data.plan_action || null,
 					tokens: {
 						input: data.input_tokens,
 						output: data.output_tokens,
@@ -131,6 +139,49 @@ export default function ChatWidget() {
 			]);
 		} finally {
 			setLoading(false);
+		}
+	};
+
+	const openPlanFromAction = (action) => {
+		if (!action?.plan_id) return;
+		navigate(
+			`/plan?plan=${encodeURIComponent(action.plan_id)}&date=${encodeURIComponent(action.date || "")}`,
+		);
+		setOpen(false);
+	};
+
+	const executePlanAction = async (action) => {
+		if (!action || action.type !== "replace_day_meal_plan") return;
+		const actionKey = `${action.plan_id}:${action.day_id}:${(action.meal_types || []).join(",")}`;
+		setActionLoadingKey(actionKey);
+		try {
+			await mealPlanApi.replaceDay(action.plan_id, action.day_id, {
+				meal_types: action.meal_types,
+			});
+			qc.invalidateQueries({ queryKey: ["meal-plans"] });
+			qc.invalidateQueries({ queryKey: ["meal-plan", action.plan_id] });
+			setMessages((prev) => [
+				...prev,
+				{
+					role: "assistant",
+					content: `${action.date} の献立を差し替えました。プラン画面で内容を確認できます。`,
+				},
+			]);
+			navigate(
+				`/plan?plan=${encodeURIComponent(action.plan_id)}&date=${encodeURIComponent(action.date || "")}`,
+			);
+			setOpen(false);
+		} catch (err) {
+			const msg =
+				err.response?.data?.detail ||
+				err.message ||
+				"指定日の献立差し替えに失敗しました。";
+			setMessages((prev) => [
+				...prev,
+				{ role: "assistant", content: `⚠ ${msg}`, error: true },
+			]);
+		} finally {
+			setActionLoadingKey(null);
 		}
 	};
 
@@ -224,6 +275,31 @@ export default function ChatWidget() {
 										content={msg.content}
 										renderMarkdown={msg.role === "assistant" && !msg.error}
 									/>
+									{msg.planAction && (
+										<div className="chat-action-row">
+											<button
+												type="button"
+												className="chat-action-btn"
+												onClick={() => executePlanAction(msg.planAction)}
+												disabled={
+													actionLoadingKey ===
+													`${msg.planAction.plan_id}:${msg.planAction.day_id}:${(msg.planAction.meal_types || []).join(",")}`
+												}
+											>
+												{actionLoadingKey ===
+												`${msg.planAction.plan_id}:${msg.planAction.day_id}:${(msg.planAction.meal_types || []).join(",")}`
+													? "差し替え中..."
+													: msg.planAction.label || "この日の献立を差し替える"}
+											</button>
+											<button
+												type="button"
+												className="chat-action-btn secondary"
+												onClick={() => openPlanFromAction(msg.planAction)}
+											>
+												{msg.planAction.open_plan_label || "プラン画面で開く"}
+											</button>
+										</div>
+									)}
 									{msg.tokens &&
 										(msg.tokens.input != null || msg.tokens.output != null) && (
 											<div className="chat-tokens">

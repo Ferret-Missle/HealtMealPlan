@@ -9,6 +9,32 @@ from ..llm.adapter import get_adapter
 
 # ─── 進捗管理 ──────────────────────────────────────────────────
 MEAL_JP_MAP = {"breakfast": "朝食", "lunch": "昼食", "dinner": "夕食"}
+DRINK_ONLY_CANDIDATES = [
+    {
+        "menu_name": "ザバス ミルクプロテイン 1本",
+        "kcal_per_serving": 100,
+        "protein_g": 15.0,
+        "fat_g": 0.0,
+        "carb_g": 10.0,
+        "serving_grams": 200,
+    },
+    {
+        "menu_name": "カロリーメイト リキッド 1本",
+        "kcal_per_serving": 200,
+        "protein_g": 10.0,
+        "fat_g": 4.4,
+        "carb_g": 31.8,
+        "serving_grams": 200,
+    },
+    {
+        "menu_name": "完全食ドリンク 1本",
+        "kcal_per_serving": 400,
+        "protein_g": 20.0,
+        "fat_g": 13.0,
+        "carb_g": 45.0,
+        "serving_grams": 400,
+    },
+]
 
 
 def _set_progress(plan_id: str, db: Session, step: int, total: int, message: str, done: bool = False, error: bool = False):
@@ -27,6 +53,50 @@ def _set_progress(plan_id: str, db: Session, step: int, total: int, message: str
     plan.conditions_json = cond
     flag_modified(plan, "conditions_json")
     db.commit()
+
+
+def _single_drink_fallback(targets: dict | None = None) -> dict:
+    if not targets:
+        selected = DRINK_ONLY_CANDIDATES[0]
+    else:
+        target_kcal = targets.get("kcal") or 150
+        target_p = targets.get("protein") or 12
+        selected = min(
+            DRINK_ONLY_CANDIDATES,
+            key=lambda candidate: abs(candidate["kcal_per_serving"] - target_kcal)
+            + abs(candidate["protein_g"] - target_p) * 6,
+        )
+    return {
+        **selected,
+        "ingredients": [selected["menu_name"]],
+        "cooking_summary": "飲み物のみ（1本）",
+    }
+
+
+def _normalize_generated_menu(data: dict, source_type: str, targets: dict | None = None) -> dict:
+    if source_type != "drink_only":
+        return data
+
+    menu_name = str(data.get("menu_name") or "").strip()
+    menu_lines = [
+        line.strip()
+        for line in menu_name.replace("＋", "\n").replace("+", "\n").splitlines()
+        if line.strip()
+    ]
+    ingredients = [str(x).strip() for x in (data.get("ingredients") or []) if str(x).strip()]
+    looks_multi = len(menu_lines) > 1 or len(ingredients) > 1
+
+    if looks_multi or not menu_lines:
+        fallback = _single_drink_fallback(targets)
+        for key in ("_input_tokens", "_output_tokens", "_llm_model", "_system_prompt", "_user_prompt"):
+            if key in data:
+                fallback[key] = data[key]
+        return fallback
+
+    data["menu_name"] = menu_lines[0]
+    data["ingredients"] = [menu_lines[0]]
+    data["cooking_summary"] = "飲み物のみ（1本）"
+    return data
 
 
 SYSTEM_PROMPT = """あなたは家庭料理に詳しい管理栄養士です。指定された目標カロリーとPFCバランス（タンパク質・脂質・炭水化物）に厳密に合わせ、家庭で作りやすい現実的な献立を提案してください。
@@ -608,9 +678,10 @@ async def _call_llm(
             "  - 完全食ドリンク（COMP、Huel など）\n"
             "  - 豆乳・牛乳・甘酒\n"
             "  - 栄養補助ドリンク（カロリーメイト リキッド 等）\n"
-            "目標 kcal/PFC に近づくよう、複数の飲み物を組み合わせて構いません。\n"
-            "menu_name は商品名を改行区切り（例：\"ザバス ミルクプロテイン\\n野菜ジュース\"）\n"
-            "cooking_summary は \"飲み物のみ\" と記載"
+            "この食事では【必ず飲み物1本のみ】を提案してください。複数本の組み合わせは禁止です。\n"
+            "1回で飲み切る前提の市販品1本を選び、目標 kcal/PFC に最も近い1本を優先してください。\n"
+            "menu_name は商品名1つだけを1行で返すこと。改行区切りやセット提案は禁止。\n"
+            "ingredients も1要素のみ、cooking_summary は \"飲み物のみ（1本）\" と記載"
         )
     else:
         source_note = "自炊またはコンビニ購入どちらでも構いません。"
@@ -749,6 +820,7 @@ async def _call_llm(
         result = await adapter.complete(SYSTEM_PROMPT, user_prompt, json_mode=True)
         raw = result.text if hasattr(result, "text") else str(result)
         data = _parse_json_response(raw)
+        data = _normalize_generated_menu(data, source_type, targets)
         data["_input_tokens"] = getattr(result, "input_tokens", None)
         data["_output_tokens"] = getattr(result, "output_tokens", None)
         data["_llm_model"] = getattr(result, "model", None)
@@ -835,6 +907,9 @@ def _parse_json_response(text: str) -> dict:
 
 def _fallback_menu(meal_name: str, source_type: str = "auto", targets: dict | None = None) -> dict:
     """LLM呼び出しが失敗した場合のフォールバック。targetsがあればそれを使う。"""
+    if source_type == "drink_only":
+        return _single_drink_fallback(targets)
+
     name_map = {
         ("conbini", "朝食"): "鮭おにぎり\nゆで卵\n野菜サラダ",
         ("conbini", "昼食"): "サラダチキン\n玄米おにぎり\n野菜スープ",

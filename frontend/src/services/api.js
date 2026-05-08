@@ -133,16 +133,36 @@ export const groupApi = {
 
 // Meal Plans
 export const mealPlanApi = {
-  list: () => api.get('/api/meal-plans/').then(r => r.data),
-  get: (planId) => api.get(`/api/meal-plans/${planId}`).then(r => r.data),
-  generate: (data) => api.post('/api/meal-plans/generate', data).then(r => r.data),
-  confirm: (planId) => api.put(`/api/meal-plans/${planId}/confirm`).then(r => r.data),
-  updateSlot: (planId, slotId, data) => api.put(`/api/meal-plans/${planId}/slots/${slotId}`, data).then(r => r.data),
-  updateItem: (planId, itemId, data) => api.put(`/api/meal-plans/${planId}/items/${itemId}`, data).then(r => r.data),
-  updateItemFeedback: (planId, itemId, data) => api.put(`/api/meal-plans/${planId}/items/${itemId}/feedback`, data).then(r => r.data),
-  replaceSlot: (planId, slotId, data) => api.post(`/api/meal-plans/${planId}/slots/${slotId}/replace`, data).then(r => r.data),
-  recalculate: (planId) => api.post(`/api/meal-plans/${planId}/recalculate`).then(r => r.data),
-  delete: (planId) => api.delete(`/api/meal-plans/${planId}/delete`).then(r => r.data),
+	list: () => api.get("/api/meal-plans/").then((r) => r.data),
+	get: (planId) => api.get(`/api/meal-plans/${planId}`).then((r) => r.data),
+	generate: (data) =>
+		api.post("/api/meal-plans/generate", data).then((r) => r.data),
+	confirm: (planId) =>
+		api.put(`/api/meal-plans/${planId}/confirm`).then((r) => r.data),
+	updateSlot: (planId, slotId, data) =>
+		api
+			.put(`/api/meal-plans/${planId}/slots/${slotId}`, data)
+			.then((r) => r.data),
+	updateItem: (planId, itemId, data) =>
+		api
+			.put(`/api/meal-plans/${planId}/items/${itemId}`, data)
+			.then((r) => r.data),
+	updateItemFeedback: (planId, itemId, data) =>
+		api
+			.put(`/api/meal-plans/${planId}/items/${itemId}/feedback`, data)
+			.then((r) => r.data),
+	replaceSlot: (planId, slotId, data) =>
+		api
+			.post(`/api/meal-plans/${planId}/slots/${slotId}/replace`, data)
+			.then((r) => r.data),
+	replaceDay: (planId, dayId, data) =>
+		api
+			.post(`/api/meal-plans/${planId}/days/${dayId}/replace`, data)
+			.then((r) => r.data),
+	recalculate: (planId) =>
+		api.post(`/api/meal-plans/${planId}/recalculate`).then((r) => r.data),
+	delete: (planId) =>
+		api.delete(`/api/meal-plans/${planId}/delete`).then((r) => r.data),
 };
 
 // Shopping

@@ -457,6 +457,10 @@ class ReplaceMenuRequest(BaseModel):
     user_id: str | None = None  # specify for individual slot
 
 
+class ReplaceDayRequest(BaseModel):
+    meal_types: list[str] | None = None
+
+
 @router.post("/{plan_id}/slots/{slot_id}/replace")
 async def replace_slot_menu(
     plan_id: str,
@@ -492,6 +496,54 @@ async def replace_slot_menu(
     except Exception as e:
         raise HTTPException(500, f"LLM generation failed: {str(e)}")
 
+    _record_usage(current_user.id, "recalculate", plan_type, db)
+    db.refresh(plan)
+    return _plan_detail(plan, current_user.id, db)
+
+
+@router.post("/{plan_id}/days/{day_id}/replace")
+async def replace_day_menu(
+    plan_id: str,
+    day_id: str,
+    payload: ReplaceDayRequest,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    plan = db.query(models.MealPlan).filter_by(id=plan_id).first()
+    if not plan:
+        raise HTTPException(404, "Plan not found")
+    day = db.query(models.MealPlanDay).filter_by(id=day_id, meal_plan_id=plan_id).first()
+    if not day:
+        raise HTTPException(404, "Day not found")
+
+    requested_meal_types = payload.meal_types or ["breakfast", "lunch", "dinner"]
+    valid_meal_types = [meal for meal in requested_meal_types if meal in {"breakfast", "lunch", "dinner"}]
+    if not valid_meal_types:
+        raise HTTPException(400, "meal_types must contain breakfast, lunch, or dinner")
+
+    slots = [slot for slot in day.slots if str(slot.meal_type) in valid_meal_types]
+    if not slots:
+        raise HTTPException(404, "No slots found for the requested meal types")
+
+    plan_type = _get_plan_type(current_user.id, db)
+    _check_usage_limit(current_user.id, "recalculate", plan_type, db)
+
+    meal_order = {"breakfast": 0, "lunch": 1, "dinner": 2}
+    slots = sorted(slots, key=lambda slot: meal_order.get(str(slot.meal_type), 99))
+    for slot in slots:
+        for item in list(slot.items):
+            db.delete(item)
+    db.commit()
+
+    from ..services import meal_planner
+    try:
+        for slot in slots:
+            await meal_planner.generate_slot_menu(plan_id, slot.id, current_user.id, db)
+    except Exception as e:
+        raise HTTPException(500, f"LLM generation failed: {str(e)}")
+
+    plan.status = models.PlanStatus.draft
+    db.commit()
     _record_usage(current_user.id, "recalculate", plan_type, db)
     db.refresh(plan)
     return _plan_detail(plan, current_user.id, db)

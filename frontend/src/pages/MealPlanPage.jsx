@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { authApi, groupApi, mealPlanApi, shoppingApi } from "../services/api";
 import {
 	addJstDays,
@@ -974,7 +975,9 @@ function GenerationProgress({ progress }) {
 				<div style={{ fontWeight: 600, fontSize: 14, color: "#dc2626" }}>
 					⚠ 生成エラー
 				</div>
-				<div style={{ fontSize: 13, marginTop: 4, color: "var(--text-secondary)" }}>
+				<div
+					style={{ fontSize: 13, marginTop: 4, color: "var(--text-secondary)" }}
+				>
 					{message || "不明なエラーが発生しました"}
 				</div>
 			</div>
@@ -1062,7 +1065,8 @@ function GenerationProgress({ progress }) {
 					lineHeight: 1.5,
 				}}
 			>
-				💡 生成はバックグラウンドで実行されています。<br />
+				💡 生成はバックグラウンドで実行されています。
+				<br />
 				別の画面に移動しても処理は続きます。戻ってきた時に進捗を確認できます。
 			</div>
 			{/* スピナーアニメーション CSS */}
@@ -1084,7 +1088,8 @@ function _normalizeShoppingItems(rawList) {
 		return {
 			name: it.name ?? "",
 			category: it.category || "perishable",
-			first_day_offset: typeof it.first_day_offset === "number" ? it.first_day_offset : 0,
+			first_day_offset:
+				typeof it.first_day_offset === "number" ? it.first_day_offset : 0,
 		};
 	});
 }
@@ -1149,9 +1154,17 @@ function ShoppingSection({ title, hint, items, planId, listKey }) {
 	if (!items?.length) return null;
 	return (
 		<div style={{ marginBottom: 14 }}>
-			<div style={{ fontWeight: 600, fontSize: 13, marginBottom: 2 }}>{title}</div>
+			<div style={{ fontWeight: 600, fontSize: 13, marginBottom: 2 }}>
+				{title}
+			</div>
 			{hint && (
-				<div style={{ fontSize: 11, color: "var(--text-secondary)", marginBottom: 4 }}>
+				<div
+					style={{
+						fontSize: 11,
+						color: "var(--text-secondary)",
+						marginBottom: 4,
+					}}
+				>
 					{hint}
 				</div>
 			)}
@@ -1222,6 +1235,7 @@ function MemberDayCard({
 	memberLabel,
 	memberName,
 	isMe,
+	dayDate,
 	daySlots,
 	planId,
 	planStatus,
@@ -1333,7 +1347,8 @@ function MemberDayCard({
 										className={`tag ${slot.source_type === "conbini" ? "tag-blue" : slot.source_type === "bento" ? "tag-orange" : "tag-green"}`}
 										style={{ fontSize: 10 }}
 									>
-										{SOURCE_LABEL[slot.source_type]} {SOURCE_JP[slot.source_type]}
+										{SOURCE_LABEL[slot.source_type]}{" "}
+										{SOURCE_JP[slot.source_type]}
 									</span>
 								)}
 								<span
@@ -1342,13 +1357,17 @@ function MemberDayCard({
 								>
 									{slot.sharing_type === "shared" ? "共有" : "個別"}
 								</span>
-								{slot.is_dining_out && <span className="tag tag-orange" style={{ fontSize: 10 }}>外食</span>}
+								{slot.is_dining_out && (
+									<span className="tag tag-orange" style={{ fontSize: 10 }}>
+										外食
+									</span>
+								)}
 								{planStatus === "draft" && (
 									<button
 										className="btn-icon"
 										style={{ marginLeft: "auto", fontSize: 12 }}
 										title="編集"
-										onClick={() => onEditSlot({ slot, planId })}
+										onClick={() => onEditSlot({ slot, planId, date: dayDate })}
 									>
 										✏️
 									</button>
@@ -1364,7 +1383,10 @@ function MemberDayCard({
 										color: "var(--text-secondary)",
 									}}
 								>
-									🍽️ 外食 {slot.dining_out_kcal ? `（目安 ${Math.round(slot.dining_out_kcal)} kcal）` : ""}
+									🍽️ 外食{" "}
+									{slot.dining_out_kcal
+										? `（目安 ${Math.round(slot.dining_out_kcal)} kcal）`
+										: ""}
 								</div>
 							) : item ? (
 								<ItemCard
@@ -1373,7 +1395,9 @@ function MemberDayCard({
 									isDraft={planStatus === "draft"}
 								/>
 							) : (
-								<div style={{ fontSize: 12, color: "var(--text-secondary)" }}>未生成</div>
+								<div style={{ fontSize: 12, color: "var(--text-secondary)" }}>
+									未生成
+								</div>
 							)}
 						</div>
 					))}
@@ -1384,7 +1408,7 @@ function MemberDayCard({
 }
 
 // ─── SlotEditPanel ────────────────────────────────────────────────────────────
-function SlotEditPanel({ planId, slot, onClose }) {
+function SlotEditPanel({ planId, slot, dayDate, onClose }) {
 	const qc = useQueryClient();
 	const [sharingType, setSharingType] = useState(slot.sharing_type);
 	const [isDiningOut, setIsDiningOut] = useState(slot.is_dining_out || false);
@@ -1427,16 +1451,79 @@ function SlotEditPanel({ planId, slot, onClose }) {
 
 	return (
 		<div className="modal-overlay" onClick={onClose}>
-			<div className="modal-content" onClick={(e) => e.stopPropagation()}>
-				<div className="modal-header">
-					<h3>✏️ {MEAL_FULL[slot.meal_type]} を編集</h3>
+			<div
+				className="modal-sheet"
+				style={{
+					width: "min(100%, 560px)",
+					margin: "auto auto 0",
+					paddingTop: 0,
+				}}
+				onClick={(e) => e.stopPropagation()}
+			>
+				<div className="modal-header" style={{ marginBottom: 12 }}>
+					<h3 className="modal-title">✏️ {MEAL_FULL[slot.meal_type]} を編集</h3>
 					<button className="btn-icon" onClick={onClose}>
 						✕
 					</button>
 				</div>
-				<div className="form-group">
-					<label className="form-label">共有 / 個別</label>
-					<div style={{ display: "flex", gap: 8 }}>
+				<div
+					style={{
+						background:
+							"linear-gradient(180deg, rgba(22,163,74,0.08), rgba(22,163,74,0.02))",
+						border: "1px solid rgba(22,163,74,0.14)",
+						borderRadius: 16,
+						padding: 14,
+						marginBottom: 14,
+					}}
+				>
+					<div
+						style={{
+							display: "flex",
+							gap: 8,
+							flexWrap: "wrap",
+							marginBottom: 8,
+						}}
+					>
+						<span className="tag tag-green">
+							{dayDate ? dateLabel(dayDate) : "対象日"}
+						</span>
+						{slot.source_type && (
+							<span
+								className={`tag ${slot.source_type === "conbini" ? "tag-blue" : slot.source_type === "bento" ? "tag-orange" : slot.source_type === "drink_only" ? "tag-gray" : "tag-green"}`}
+							>
+								{SOURCE_LABEL[slot.source_type]} {SOURCE_JP[slot.source_type]}
+							</span>
+						)}
+						<span
+							className={`tag ${sharingType === "shared" ? "tag-green" : "tag-gray"}`}
+						>
+							{sharingType === "shared" ? "共有食" : "個別食"}
+						</span>
+					</div>
+					<div
+						style={{
+							fontSize: 13,
+							color: "var(--text-secondary)",
+							lineHeight: 1.65,
+						}}
+					>
+						量の微調整は各メニューカードから、ここでは食事単位の構成変更と AI
+						差し替えを行えます。
+					</div>
+				</div>
+
+				<div
+					style={{
+						background: "var(--bg)",
+						borderRadius: 16,
+						padding: 14,
+						marginBottom: 12,
+					}}
+				>
+					<label className="form-label" style={{ marginBottom: 10 }}>
+						共有 / 個別
+					</label>
+					<div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
 						{["shared", "individual"].map((t) => (
 							<button
 								key={t}
@@ -1448,8 +1535,18 @@ function SlotEditPanel({ planId, slot, onClose }) {
 						))}
 					</div>
 				</div>
-				<div className="form-group">
-					<label className="form-label">
+				<div
+					style={{
+						background: "var(--bg)",
+						borderRadius: 16,
+						padding: 14,
+						marginBottom: 12,
+					}}
+				>
+					<label
+						className="form-label"
+						style={{ display: "flex", alignItems: "center", marginBottom: 0 }}
+					>
 						<input
 							type="checkbox"
 							checked={isDiningOut}
@@ -1458,6 +1555,16 @@ function SlotEditPanel({ planId, slot, onClose }) {
 						/>
 						外食に変更
 					</label>
+					<div
+						style={{
+							fontSize: 12,
+							color: "var(--text-secondary)",
+							lineHeight: 1.6,
+							marginTop: 8,
+						}}
+					>
+						外食にすると、その枠の AI 献立は外れて目安カロリーだけを保持します。
+					</div>
 					{isDiningOut && (
 						<input
 							type="number"
@@ -1466,14 +1573,27 @@ function SlotEditPanel({ planId, slot, onClose }) {
 							value={diningOutKcal}
 							onChange={(e) => setDiningOutKcal(e.target.value)}
 							min="0"
-							style={{ marginTop: 8 }}
+							style={{ marginTop: 10 }}
 						/>
 					)}
 				</div>
-				<div style={{ display: "flex", gap: 8, marginTop: 16 }}>
+				<div
+					style={{
+						display: "flex",
+						gap: 8,
+						marginTop: 16,
+						paddingTop: 12,
+						borderTop: "1px solid var(--border)",
+						position: "sticky",
+						bottom: 0,
+						background: "var(--surface)",
+						paddingBottom: "calc(6px + env(safe-area-inset-bottom, 0px))",
+						flexWrap: "wrap",
+					}}
+				>
 					<button
 						className="btn btn-secondary"
-						style={{ flex: 1 }}
+						style={{ flex: "1 1 220px" }}
 						onClick={handleReplace}
 						disabled={replacing}
 					>
@@ -1481,7 +1601,7 @@ function SlotEditPanel({ planId, slot, onClose }) {
 					</button>
 					<button
 						className="btn btn-primary"
-						style={{ flex: 1 }}
+						style={{ flex: "1 1 180px" }}
 						onClick={handleSave}
 						disabled={saving}
 					>
@@ -1496,7 +1616,10 @@ function SlotEditPanel({ planId, slot, onClose }) {
 // ─── メインページ ─────────────────────────────────────────────────────────────
 export default function MealPlanPage() {
 	const qc = useQueryClient();
+	const [searchParams] = useSearchParams();
 	const today = toJstDateString();
+	const requestedPlanId = searchParams.get("plan");
+	const focusedDate = searchParams.get("date");
 
 	// ステップ管理
 	const [step, setStep] = useState(null); // null | 'settings' | 'configure'
@@ -1512,7 +1635,10 @@ export default function MealPlanPage() {
 	const settingsLoadedRef = useRef(false);
 	useEffect(() => {
 		if (sharedSettingsData?.settings && !settingsLoadedRef.current) {
-			_setSettingsLocal({ ...DEFAULT_SETTINGS, ...sharedSettingsData.settings });
+			_setSettingsLocal({
+				...DEFAULT_SETTINGS,
+				...sharedSettingsData.settings,
+			});
 			settingsLoadedRef.current = true;
 		}
 	}, [sharedSettingsData]);
@@ -1544,6 +1670,12 @@ export default function MealPlanPage() {
 		queryKey: ["meal-plans"],
 		queryFn: () => mealPlanApi.list(),
 	});
+
+	useEffect(() => {
+		if (requestedPlanId && requestedPlanId !== selectedPlan) {
+			setSelectedPlan(requestedPlanId);
+		}
+	}, [requestedPlanId, selectedPlan]);
 
 	const { data: planDetail } = useQuery({
 		queryKey: ["meal-plan", selectedPlan],
@@ -1578,7 +1710,13 @@ export default function MealPlanPage() {
 			});
 		}
 		prevDoneRef.current = prog.done;
-	}, [planDetail?.progress?.done, planDetail?.progress?.error, planDetail?.start_date, planDetail?.end_date, planDetail?.progress?.message]);
+	}, [
+		planDetail?.progress?.done,
+		planDetail?.progress?.error,
+		planDetail?.start_date,
+		planDetail?.end_date,
+		planDetail?.progress?.message,
+	]);
 
 	const { data: shopping } = useQuery({
 		queryKey: ["shopping", selectedPlan],
@@ -1647,7 +1785,10 @@ export default function MealPlanPage() {
 			const frequentMenus = {};
 			members.forEach((m) => {
 				const fm = settings.frequentMenus?.[m.user_id];
-				if (fm && (fm.breakfast?.length || fm.lunch?.length || fm.dinner?.length)) {
+				if (
+					fm &&
+					(fm.breakfast?.length || fm.lunch?.length || fm.dinner?.length)
+				) {
 					frequentMenus[m.user_id] = {
 						breakfast: fm.breakfast || [],
 						lunch: fm.lunch || [],
@@ -1757,7 +1898,8 @@ export default function MealPlanPage() {
 						lineHeight: 1.6,
 					}}
 				>
-					💡 メンバー別デフォルト設定はプラン履歴画面（前のページ）で変更できます。
+					💡
+					メンバー別デフォルト設定はプラン履歴画面（前のページ）で変更できます。
 					ここでは現在の設定値で 7 日間分が初期化されます。
 				</div>
 
@@ -1905,7 +2047,8 @@ export default function MealPlanPage() {
 							>
 								💡 ここで設定した値は次の献立生成時の初期値になります。
 								<br />
-								グループメンバー全員で共有・cloud 保存（端末を変えても同じ設定が表示されます）
+								グループメンバー全員で共有・cloud
+								保存（端末を変えても同じ設定が表示されます）
 							</div>
 							<SettingsPanel
 								settings={settings}
@@ -2081,7 +2224,33 @@ export default function MealPlanPage() {
 					) : (
 						planDetail.days.map((day) => (
 							<div key={day.id} className="card">
-								<div className="card-title">{dateLabel(day.date)}</div>
+								<div
+									className="card-title"
+									style={
+										focusedDate === day.date
+											? {
+													padding: "10px 12px",
+													margin: "-12px -12px 10px",
+													background: "rgba(22,163,74,0.08)",
+													borderBottom: "1px solid rgba(22,163,74,0.16)",
+													borderRadius: "12px 12px 10px 10px",
+												}
+											: undefined
+									}
+								>
+									{dateLabel(day.date)}
+									{focusedDate === day.date && (
+										<span
+											style={{
+												fontSize: 11,
+												marginLeft: 8,
+												color: "var(--primary)",
+											}}
+										>
+											チャット指定日
+										</span>
+									)}
+								</div>
 								{members.map((m) => {
 									const label = labelByUserId[m.user_id];
 									const isMe = m.user_id === currentUserId;
@@ -2091,6 +2260,7 @@ export default function MealPlanPage() {
 											memberLabel={label}
 											memberName={m.name}
 											isMe={isMe}
+											dayDate={day.date}
 											daySlots={day.slots}
 											planId={planDetail.id}
 											planStatus={planDetail.status}
@@ -2119,6 +2289,7 @@ export default function MealPlanPage() {
 				<SlotEditPanel
 					planId={editingSlot.planId}
 					slot={editingSlot.slot}
+					dayDate={editingSlot.date}
 					onClose={() => setEditingSlot(null)}
 				/>
 			)}

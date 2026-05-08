@@ -2000,6 +2000,38 @@ select.form-input {
   border-top-color: rgba(255,255,255,0.2);
   color: rgba(255,255,255,0.7);
 }
+.chat-action-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+.chat-action-btn {
+  border: none;
+  border-radius: 999px;
+  padding: 8px 12px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.3;
+  cursor: pointer;
+  background: var(--brand-pale);
+  color: var(--brand-deep);
+  transition: transform 0.15s, background 0.15s, opacity 0.15s;
+}
+.chat-action-btn:hover:not(:disabled) {
+  background: #dcfce7;
+  transform: translateY(-1px);
+}
+.chat-action-btn.secondary {
+  background: var(--bg);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+}
+.chat-action-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
 
 .chat-typing {
   display: inline-flex;

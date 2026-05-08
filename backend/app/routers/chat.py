@@ -1,5 +1,6 @@
 """S2-04: AI チャット相談エンドポイント"""
-from datetime import datetime
+import re
+from datetime import date as dt_date, datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
@@ -21,6 +22,101 @@ SYSTEM_PROMPT = """あなたは「健康ナビ」アプリの栄養・食事ア�
 - 情報が不足している場合は推測で答えず、追加情報を求める
 - 回答は300字以内に収める（長い場合は要点を箇条書きに）
 """
+MEAL_CHANGE_KEYWORDS = ("献立", "メニュー", "朝食", "昼食", "夕食", "朝ごはん", "昼ごはん", "夜ごはん")
+MEAL_CHANGE_VERBS = ("変え", "変更", "差し替", "再提案", "入れ替", "置き換", "別の", "違う")
+
+
+def _is_meal_change_request(message: str) -> bool:
+    return any(word in message for word in MEAL_CHANGE_KEYWORDS) and any(word in message for word in MEAL_CHANGE_VERBS)
+
+
+def _extract_target_date(message: str, today: dt_date) -> str | None:
+    compact = message.replace("（", "(").replace("）", ")")
+    if "今日" in compact:
+        return today.isoformat()
+    if "明後日" in compact:
+        return (today + timedelta(days=2)).isoformat()
+    if "明日" in compact:
+        return (today + timedelta(days=1)).isoformat()
+
+    match = re.search(r"(20\d{2})[/-](\d{1,2})[/-](\d{1,2})", compact)
+    if match:
+        year, month, day = map(int, match.groups())
+        return dt_date(year, month, day).isoformat()
+
+    match = re.search(r"(\d{1,2})月(\d{1,2})日", compact)
+    if not match:
+        match = re.search(r"(?<!\d)(\d{1,2})/(\d{1,2})(?!\d)", compact)
+    if match:
+        month, day = map(int, match.groups())
+        year = today.year
+        try:
+            candidate = dt_date(year, month, day)
+        except ValueError:
+            return None
+        if candidate < today - timedelta(days=180):
+            candidate = dt_date(year + 1, month, day)
+        return candidate.isoformat()
+    return None
+
+
+def _extract_target_meal_types(message: str) -> list[str]:
+    meal_types: list[str] = []
+    if any(token in message for token in ("朝食", "朝ごはん", "朝だけ", "朝を", "朝の")):
+        meal_types.append("breakfast")
+    if any(token in message for token in ("昼食", "昼ごはん", "昼だけ", "昼を", "昼の", "ランチ")):
+        meal_types.append("lunch")
+    if any(token in message for token in ("夕食", "夜ごはん", "夜だけ", "夜を", "夜の", "夕飯", "晩ごはん")):
+        meal_types.append("dinner")
+    return meal_types or ["breakfast", "lunch", "dinner"]
+
+
+def _build_meal_plan_action(message: str, current_user: models.User, db: Session, today: dt_date) -> dict | None:
+    if not _is_meal_change_request(message):
+        return None
+    target_date = _extract_target_date(message, today)
+    if not target_date:
+        return None
+
+    member = db.query(models.GroupMember).filter_by(user_id=current_user.id).first()
+    if not member:
+        return None
+
+    plans = (
+        db.query(models.MealPlan)
+        .filter(
+            models.MealPlan.group_id == member.group_id,
+            models.MealPlan.start_date <= target_date,
+            models.MealPlan.end_date >= target_date,
+        )
+        .order_by(models.MealPlan.created_at.desc())
+        .all()
+    )
+    if not plans:
+        return None
+
+    draft_plan = next((plan for plan in plans if str(plan.status) == "draft"), None)
+    plan = draft_plan or plans[0]
+    day = next((day for day in plan.days if day.date == target_date), None)
+    if not day:
+        return None
+
+    meal_types = _extract_target_meal_types(message)
+    slots = [slot for slot in day.slots if str(slot.meal_type) in meal_types]
+    if not slots:
+        return None
+
+    meal_jp = {"breakfast": "朝食", "lunch": "昼食", "dinner": "夕食"}
+    meal_label = "・".join(meal_jp[meal] for meal in meal_types) if len(meal_types) < 3 else "その日の献立"
+    return {
+        "type": "replace_day_meal_plan",
+        "plan_id": plan.id,
+        "day_id": day.id,
+        "date": target_date,
+        "meal_types": meal_types,
+        "label": f"{target_date} の {meal_label} を AI で差し替える",
+        "open_plan_label": f"{target_date} の献立をプラン画面で開く",
+    }
 
 
 def _build_latest_body_lines(db: Session, user_id: str) -> tuple[list[str], dict | None]:
@@ -116,11 +212,11 @@ async def chat(
     _check_usage_limit(current_user.id, "chat", plan_type, db)
 
     # === ユーザー情報をコンテキストにまとめる（チャット品質向上） ===
-    from datetime import date as dt_date, timedelta
     from collections import defaultdict
 
     today = dt_date.today()
     week_ago = str(today - timedelta(days=7))
+    plan_action = _build_meal_plan_action(payload.message, current_user, db, today)
 
     goals = db.query(models.UserGoals).filter_by(user_id=current_user.id).first()
     profile_lines = []
@@ -313,5 +409,6 @@ async def chat(
         "input_tokens": getattr(result, "input_tokens", None),
         "output_tokens": getattr(result, "output_tokens", None),
         "llm_model": getattr(result, "model", None),
+        "plan_action": plan_action,
         **cost_info,
     }
