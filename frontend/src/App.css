@@ -1827,13 +1827,13 @@ select.form-input {
 }
 @media (max-width: 639px) {
   .chat-panel-v2 {
-    top: max(8px, env(safe-area-inset-top, 0px));
+    top: 0;
     bottom: 0;
     left: 0;
     right: 0;
     max-width: none;
-    height: auto;
-    border-radius: 18px 18px 0 0;
+    height: 100dvh;
+    border-radius: 0;
   }
 }
 
@@ -1858,15 +1858,28 @@ select.form-input {
   background: rgba(255,255,255,0.15);
   border: none;
   color: #fff;
-  width: 28px; height: 28px;
+  width: 36px; height: 36px;
   border-radius: 6px;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
   transition: background 0.2s;
+  flex-shrink: 0;
 }
 .chat-icon-btn:hover { background: rgba(255,255,255,0.3); }
+
+@media (max-width: 639px) {
+  .chat-panel-header-v2 {
+    padding: calc(12px + env(safe-area-inset-top, 0px)) 16px 12px;
+  }
+
+  .chat-icon-btn {
+    width: 42px;
+    height: 42px;
+    border-radius: 10px;
+  }
+}
 
 .chat-plan-banner {
   padding: 6px 14px;

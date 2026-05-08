@@ -237,7 +237,7 @@ export default function ChatWidget() {
 								title="履歴をクリア"
 								aria-label="履歴をクリア"
 							>
-								<Trash2 size={14} strokeWidth={2} />
+								<Trash2 size={18} strokeWidth={2} />
 							</button>
 							<button
 								className="chat-icon-btn"
@@ -245,7 +245,7 @@ export default function ChatWidget() {
 								title="閉じる"
 								aria-label="閉じる"
 							>
-								<X size={16} strokeWidth={2} />
+								<X size={20} strokeWidth={2.25} />
 							</button>
 						</div>
 					</div>

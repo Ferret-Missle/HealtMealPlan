@@ -635,7 +635,9 @@ function ItemCard({ item, planId, isDraft }) {
 								menuEntries.length > 1 ? "1px dashed var(--border)" : "none",
 						}}
 					>
-						<div style={{ fontWeight: 500, fontSize: 14, whiteSpace: "pre-line" }}>
+						<div
+							style={{ fontWeight: 500, fontSize: 14, whiteSpace: "pre-line" }}
+						>
 							{entry.name}
 						</div>
 						<div
@@ -648,7 +650,9 @@ function ItemCard({ item, planId, isDraft }) {
 						>
 							<button
 								type="button"
-								onClick={() => saveFeedback(entry.name, entry.feedback_status, "good")}
+								onClick={() =>
+									saveFeedback(entry.name, entry.feedback_status, "good")
+								}
 								disabled={feedbackSaving}
 								className={`btn ${entry.feedback_status === "good" ? "btn-primary" : "btn-outline"}`}
 								style={{ padding: "3px 8px", fontSize: 11 }}
@@ -657,7 +661,9 @@ function ItemCard({ item, planId, isDraft }) {
 							</button>
 							<button
 								type="button"
-								onClick={() => saveFeedback(entry.name, entry.feedback_status, "bad")}
+								onClick={() =>
+									saveFeedback(entry.name, entry.feedback_status, "bad")
+								}
 								disabled={feedbackSaving}
 								className={`btn ${entry.feedback_status === "bad" ? "btn-primary" : "btn-outline"}`}
 								style={{ padding: "3px 8px", fontSize: 11 }}
@@ -2135,7 +2141,7 @@ export default function MealPlanPage() {
 									<div style={{ fontWeight: 600, fontSize: 14 }}>
 										{plan.start_date}
 										{plan.start_date !== plan.end_date
-											? ` 〜 ${plan.end_date}`
+											? ` / ${plan.end_date}`
 											: ""}
 									</div>
 									<div
@@ -2152,11 +2158,14 @@ export default function MealPlanPage() {
 											minute: "2-digit",
 										})}
 									</div>
-									{(plan.primary_llm_model || plan.total_tokens != null || plan.estimated_total_cost_jpy != null) && (
+									{(plan.primary_llm_model ||
+										plan.total_tokens != null ||
+										plan.estimated_total_cost_jpy != null) && (
 										<div
 											style={{
 												marginTop: 8,
 												padding: "8px 10px",
+												justifyContent: "flex-end",
 												borderRadius: 10,
 												background: "var(--bg)",
 												border: "1px solid var(--border)",
@@ -2165,15 +2174,44 @@ export default function MealPlanPage() {
 											}}
 										>
 											{plan.primary_llm_model && (
-												<div style={{ fontSize: 12, color: "var(--text)", fontWeight: 600, lineHeight: 1.5 }}>
+												<div
+													style={{
+														fontSize: 12,
+														color: "var(--text)",
+														fontWeight: 600,
+														lineHeight: 1.5,
+													}}
+												>
 													🤖 {plan.primary_llm_model}
-													{plan.llm_model_count > 1 && ` ほか ${plan.llm_model_count - 1} モデル`}
+													{plan.llm_model_count > 1 &&
+														` ほか ${plan.llm_model_count - 1} モデル`}
 												</div>
 											)}
-											<div style={{ fontSize: 11, color: "var(--text-secondary)", display: "flex", gap: 8, flexWrap: "wrap" }}>
-												{plan.input_tokens_total != null && <span>入力 {formatTokenCount(plan.input_tokens_total)} tok</span>}
-												{plan.output_tokens_total != null && <span>出力 {formatTokenCount(plan.output_tokens_total)} tok</span>}
-												{plan.estimated_total_cost_jpy != null && <span>概算 {formatYen(plan.estimated_total_cost_jpy)}</span>}
+											<div
+												style={{
+													fontSize: 11,
+													color: "var(--text-secondary)",
+													display: "flex",
+													gap: 8,
+													flexWrap: "wrap",
+												}}
+											>
+												{plan.input_tokens_total != null && (
+													<span>
+														入力 {formatTokenCount(plan.input_tokens_total)} tok
+													</span>
+												)}
+												{plan.output_tokens_total != null && (
+													<span>
+														出力 {formatTokenCount(plan.output_tokens_total)}{" "}
+														tok
+													</span>
+												)}
+												{plan.estimated_total_cost_jpy != null && (
+													<span>
+														概算 {formatYen(plan.estimated_total_cost_jpy)}
+													</span>
+												)}
 											</div>
 										</div>
 									)}
