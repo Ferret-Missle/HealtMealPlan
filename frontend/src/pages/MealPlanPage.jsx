@@ -1,20 +1,30 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { authApi, groupApi, mealPlanApi, shoppingApi } from "../services/api";
-import { notifyMealPlanResult } from "../utils/notify";
 import {
 	addJstDays,
 	formatJstDate,
 	isWeekendJst,
 	toJstDateString,
 } from "../utils/date";
+import { notifyMealPlanResult } from "../utils/notify";
 
 // ─── 定数 ────────────────────────────────────────────────────────────────────
 const MEAL_JP = { breakfast: "朝", lunch: "昼", dinner: "夕" };
 const MEAL_FULL = { breakfast: "朝食", lunch: "昼食", dinner: "夕食" };
 const SOURCE_CYCLE = ["conbini", "bento", "homecook", "drink_only"];
-const SOURCE_LABEL = { conbini: "🏪", bento: "🍱", homecook: "🍳", drink_only: "🥤" };
-const SOURCE_JP = { conbini: "コンビニ", bento: "自作弁当", homecook: "自炊", drink_only: "飲み物のみ" };
+const SOURCE_LABEL = {
+	conbini: "🏪",
+	bento: "🍱",
+	homecook: "🍳",
+	drink_only: "🥤",
+};
+const SOURCE_JP = {
+	conbini: "コンビニ",
+	bento: "自作弁当",
+	homecook: "自炊",
+	drink_only: "飲み物のみ",
+};
 // ─── 汎用ヘルパー ─────────────────────────────────────────────────────────────
 function nextSource(s) {
 	return SOURCE_CYCLE[(SOURCE_CYCLE.indexOf(s) + 1) % SOURCE_CYCLE.length];
@@ -265,8 +275,9 @@ function SettingsPanel({ settings, onChange, members }) {
 								よく食べるメニュー（カンマ・スペース・句読点で区切り）
 							</div>
 							{["breakfast", "lunch", "dinner"].map((meal) => {
-								const fav =
-									(settings.frequentMenus?.[m.user_id]?.[meal] || []).join(", ");
+								const fav = (
+									settings.frequentMenus?.[m.user_id]?.[meal] || []
+								).join(", ");
 								return (
 									<div
 										key={meal}
@@ -750,16 +761,24 @@ function ItemCard({ item, planId, isDraft }) {
 					{item.input_tokens != null && (
 						<span>
 							入力 <strong>{item.input_tokens.toLocaleString()}</strong> tok
+							{item.estimated_input_cost_jpy != null &&
+								` (${formatYen(item.estimated_input_cost_jpy)})`}
 						</span>
 					)}
 					{item.output_tokens != null && (
 						<span>
 							出力 <strong>{item.output_tokens.toLocaleString()}</strong> tok
+							{item.estimated_output_cost_jpy != null &&
+								` (${formatYen(item.estimated_output_cost_jpy)})`}
 						</span>
 					)}
 					{item.input_tokens != null && item.output_tokens != null && (
 						<span>
-							合計 <strong>{(item.input_tokens + item.output_tokens).toLocaleString()}</strong> tok
+							合計{" "}
+							<strong>
+								{(item.input_tokens + item.output_tokens).toLocaleString()}
+							</strong>{" "}
+							tok
 						</span>
 					)}
 					{item.estimated_total_cost_jpy != null && (
@@ -802,9 +821,10 @@ function PlanPromptViewer({ plan }) {
 	return (
 		<div
 			style={{
-				marginTop: 12,
+				marginTop: 16,
+				marginBottom: 16,
 				border: "1px solid var(--border)",
-				borderRadius: 8,
+				borderRadius: 12,
 				overflow: "hidden",
 			}}
 		>
@@ -828,7 +848,7 @@ function PlanPromptViewer({ plan }) {
 				<span>{expanded ? "▲" : "▼"}</span>
 			</button>
 			{expanded && (
-				<div style={{ padding: 12, background: "var(--bg)" }}>
+				<div style={{ padding: 14, background: "var(--bg)" }}>
 					<div className="form-group">
 						<label className="form-label" style={{ fontSize: 12 }}>
 							確認するスロット（{promptItems.length}件）
@@ -918,12 +938,14 @@ function PlanPromptViewer({ plan }) {
 							}}
 						>
 							🤖 {current.item.llm_model || "LLM"} / 入力{" "}
-							{current.item.input_tokens?.toLocaleString() || "—"} tok / 出力{" "}
-							{current.item.output_tokens?.toLocaleString() || "—"} tok
+							{current.item.input_tokens?.toLocaleString() || "—"} tok
+							{current.item.estimated_input_cost_jpy != null &&
+								` (${formatYen(current.item.estimated_input_cost_jpy)})`}
+							/ 出力 {current.item.output_tokens?.toLocaleString() || "—"} tok
+							{current.item.estimated_output_cost_jpy != null &&
+								` (${formatYen(current.item.estimated_output_cost_jpy)})`}
 							{current.item.estimated_total_cost_jpy != null && (
-								<>
-									{" "}/ 概算 {formatYen(current.item.estimated_total_cost_jpy)}
-								</>
+								<> / 概算 {formatYen(current.item.estimated_total_cost_jpy)}</>
 							)}
 						</div>
 					)}

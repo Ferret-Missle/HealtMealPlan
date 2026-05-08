@@ -395,6 +395,7 @@ async def generate_menus(plan_id: str, user_id: str, db: Session, conditions: di
             key=lambda s: meal_order.get(str(s.meal_type), 99),
         )
         same_day_done: list[str] = []
+        same_day_used_ingredients: list[str] = []
         for slot in sorted_slots:
             mt = str(slot.meal_type)
             meal_jp = MEAL_JP_MAP.get(mt, mt)
@@ -407,6 +408,7 @@ async def generate_menus(plan_id: str, user_id: str, db: Session, conditions: di
                 slot, day.date, member_contexts, past_ingredients,
                 user_id, db, conditions, day_cond_members,
                 same_day_done=same_day_done,
+                same_day_used_ingredients=same_day_used_ingredients,
                 recent_same_meal=plan_done_by_meal.get(mt, [])[-5:],
                 plan_used_ingredients=plan_used_ingredients,
                 all_day_slots=list(day.slots),
@@ -415,6 +417,7 @@ async def generate_menus(plan_id: str, user_id: str, db: Session, conditions: di
                 same_day_done.extend(new_names)
                 plan_done_by_meal.setdefault(mt, []).extend(new_names)
             if new_ings:
+                same_day_used_ingredients.extend(new_ings)
                 plan_used_ingredients.extend(new_ings)
             done_count += 1
 
@@ -431,6 +434,7 @@ async def _generate_slot_menu(
     conditions: dict | None = None,
     day_cond_members: list | None = None,
     same_day_done: list[str] | None = None,
+    same_day_used_ingredients: list[str] | None = None,
     recent_same_meal: list[str] | None = None,
     plan_used_ingredients: list[str] | None = None,
     all_day_slots: list | None = None,
@@ -441,6 +445,8 @@ async def _generate_slot_menu(
         day_cond_members = []
     if same_day_done is None:
         same_day_done = []
+    if same_day_used_ingredients is None:
+        same_day_used_ingredients = []
     if recent_same_meal is None:
         recent_same_meal = []
     if plan_used_ingredients is None:
@@ -481,6 +487,7 @@ async def _generate_slot_menu(
             adapter, slot, meal_type_str, slot_source, light_breakfast,
             member_contexts, past_ingredients, same_day_done, recent_same_meal,
             plan_used_ingredients,
+            same_day_used_ingredients=same_day_used_ingredients,
             day_sources_per_member=day_sources_per_member,
         )
         db.add(_make_item(slot.id, None, data, meal_type_str))
@@ -496,6 +503,7 @@ async def _generate_slot_menu(
                 adapter, slot, meal_type_str, src, lb,
                 [mc], past_ingredients, same_day_done, recent_same_meal,
                 plan_used_ingredients,
+                same_day_used_ingredients=same_day_used_ingredients,
                 day_sources_per_member={mc["user_id"]: day_sources_per_member.get(mc["user_id"], {})},
             )
             db.add(_make_item(slot.id, mc["label"], data, meal_type_str))
@@ -514,11 +522,13 @@ async def _call_llm(
     same_day_done: list[str] | None = None,
     recent_same_meal: list[str] | None = None,
     plan_used_ingredients: list[str] | None = None,
+    same_day_used_ingredients: list[str] | None = None,
     day_sources_per_member: dict | None = None,
 ) -> dict:
     same_day_done = same_day_done or []
     recent_same_meal = recent_same_meal or []
     plan_used_ingredients = plan_used_ingredients or []
+    same_day_used_ingredients = same_day_used_ingredients or []
     meal_name_jp = {"breakfast": "朝食", "lunch": "昼食", "dinner": "夕食"}.get(meal_type_str, "食事")
     sharing_jp = "共有食（全員分同じ料理）" if slot.sharing_type == "shared" else "個別食"
     members_count = len(member_contexts)
@@ -628,17 +638,34 @@ async def _call_llm(
             f"主食・主菜・タンパク源・調理法を変えてバリエーションを出してください。\n"
         )
 
+    same_day_ingredients_section = ""
+    if same_day_used_ingredients:
+        from collections import Counter
+        same_day_counter = Counter(str(ing).strip() for ing in same_day_used_ingredients if str(ing).strip())
+        same_day_top = [ing for ing, _ in same_day_counter.most_common(12)]
+        if same_day_top:
+            same_day_ingredients_section = (
+                f"\n[★ 同日内で既に使った食材（再利用しない）]\n"
+                f"{', '.join(same_day_top)}\n"
+                f"特に卵・鶏・豚・牛・魚・豆腐など主要なタンパク源は同じ日に再利用しないこと。\n"
+                f"例: 朝にゆで卵を出した日は、昼に味付きゆで卵や卵メインの献立を出さない。\n"
+            )
+
     # プラン内ですでに使用された食材（買い物まとめのため再活用を促す）
     plan_used_section = ""
-    if plan_used_ingredients:
+    historical_plan_used_ingredients = [
+        ing for ing in plan_used_ingredients if ing not in set(same_day_used_ingredients)
+    ]
+    if historical_plan_used_ingredients:
         # 重複を除き使用回数の多い順に最大15個
         from collections import Counter
-        counter = Counter(plan_used_ingredients)
+        counter = Counter(historical_plan_used_ingredients)
         top_used = [ing for ing, _ in counter.most_common(15)]
         plan_used_section = (
-            f"\n[★ プラン内で既に使用された食材（買い物まとめのため積極的に再活用）]\n"
+            f"\n[★ プラン内の別日で既に使用された食材（買い物まとめのため再活用可）]\n"
             f"{', '.join(top_used)}\n"
-            f"上記の食材を異なる調理法・味付けで使い回すことで、買い物リストを集約してください。\n"
+            f"上記の食材は別日なら異なる調理法・味付けで使い回して構いません。\n"
+            f"ただし同日内では同じ主要食材・同じタンパク源を繰り返さないこと。\n"
             f"全く新しい食材を毎回追加するのではなく、これらの食材を中心にメニューを構成すること。\n"
         )
 
@@ -670,7 +697,7 @@ async def _call_llm(
 
 [除外/重複]
 除外食材: {", ".join(excluded) if excluded else "なし"}
-過去3日の使用食材（重複回避推奨）: {", ".join(past_ingredients) if past_ingredients else "なし"}{plan_used_section}{same_day_section}{recent_section}
+過去3日の使用食材（重複回避推奨）: {", ".join(past_ingredients) if past_ingredients else "なし"}{same_day_ingredients_section}{plan_used_section}{same_day_section}{recent_section}
 
 [出力ルール]
 - serving_grams は 1 人前の総重量（g）。料理の量で目標 kcal/PFC に合わせること。
@@ -695,7 +722,8 @@ async def _call_llm(
 1. 上記「同日内で既に提案済み」「他日の同食事タイプ」のリストにある料理と
    主食・主菜・タンパク源・調理法のいずれかが重複していないか確認
 2. 重複していれば違うタンパク源（鶏/豚/牛/魚/海鮮/卵/大豆）に変えて再考
-3. menu_name はリストにある料理名と完全一致しないこと"""
+3. 同日内ですでに使った主要食材（特に卵・鶏・豚・牛・魚・豆腐）を再利用していないこと
+4. menu_name はリストにある料理名と完全一致しないこと"""
 
     try:
         result = await adapter.complete(SYSTEM_PROMPT, user_prompt, json_mode=True)
@@ -894,6 +922,7 @@ async def generate_slot_menu(
         past_ingredients = _get_past_ingredients(plan.group_id, plan.start_date, db)
         # 同日の他スロットで既に生成されているメニュー名を抽出
         same_day_done: list[str] = []
+        same_day_used_ingredients: list[str] = []
         meal_order = {"breakfast": 0, "lunch": 1, "dinner": 2}
         cur_order = meal_order.get(str(slot.meal_type), 99)
         for s in day.slots:
@@ -904,6 +933,8 @@ async def generate_slot_menu(
             for it in s.items:
                 if it.menu_name:
                     same_day_done.append(it.menu_name)
+                if it.ingredients_json:
+                    same_day_used_ingredients.extend([str(x) for x in it.ingredients_json if x])
         # プラン全体の同じ食事タイプの他日メニューを集める（自分の slot は除外）
         cur_meal_type = str(slot.meal_type)
         recent_same_meal: list[str] = []
@@ -926,6 +957,7 @@ async def generate_slot_menu(
             slot, day.date, member_contexts, past_ingredients,
             user_id, db, conditions, day_cond_members,
             same_day_done=same_day_done,
+            same_day_used_ingredients=same_day_used_ingredients,
             recent_same_meal=recent_same_meal[-5:],
             plan_used_ingredients=plan_used_ingredients,
             all_day_slots=list(day.slots),
