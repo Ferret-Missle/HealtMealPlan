@@ -1,0 +1,110 @@
+from datetime import date as dt_date, datetime
+
+from sqlalchemy.orm import Session
+
+from .. import models
+
+
+WEIGHT_METRIC_FIELDS = (
+    "weight",
+    "body_fat",
+    "muscle_mass",
+    "bmi",
+    "basal_metabolism_kcal",
+    "body_age",
+    "bone_mass",
+    "visceral_fat_level",
+)
+SOURCE_PRIORITY = {
+    "manual": 3,
+    "healthplanet": 2,
+    "fitbit": 1,
+}
+
+
+def get_weight_metric_snapshot(
+    db: Session,
+    user_id: str,
+    preferred_date: str | None = None,
+) -> dict | None:
+    logs = (
+        db.query(models.WeightLog)
+        .filter_by(user_id=user_id)
+        .order_by(models.WeightLog.date.desc(), models.WeightLog.created_at.desc())
+        .all()
+    )
+    if not logs:
+        return None
+
+    def _ordered_key(log: models.WeightLog) -> tuple:
+        return (
+            1 if preferred_date and log.date == preferred_date else 0,
+            log.date or "",
+            SOURCE_PRIORITY.get(str(getattr(log, "source", "") or "").lower(), 0),
+            getattr(log, "created_at", None) or datetime.min,
+        )
+
+    ordered_logs = sorted(logs, key=_ordered_key, reverse=True)
+
+    snapshot: dict[str, object] = {}
+    available_sources: list[str] = []
+    for log in ordered_logs:
+        source = getattr(log, "source", None)
+        if source and source not in available_sources:
+            available_sources.append(str(source))
+        for field in WEIGHT_METRIC_FIELDS:
+            if snapshot.get(field) is not None:
+                continue
+            value = getattr(log, field, None)
+            if value is None:
+                continue
+            snapshot[field] = value
+            snapshot[f"{field}_date"] = log.date
+            snapshot[f"{field}_source"] = source
+
+    if not snapshot:
+        return None
+    if available_sources:
+        snapshot["available_sources"] = available_sources
+    if snapshot.get("weight_date") is not None:
+        snapshot["latest_weight_date"] = snapshot["weight_date"]
+    reference_date = snapshot.get("weight_date") or snapshot.get("body_fat_date")
+    if reference_date:
+        snapshot["reference_date"] = reference_date
+        try:
+            snapshot["days_since_reference"] = (dt_date.today() - dt_date.fromisoformat(str(reference_date))).days
+        except ValueError:
+            pass
+    return snapshot
+
+
+def build_weight_metric_lines(snapshot: dict | None) -> list[str]:
+    if not snapshot:
+        return []
+
+    latest_weight_date = snapshot.get("weight_date")
+
+    def _line_with_optional_date(label: str, field: str, suffix: str = "") -> str | None:
+        value = snapshot.get(field)
+        if value is None:
+            return None
+        metric_date = snapshot.get(f"{field}_date")
+        if latest_weight_date and metric_date and metric_date != latest_weight_date:
+            return f"{label} ({metric_date}): {value}{suffix}"
+        return f"{label}: {value}{suffix}"
+
+    lines: list[str] = []
+    if snapshot.get("weight") is not None:
+        lines.append(f"直近体重 ({latest_weight_date}): {snapshot['weight']}kg")
+    for candidate in [
+        _line_with_optional_date("体脂肪率", "body_fat", "%"),
+        _line_with_optional_date("筋肉量", "muscle_mass", "kg"),
+        _line_with_optional_date("BMI", "bmi"),
+        _line_with_optional_date("基礎代謝量", "basal_metabolism_kcal", "kcal"),
+        _line_with_optional_date("体内年齢", "body_age", "才"),
+        _line_with_optional_date("推定骨量", "bone_mass", "kg"),
+        _line_with_optional_date("内臓脂肪レベル", "visceral_fat_level"),
+    ]:
+        if candidate:
+            lines.append(candidate)
+    return lines

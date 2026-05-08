@@ -9,6 +9,7 @@ from ..database import get_db
 from .. import models
 from ..auth_deps import get_current_user
 from ..services import gcal
+from ..services.body_snapshot import get_weight_metric_snapshot
 
 limiter = Limiter(key_func=get_remote_address)
 router = APIRouter()
@@ -24,12 +25,7 @@ async def today_summary(
     today = target_date or str(dt_date.today())
 
     # Fetch from DB first (cached)
-    weight_log = (
-        db.query(models.WeightLog)
-        .filter_by(user_id=current_user.id, date=today)
-        .order_by(models.WeightLog.created_at.desc())
-        .first()
-    )
+    weight_snapshot = get_weight_metric_snapshot(db, current_user.id, preferred_date=today)
     activity_log = (
         db.query(models.ActivityLog)
         .filter_by(user_id=current_user.id, date=today)
@@ -61,8 +57,12 @@ async def today_summary(
 
     return {
         "date": today,
-        "weight": weight_log.weight if weight_log else None,
-        "body_fat": weight_log.body_fat if weight_log else None,
+        "weight": weight_snapshot.get("weight") if weight_snapshot else None,
+        "weight_date": weight_snapshot.get("weight_date") if weight_snapshot else None,
+        "weight_source": weight_snapshot.get("weight_source") if weight_snapshot else None,
+        "body_fat": weight_snapshot.get("body_fat") if weight_snapshot else None,
+        "body_fat_date": weight_snapshot.get("body_fat_date") if weight_snapshot else None,
+        "body_fat_source": weight_snapshot.get("body_fat_source") if weight_snapshot else None,
         "steps": activity_log.steps if activity_log else None,
         "active_kcal": activity_log.active_kcal if activity_log else None,
         "sleep_hours": activity_log.sleep_hours if activity_log else None,

@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 from .. import models, security
 from ..llm.adapter import get_adapter
+from .body_snapshot import get_weight_metric_snapshot
 
 
 # ─── 進捗管理 ──────────────────────────────────────────────────
@@ -259,31 +260,29 @@ def _gather_body_info(user_id: str, db: Session, scope: str, goals) -> dict | No
         return None
 
     info: dict = {}
+    latest_weight_value = None
 
-    # 直近の体重ログ
-    latest_weight = (
-        db.query(models.WeightLog)
-        .filter_by(user_id=user_id)
-        .order_by(models.WeightLog.date.desc(), models.WeightLog.created_at.desc())
-        .first()
-    )
-    if latest_weight:
-        info["weight_kg"] = latest_weight.weight
-        if latest_weight.body_fat is not None:
-            info["body_fat_pct"] = latest_weight.body_fat
-        if latest_weight.muscle_mass is not None:
-            info["muscle_mass_kg"] = latest_weight.muscle_mass
-        if latest_weight.bmi is not None:
-            info["bmi"] = latest_weight.bmi
-        if getattr(latest_weight, "basal_metabolism_kcal", None) is not None:
-            info["basal_metabolism_kcal"] = latest_weight.basal_metabolism_kcal
-        if getattr(latest_weight, "body_age", None) is not None:
-            info["body_age"] = latest_weight.body_age
-        if getattr(latest_weight, "bone_mass", None) is not None:
-            info["bone_mass_kg"] = latest_weight.bone_mass
-        if getattr(latest_weight, "visceral_fat_level", None) is not None:
-            info["visceral_fat_level"] = latest_weight.visceral_fat_level
-        info["weight_date"] = latest_weight.date
+    weight_snapshot = get_weight_metric_snapshot(db, user_id)
+    if weight_snapshot:
+        if weight_snapshot.get("weight") is not None:
+            latest_weight_value = float(weight_snapshot["weight"])
+            info["weight_kg"] = latest_weight_value
+        if weight_snapshot.get("body_fat") is not None:
+            info["body_fat_pct"] = weight_snapshot["body_fat"]
+        if weight_snapshot.get("muscle_mass") is not None:
+            info["muscle_mass_kg"] = weight_snapshot["muscle_mass"]
+        if weight_snapshot.get("bmi") is not None:
+            info["bmi"] = weight_snapshot["bmi"]
+        if weight_snapshot.get("basal_metabolism_kcal") is not None:
+            info["basal_metabolism_kcal"] = weight_snapshot["basal_metabolism_kcal"]
+        if weight_snapshot.get("body_age") is not None:
+            info["body_age"] = weight_snapshot["body_age"]
+        if weight_snapshot.get("bone_mass") is not None:
+            info["bone_mass_kg"] = weight_snapshot["bone_mass"]
+        if weight_snapshot.get("visceral_fat_level") is not None:
+            info["visceral_fat_level"] = weight_snapshot["visceral_fat_level"]
+        if weight_snapshot.get("weight_date") is not None:
+            info["weight_date"] = weight_snapshot["weight_date"]
 
     # 目標体重・身長・属性
     if goals:
@@ -330,8 +329,8 @@ def _gather_body_info(user_id: str, db: Session, scope: str, goals) -> dict | No
         .order_by(models.WeightLog.date.desc())
         .first()
     )
-    if latest_weight and week_ago_weight and latest_weight.weight and week_ago_weight.weight:
-        info["weight_delta_7d_kg"] = round(latest_weight.weight - week_ago_weight.weight, 2)
+    if latest_weight_value is not None and week_ago_weight and week_ago_weight.weight:
+        info["weight_delta_7d_kg"] = round(latest_weight_value - week_ago_weight.weight, 2)
 
     if scope == "medium":
         return info

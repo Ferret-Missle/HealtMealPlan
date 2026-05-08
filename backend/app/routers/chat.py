@@ -10,6 +10,7 @@ from .. import models
 from ..auth_deps import get_current_user
 from .meal_plan import _get_plan_type, _check_usage_limit, _record_usage
 from ..services import healthplanet
+from ..services.body_snapshot import build_weight_metric_lines, get_weight_metric_snapshot
 
 router = APIRouter()
 
@@ -154,68 +155,8 @@ def _mentions_healthplanet(message: str) -> bool:
 
 
 def _build_latest_body_lines(db: Session, user_id: str) -> tuple[list[str], dict | None]:
-    logs = (
-        db.query(models.WeightLog)
-        .filter_by(user_id=user_id)
-        .order_by(models.WeightLog.date.desc(), models.WeightLog.created_at.desc())
-        .all()
-    )
-    if not logs:
-        return [], None
-
-    metric_fields = [
-        "weight",
-        "body_fat",
-        "muscle_mass",
-        "bmi",
-        "basal_metabolism_kcal",
-        "body_age",
-        "bone_mass",
-        "visceral_fat_level",
-    ]
-    snapshot: dict[str, float | int | str | None] = {}
-    for log in logs:
-        for field in metric_fields:
-            if snapshot.get(field) is not None:
-                continue
-            value = getattr(log, field, None)
-            if value is None:
-                continue
-            snapshot[field] = value
-            snapshot[f"{field}_date"] = log.date
-        if all(snapshot.get(field) is not None for field in metric_fields):
-            break
-
-    if not snapshot:
-        return [], None
-
-    latest_weight_date = snapshot.get("weight_date")
-
-    def _line_with_optional_date(label: str, field: str, suffix: str = "") -> str | None:
-        value = snapshot.get(field)
-        if value is None:
-            return None
-        metric_date = snapshot.get(f"{field}_date")
-        if latest_weight_date and metric_date and metric_date != latest_weight_date:
-            return f"{label} ({metric_date}): {value}{suffix}"
-        return f"{label}: {value}{suffix}"
-
-    body_lines = []
-    if snapshot.get("weight") is not None:
-        body_lines.append(f"直近体重 ({latest_weight_date}): {snapshot['weight']}kg")
-    for candidate in [
-        _line_with_optional_date("体脂肪率", "body_fat", "%"),
-        _line_with_optional_date("筋肉量", "muscle_mass", "kg"),
-        _line_with_optional_date("BMI", "bmi"),
-        _line_with_optional_date("基礎代謝量", "basal_metabolism_kcal", "kcal"),
-        _line_with_optional_date("体内年齢", "body_age", "才"),
-        _line_with_optional_date("推定骨量", "bone_mass", "kg"),
-        _line_with_optional_date("内臓脂肪レベル", "visceral_fat_level"),
-    ]:
-        if candidate:
-            body_lines.append(candidate)
-
-    return body_lines, snapshot
+    snapshot = get_weight_metric_snapshot(db, user_id)
+    return build_weight_metric_lines(snapshot), snapshot
 
 
 async def _backfill_healthplanet_body_metrics(db: Session, user_id: str, days: int = 90) -> bool:
