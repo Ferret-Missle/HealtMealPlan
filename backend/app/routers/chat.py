@@ -28,6 +28,7 @@ SYSTEM_PROMPT = """あなたは「健康ナビ」アプリの栄養・食事ア�
 """
 MEAL_CHANGE_KEYWORDS = ("献立", "メニュー", "朝食", "昼食", "夕食", "朝ごはん", "昼ごはん", "夜ごはん")
 MEAL_CHANGE_VERBS = ("変え", "変更", "差し替", "再提案", "入れ替", "置き換", "別の", "違う")
+BASAL_METABOLISM_KEYWORDS = ("基礎代謝", "基礎代謝量", "bmr")
 
 
 def _is_meal_change_request(message: str) -> bool:
@@ -121,6 +122,29 @@ def _build_meal_plan_action(message: str, current_user: models.User, db: Session
         "label": f"{target_date} の {meal_label} を AI で差し替える",
         "open_plan_label": f"{target_date} の献立をプラン画面で開く",
     }
+
+
+def _build_basal_metabolism_reply(message: str, latest_body_snapshot: dict | None) -> str | None:
+    lowered = (message or "").lower()
+    if not any(keyword in lowered for keyword in BASAL_METABOLISM_KEYWORDS):
+        return None
+
+    if latest_body_snapshot and latest_body_snapshot.get("basal_metabolism_kcal") is not None:
+        value = latest_body_snapshot["basal_metabolism_kcal"]
+        metric_date = (
+            latest_body_snapshot.get("basal_metabolism_kcal_date")
+            or latest_body_snapshot.get("weight_date")
+        )
+        date_label = f"{metric_date} 時点の " if metric_date else ""
+        return (
+            f"はい、参照できます。{date_label}HealthPlanet/Fitbit 同期データ上の基礎代謝量は {value}kcal です。"
+            "この値を前提に栄養アドバイスできます。"
+        )
+
+    return (
+        "HealthPlanet の連携自体を否定する状態ではありませんが、現在の同期済み身体データには基礎代謝量が見当たりません。"
+        "体重や体脂肪率は取れていても、基礎代謝量だけ API から返っていないケースがあります。"
+    )
 
 
 def _build_latest_body_lines(db: Session, user_id: str) -> tuple[list[str], dict | None]:
@@ -320,6 +344,8 @@ async def chat(
             initial_body_lines, latest_body_snapshot = _build_latest_body_lines(db, current_user.id)
     body_lines.extend(initial_body_lines)
 
+    direct_basal_reply = _build_basal_metabolism_reply(payload.message, latest_body_snapshot)
+
     # 体重トレンド（7日比）
     week_old_weight = (
         db.query(models.WeightLog)
@@ -452,6 +478,22 @@ async def chat(
     api_key = decrypt(api_key_row.encrypted_key) if api_key_row else None
     byok_model = None if force_free else (getattr(user_plan, "byok_model", None) if user_plan else None)
     adapter = get_adapter(plan_type, byok_provider, api_key, byok_model)
+
+    if direct_basal_reply is not None:
+        return {
+            "reply": direct_basal_reply,
+            "plan_type": plan_type,
+            "input_tokens": None,
+            "output_tokens": None,
+            "llm_model": None,
+            "plan_action": plan_action,
+            "input_cost_jpy_per_1m": None,
+            "output_cost_jpy_per_1m": None,
+            "pricing_note": None,
+            "estimated_input_cost_jpy": None,
+            "estimated_output_cost_jpy": None,
+            "estimated_total_cost_jpy": None,
+        }
 
     try:
         result = await adapter.complete(system, messages_text)
