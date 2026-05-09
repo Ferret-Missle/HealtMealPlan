@@ -89,14 +89,7 @@ function lsSet(key, val) {
 }
 
 // ── 定数 ─────────────────────────────────────────────────────
-const WIDGET_IDS = [
-	"weight",
-	"calories",
-	"pfc",
-	"steps",
-	"sleep",
-	"meals",
-];
+const WIDGET_IDS = ["weight", "calories", "pfc", "steps", "sleep", "meals"];
 
 function normalizeWidgetOrder(order = []) {
 	const valid = order.filter((id) => WIDGET_IDS.includes(id));
@@ -134,14 +127,7 @@ function isServiceConnected(req, connectedServices = []) {
 		: req.services.every((s) => connectedServices.includes(s));
 }
 
-const DEFAULT_ORDER = [
-	"weight",
-	"calories",
-	"pfc",
-	"steps",
-	"sleep",
-	"meals",
-];
+const DEFAULT_ORDER = ["weight", "calories", "pfc", "steps", "sleep", "meals"];
 const DEFAULT_VIS = Object.fromEntries(
 	WIDGET_IDS.map((id) => [id, { value: true, graph: false }]),
 );
