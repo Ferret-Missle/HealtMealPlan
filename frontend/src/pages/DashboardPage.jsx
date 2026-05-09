@@ -89,7 +89,15 @@ function lsSet(key, val) {
 }
 
 // ── 定数 ─────────────────────────────────────────────────────
-const WIDGET_IDS = ["weight", "healthplanet", "calories", "pfc", "steps", "sleep", "meals"];
+const WIDGET_IDS = [
+	"weight",
+	"healthplanet",
+	"calories",
+	"pfc",
+	"steps",
+	"sleep",
+	"meals",
+];
 
 function normalizeWidgetOrder(order = []) {
 	const valid = order.filter((id) => WIDGET_IDS.includes(id));
@@ -129,7 +137,15 @@ function isServiceConnected(req, connectedServices = []) {
 		: req.services.every((s) => connectedServices.includes(s));
 }
 
-const DEFAULT_ORDER = ["weight", "healthplanet", "calories", "pfc", "steps", "sleep", "meals"];
+const DEFAULT_ORDER = [
+	"weight",
+	"healthplanet",
+	"calories",
+	"pfc",
+	"steps",
+	"sleep",
+	"meals",
+];
 const DEFAULT_VIS = Object.fromEntries(
 	WIDGET_IDS.map((id) => [id, { value: true, graph: false }]),
 );
@@ -1214,11 +1230,20 @@ function HealthPlanetDatasetPanel({ dataset, onSync, isSyncing }) {
 				<EmptyGraph msg="非空欄の HealthPlanet データがまだありません" />
 			) : (
 				metrics.map((metric) => {
-					const dateNote = metric.date && metric.date !== latestDate ? ` (${metric.date})` : "";
+					const dateNote =
+						metric.date && metric.date !== latestDate
+							? ` (${metric.date})`
+							: "";
 					return (
 						<div key={metric.field} className="healthplanet-widget-row">
-							<div className="healthplanet-widget-label">{metric.label}{dateNote}</div>
-							<div className="healthplanet-widget-value">{metric.value}{metric.unit}</div>
+							<div className="healthplanet-widget-label">
+								{metric.label}
+								{dateNote}
+							</div>
+							<div className="healthplanet-widget-value">
+								{metric.value}
+								{metric.unit}
+							</div>
 						</div>
 					);
 				})
@@ -1471,8 +1496,10 @@ export default function DashboardPage() {
 		if (dashSettingsData?.settings && !dashSettingsLoadedRef.current) {
 			const s = dashSettingsData.settings;
 			if (Array.isArray(s.order)) setOrder(normalizeWidgetOrder(s.order));
-			if (s.vis && typeof s.vis === "object") setVis({ ...DEFAULT_VIS, ...s.vis });
-			if (s.periods && typeof s.periods === "object") setPeriods({ ...DEFAULT_PERIODS, ...s.periods });
+			if (s.vis && typeof s.vis === "object")
+				setVis({ ...DEFAULT_VIS, ...s.vis });
+			if (s.periods && typeof s.periods === "object")
+				setPeriods({ ...DEFAULT_PERIODS, ...s.periods });
 			dashSettingsLoadedRef.current = true;
 		}
 	}, [dashSettingsData]);
@@ -1692,7 +1719,8 @@ export default function DashboardPage() {
 		meals:
 			(shouldLoadMeals && isMealLogsFetching) ||
 			(shouldLoadDailyKcal && isDailyKcalFetching),
-		healthplanet: shouldLoadHealthPlanetDataset && isHealthPlanetDatasetFetching,
+		healthplanet:
+			shouldLoadHealthPlanetDataset && isHealthPlanetDatasetFetching,
 	};
 
 	// 一括同期：すべてのデータソースをまとめて更新（食事は過去8日分まとめて）
@@ -2026,14 +2054,14 @@ export default function DashboardPage() {
 												id === "healthplanet"
 													? "span-2"
 													: v.graph
-													? id === "meals"
-														? "span-2"
-														: id === "weight" ||
-															  id === "sleep" ||
-															  (id === "steps" && periods.steps !== "1d")
+														? id === "meals"
 															? "span-2"
-															: null
-													: null
+															: id === "weight" ||
+																  id === "sleep" ||
+																  (id === "steps" && periods.steps !== "1d")
+																? "span-2"
+																: null
+														: null
 											}
 											needsConnection={
 												!isServiceConnected(
