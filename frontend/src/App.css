@@ -1374,6 +1374,43 @@ select.form-input {
   margin-top: 6px;
 }
 
+.healthplanet-widget-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.healthplanet-widget-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  font-size: 11px;
+  color: var(--text-2);
+}
+
+.healthplanet-widget-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 10px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.healthplanet-widget-label {
+  min-width: 0;
+  color: var(--text);
+  font-size: 12px;
+}
+
+.healthplanet-widget-value {
+  color: var(--text-2);
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
 /* Widget inner divider (value ↔ graph) */
 .widget-divider {
   height: 1px;

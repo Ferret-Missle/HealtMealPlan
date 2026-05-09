@@ -12,6 +12,7 @@ from .meal_plan import _get_plan_type, _check_usage_limit, _record_usage
 from ..services import healthplanet
 from ..services.body_snapshot import (
     build_weight_metric_lines,
+    get_healthplanet_dataset,
     get_weight_metric_snapshot,
     merge_missing_weight_metrics,
 )
@@ -285,57 +286,7 @@ async def _backfill_healthplanet_body_metrics(db: Session, user_id: str, days: i
 
 
 def _build_healthplanet_dataset_lines(db: Session, user_id: str) -> list[str]:
-    connected = (
-        db.query(models.OAuthToken)
-        .filter_by(user_id=user_id, service="healthplanet")
-        .first()
-    )
-    if not connected:
-        return ["連携状態: 未接続"]
-
-    logs = (
-        db.query(models.WeightLog)
-        .filter_by(user_id=user_id, source="healthplanet")
-        .order_by(models.WeightLog.date.desc(), models.WeightLog.created_at.desc())
-        .all()
-    )
-    if not logs:
-        return ["連携状態: 接続済み", "取得データ: まだ保存されていません"]
-
-    metric_fields = [
-        ("weight", "体重", "kg"),
-        ("body_fat", "体脂肪率", "%"),
-        ("muscle_mass", "筋肉量", "kg"),
-        ("basal_metabolism_kcal", "基礎代謝量", "kcal"),
-        ("body_age", "体内年齢", "才"),
-        ("bone_mass", "推定骨量", "kg"),
-        ("visceral_fat_level", "内臓脂肪レベル", ""),
-    ]
-    snapshot: dict[str, object] = {}
-    for log in logs:
-        for field, _label, _suffix in metric_fields:
-            if snapshot.get(field) is not None:
-                continue
-            value = getattr(log, field, None)
-            if value is None:
-                continue
-            snapshot[field] = value
-            snapshot[f"{field}_date"] = log.date
-
-    latest_date = logs[0].date if logs else None
-    lines = ["連携状態: 接続済み"]
-    if latest_date:
-        lines.append(f"直近測定日: {latest_date}")
-    for field, label, suffix in metric_fields:
-        value = snapshot.get(field)
-        if value is None:
-            continue
-        metric_date = snapshot.get(f"{field}_date")
-        date_prefix = f" ({metric_date})" if metric_date and metric_date != latest_date else ""
-        lines.append(f"{label}{date_prefix}: {value}{suffix}")
-    if len(lines) == 2:
-        lines.append("体組成データ: 有効な測定値なし")
-    return lines
+    return get_healthplanet_dataset(db, user_id)["lines"]
 
 
 class ChatMessage(BaseModel):

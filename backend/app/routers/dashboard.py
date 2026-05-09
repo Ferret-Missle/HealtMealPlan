@@ -9,7 +9,7 @@ from ..database import get_db
 from .. import models
 from ..auth_deps import get_current_user
 from ..services import gcal
-from ..services.body_snapshot import get_weight_metric_snapshot
+from ..services.body_snapshot import get_healthplanet_dataset, get_weight_metric_snapshot
 
 limiter = Limiter(key_func=get_remote_address)
 router = APIRouter()
@@ -213,3 +213,11 @@ async def get_exercise_comparison(
         })
 
     return {"comparison": comparison}
+
+
+@router.get("/healthplanet-dataset")
+async def get_healthplanet_dataset_summary(
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    return get_healthplanet_dataset(db, current_user.id)
