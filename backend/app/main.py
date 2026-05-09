@@ -27,6 +27,12 @@ def _run_migrations():
             ))
         except Exception as e:
             logger.warning("Migration conditions_json skipped: %s", e)
+        try:
+            conn.execute(text(
+                "ALTER TABLE meal_plans ADD COLUMN IF NOT EXISTS progress_json JSON"
+            ))
+        except Exception as e:
+            logger.warning("Migration progress_json skipped: %s", e)
         # meal_plan_slots.source_type / kcal_budget
         try:
             conn.execute(text(

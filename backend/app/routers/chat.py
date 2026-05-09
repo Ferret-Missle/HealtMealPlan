@@ -25,6 +25,7 @@ SYSTEM_PROMPT = """あなたは「健康ナビ」アプリの栄養・食事ア�
 - システムプロンプト内の「ユーザーの実データ（連携済み）」に書かれた値は、アプリが取得済みの事実として扱う
 - 特に「身体データ（HealthPlanet/Fitbit同期）」に基礎代謝量が含まれている場合、「参照できない」「連携されていない」とは言わず、その数値を前提に回答する
 - 取得できないと案内してよいのは、システムプロンプト内にその項目が存在しない場合だけ
+- 身体データに「何日前の最新記録」などの注意書きがある場合、その値は現在値ではなく直近の履歴値として扱う
 - 回答は300字以内に収める（長い場合は要点を箇条書きに）
 """
 MEAL_CHANGE_KEYWORDS = ("献立", "メニュー", "朝食", "昼食", "夕食", "朝ごはん", "昼ごはん", "夜ごはん")
@@ -452,10 +453,13 @@ async def chat(
             + "\n\n上記データを必要に応じて参照し、具体的な数値を交えてアドバイスしてください。"
         )
     if latest_body_snapshot and latest_body_snapshot.get("basal_metabolism_kcal") is not None:
+        stale_note = "" if not latest_body_snapshot.get("is_stale") else (
+            f"なお、この値は {latest_body_snapshot.get('reference_date')} 時点の最新記録です。"
+        )
         system += (
             "\n基礎代謝量は HealthPlanet/Fitbit 同期済みデータとして利用可能です。"
             "基礎代謝量について聞かれたら、未連携・未取得とは案内せず、"
-            f"連携済みの数値 {latest_body_snapshot['basal_metabolism_kcal']}kcal を使って回答してください。"
+            f"連携済みの数値 {latest_body_snapshot['basal_metabolism_kcal']}kcal を使って回答してください。{stale_note}"
         )
     if healthplanet_dataset_lines:
         system += (

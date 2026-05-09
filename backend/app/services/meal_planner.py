@@ -2,10 +2,10 @@ import json
 import uuid
 from datetime import date as dt_date, timedelta
 from sqlalchemy.orm import Session
-from sqlalchemy.orm.attributes import flag_modified
 from .. import models, security
 from ..llm.adapter import get_adapter
 from .body_snapshot import get_weight_metric_snapshot
+from .plan_progress import write_plan_progress
 
 
 # ─── 進捗管理 ──────────────────────────────────────────────────
@@ -40,20 +40,17 @@ STORE_PREFIX_PATTERN = r"^(?:セブンイレブン|セブン|Seven-?Eleven|7-?El
 
 
 def _set_progress(plan_id: str, db: Session, step: int, total: int, message: str, done: bool = False, error: bool = False):
-    """plan.conditions_json に進捗情報を書き込む。"""
+    """plan.progress_json に進捗情報を書き込む。"""
     plan = db.query(models.MealPlan).filter_by(id=plan_id).first()
     if not plan:
         return
-    cond = dict(plan.conditions_json or {})
-    cond["_progress"] = {
+    write_plan_progress(plan, {
         "step": step,
         "total": total,
         "message": message,
         "done": done,
         "error": error,
-    }
-    plan.conditions_json = cond
-    flag_modified(plan, "conditions_json")
+    })
     db.commit()
 
 
@@ -283,6 +280,12 @@ def _gather_body_info(user_id: str, db: Session, scope: str, goals) -> dict | No
             info["visceral_fat_level"] = weight_snapshot["visceral_fat_level"]
         if weight_snapshot.get("weight_date") is not None:
             info["weight_date"] = weight_snapshot["weight_date"]
+        if weight_snapshot.get("reference_date") is not None:
+            info["body_reference_date"] = weight_snapshot["reference_date"]
+        if weight_snapshot.get("days_since_reference") is not None:
+            info["body_days_since_reference"] = weight_snapshot["days_since_reference"]
+        if weight_snapshot.get("is_stale"):
+            info["body_data_stale"] = True
 
     # 目標体重・身長・属性
     if goals:
@@ -368,6 +371,11 @@ def _format_body_info(body_info: dict | None) -> str:
     if not body_info:
         return ""
     lines = []
+    if body_info.get("body_data_stale") and body_info.get("body_reference_date") is not None:
+        lines.append(
+            f"  - 注意: 身体データは {body_info['body_reference_date']} 時点の最新記録"
+            f"（{body_info.get('body_days_since_reference')}日前）"
+        )
     if "weight_kg" in body_info:
         line = f"  - 体重: {body_info['weight_kg']}kg"
         if "target_weight_kg" in body_info:

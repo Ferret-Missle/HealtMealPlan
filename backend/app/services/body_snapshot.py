@@ -15,6 +15,7 @@ WEIGHT_METRIC_FIELDS = (
     "bone_mass",
     "visceral_fat_level",
 )
+BODY_SNAPSHOT_STALE_DAYS = 7
 SOURCE_PRIORITY = {
     "manual": 3,
     "healthplanet": 2,
@@ -72,7 +73,9 @@ def get_weight_metric_snapshot(
     if reference_date:
         snapshot["reference_date"] = reference_date
         try:
-            snapshot["days_since_reference"] = (dt_date.today() - dt_date.fromisoformat(str(reference_date))).days
+            days_since_reference = (dt_date.today() - dt_date.fromisoformat(str(reference_date))).days
+            snapshot["days_since_reference"] = days_since_reference
+            snapshot["is_stale"] = days_since_reference > BODY_SNAPSHOT_STALE_DAYS
         except ValueError:
             pass
     return snapshot
@@ -94,6 +97,10 @@ def build_weight_metric_lines(snapshot: dict | None) -> list[str]:
         return f"{label}: {value}{suffix}"
 
     lines: list[str] = []
+    if snapshot.get("is_stale") and snapshot.get("reference_date"):
+        lines.append(
+            f"身体データは {snapshot['reference_date']} 時点（{snapshot.get('days_since_reference')}日前）の最新記録"
+        )
     if snapshot.get("weight") is not None:
         lines.append(f"直近体重 ({latest_weight_date}): {snapshot['weight']}kg")
     for candidate in [

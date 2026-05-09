@@ -2,12 +2,12 @@ import uuid
 from datetime import date as dt_date, timedelta
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from sqlalchemy.orm import Session
-from sqlalchemy.orm.attributes import flag_modified
 from pydantic import BaseModel
 
 from ..database import SessionLocal, get_db
 from .. import models
 from ..auth_deps import get_current_user
+from ..services.plan_progress import read_plan_progress, sanitize_conditions, write_plan_progress
 
 router = APIRouter()
 
@@ -33,16 +33,13 @@ async def _run_generation_bg(plan_id: str, user_id: str, conditions: dict):
         try:
             plan = db.query(models.MealPlan).filter_by(id=plan_id).first()
             if plan:
-                cond = dict(plan.conditions_json or {})
-                cond["_progress"] = {
+                write_plan_progress(plan, {
                     "step": 0,
                     "total": 0,
                     "message": f"エラーが発生しました: {str(e)[:200]}",
                     "done": True,
                     "error": True,
-                }
-                plan.conditions_json = cond
-                flag_modified(plan, "conditions_json")
+                })
                 db.commit()
         except Exception:
             pass
@@ -234,18 +231,13 @@ async def generate_meal_plan(
             total_slots += 1
 
     # 初期進捗を書き込み（フロントが即座にローディング画面に遷移できるよう）
-    conditions_json_with_progress = {
-        **conditions_json,
-        "_progress": {
-            "step": 0,
-            "total": total_slots,
-            "message": "🚀 献立生成を開始しています...",
-            "done": False,
-            "error": False,
-        },
-    }
-    plan.conditions_json = conditions_json_with_progress
-    flag_modified(plan, "conditions_json")
+    write_plan_progress(plan, {
+        "step": 0,
+        "total": total_slots,
+        "message": "🚀 献立生成を開始しています...",
+        "done": False,
+        "error": False,
+    })
     db.commit()
 
     _record_usage(current_user.id, "meal_plan_weekly", plan_type, db)
@@ -585,16 +577,13 @@ async def recalculate_plan(
                 total_slots += 1
 
     # 進捗初期化
-    cond = dict(plan.conditions_json or {})
-    cond["_progress"] = {
+    write_plan_progress(plan, {
         "step": 0,
         "total": total_slots,
         "message": "🔄 献立を再計算しています...",
         "done": False,
         "error": False,
-    }
-    plan.conditions_json = cond
-    flag_modified(plan, "conditions_json")
+    })
     plan.status = models.PlanStatus.draft
     db.commit()
 
@@ -709,7 +698,7 @@ def _plan_summary(plan: models.MealPlan) -> dict:
         "start_date": plan.start_date,
         "end_date": plan.end_date,
         "status": plan.status,
-        "conditions": plan.conditions_json or {},
+        "conditions": sanitize_conditions(plan.conditions_json),
         "created_at": plan.created_at.isoformat(),
         **_plan_ai_usage_summary(plan),
     }
@@ -771,5 +760,5 @@ def _plan_detail(plan: models.MealPlan, current_user_id: str | None = None, db: 
             })
         days.append({"id": day.id, "date": day.date, "slots": slots})
 
-    progress = (plan.conditions_json or {}).get("_progress")
+    progress = read_plan_progress(plan)
     return {**_plan_summary(plan), "days": days, "progress": progress}

@@ -239,6 +239,7 @@ class MealPlan(Base):
     end_date = Column(String, nullable=False)
     status = Column(SAEnum(PlanStatus), default=PlanStatus.draft)
     conditions_json = Column(JSON, nullable=True)   # generation conditions
+    progress_json = Column(JSON, nullable=True)     # runtime generation progress
     created_at = Column(DateTime, default=datetime.utcnow)
 
     group = relationship("Group", back_populates="meal_plans")
