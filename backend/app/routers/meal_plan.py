@@ -14,12 +14,20 @@ router = APIRouter()
 MENU_FEEDBACK_LIMIT = 50
 
 
+async def _regenerate_shopping_list(plan_id: str, db: Session):
+    from ..services import meal_planner
+
+    await meal_planner.generate_shopping_list(plan_id, db)
+
+
 async def _run_generation_bg(plan_id: str, user_id: str, conditions: dict):
     """バックグラウンドで献立生成を実行。独自の DB セッションを使う。"""
-    from ..services import meal_planner
     db = SessionLocal()
     try:
+        from ..services import meal_planner
+
         await meal_planner.generate_menus(plan_id, user_id, db, conditions)
+        await _regenerate_shopping_list(plan_id, db)
     except Exception as e:
         # 進捗をエラーとして記録
         try:
@@ -269,25 +277,6 @@ async def delete_meal_plan(
     return {"deleted": plan_id}
 
 
-@router.put("/{plan_id}/confirm")
-async def confirm_meal_plan(
-    plan_id: str,
-    current_user: models.User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    plan = db.query(models.MealPlan).filter_by(id=plan_id).first()
-    if not plan:
-        raise HTTPException(404, "Plan not found")
-    plan.status = models.PlanStatus.confirmed
-    db.commit()
-
-    # Auto-generate shopping list
-    from ..services import meal_planner
-    await meal_planner.generate_shopping_list(plan_id, db)
-
-    return {"confirmed": True, "plan_id": plan_id}
-
-
 class SlotUpdate(BaseModel):
     sharing_type: str | None = None  # "shared" | "individual"
     is_dining_out: bool | None = None
@@ -316,6 +305,7 @@ async def update_slot(
     if payload.dining_out_kcal is not None:
         slot.dining_out_kcal = payload.dining_out_kcal
     db.commit()
+    await _regenerate_shopping_list(plan_id, db)
     return {"updated": True}
 
 
@@ -516,6 +506,7 @@ async def replace_slot_menu(
     except Exception as e:
         raise HTTPException(500, f"LLM generation failed: {str(e)}")
 
+    await _regenerate_shopping_list(plan_id, db)
     _record_usage(current_user.id, "recalculate", plan_type, db)
     db.refresh(plan)
     return _plan_detail(plan, current_user.id, db)
@@ -562,6 +553,7 @@ async def replace_day_menu(
     except Exception as e:
         raise HTTPException(500, f"LLM generation failed: {str(e)}")
 
+    await _regenerate_shopping_list(plan_id, db)
     plan.status = models.PlanStatus.draft
     db.commit()
     _record_usage(current_user.id, "recalculate", plan_type, db)

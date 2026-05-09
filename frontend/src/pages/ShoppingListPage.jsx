@@ -15,8 +15,9 @@ export default function ShoppingListPage() {
 		queryFn: () => mealPlanApi.list(),
 	});
 
-	// 最新の確定済みプランを使用
-	const activePlan = plans.find((p) => p.status === "confirmed") || plans[0];
+	// 生成完了済みの最新プランを優先。なければ先頭プランを使う
+	const activePlan =
+		plans.find((p) => p.conditions?._progress?.done !== false) || plans[0];
 
 	const { data: planDetail, isLoading: detailLoading } = useQuery({
 		queryKey: ["meal-plan-detail", activePlan?.id],

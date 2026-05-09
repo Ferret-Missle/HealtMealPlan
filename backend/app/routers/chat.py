@@ -102,8 +102,7 @@ def _build_meal_plan_action(message: str, current_user: models.User, db: Session
     if not plans:
         return None
 
-    draft_plan = next((plan for plan in plans if str(plan.status) == "draft"), None)
-    plan = draft_plan or plans[0]
+    plan = plans[0]
     day = next((day for day in plan.days if day.date == target_date), None)
     if not day:
         return None

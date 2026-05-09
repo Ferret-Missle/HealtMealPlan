@@ -160,6 +160,7 @@ export default function ChatWidget() {
 			});
 			qc.invalidateQueries({ queryKey: ["meal-plans"] });
 			qc.invalidateQueries({ queryKey: ["meal-plan", action.plan_id] });
+			qc.invalidateQueries({ queryKey: ["shopping", action.plan_id] });
 			setMessages((prev) => [
 				...prev,
 				{

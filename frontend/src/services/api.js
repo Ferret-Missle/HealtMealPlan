@@ -137,8 +137,6 @@ export const mealPlanApi = {
 	get: (planId) => api.get(`/api/meal-plans/${planId}`).then((r) => r.data),
 	generate: (data) =>
 		api.post("/api/meal-plans/generate", data).then((r) => r.data),
-	confirm: (planId) =>
-		api.put(`/api/meal-plans/${planId}/confirm`).then((r) => r.data),
 	updateSlot: (planId, slotId, data) =>
 		api
 			.put(`/api/meal-plans/${planId}/slots/${slotId}`, data)

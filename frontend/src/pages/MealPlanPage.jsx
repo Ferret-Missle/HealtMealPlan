@@ -572,7 +572,7 @@ function KcalBudgetBar({ actual, budget }) {
 }
 
 // ─── ItemCard ────────────────────────────────────────────────────────────────
-function ItemCard({ item, planId, isDraft }) {
+function ItemCard({ item, planId, isEditable }) {
 	const qc = useQueryClient();
 	const [editGrams, setEditGrams] = useState(false);
 	const [gramsValue, setGramsValue] = useState(item.serving_grams || "");
@@ -732,11 +732,11 @@ function ItemCard({ item, planId, isDraft }) {
 								<span
 									style={{
 										cursor: isDraft ? "pointer" : "default",
-										textDecoration: isDraft ? "underline dotted" : "none",
+										textDecoration: isEditable ? "underline dotted" : "none",
 									}}
-									onClick={() => isDraft && setEditGrams(true)}
+									onClick={() => isEditable && setEditGrams(true)}
 								>
-									{item.serving_grams}g{isDraft && " ✏️"}
+										{item.serving_grams}g{isEditable && " ✏️"}
 								</span>
 							)}
 						</>
@@ -1287,7 +1287,7 @@ function MemberDayCard({
 	dayDate,
 	daySlots,
 	planId,
-	planStatus,
+	canEdit,
 	onEditSlot,
 }) {
 	const [expanded, setExpanded] = useState(isMe);
@@ -1411,7 +1411,7 @@ function MemberDayCard({
 										外食
 									</span>
 								)}
-								{planStatus === "draft" && (
+								{canEdit && (
 									<button
 										className="btn-icon"
 										style={{ marginLeft: "auto", fontSize: 12 }}
@@ -1441,7 +1441,7 @@ function MemberDayCard({
 								<ItemCard
 									item={item}
 									planId={planId}
-									isDraft={planStatus === "draft"}
+									isEditable={canEdit}
 								/>
 							) : (
 								<div style={{ fontSize: 12, color: "var(--text-secondary)" }}>
@@ -1741,6 +1741,7 @@ export default function MealPlanPage() {
 
 	// 生成完了検知 → 通知（done が false → true に変わった瞬間に発火）
 	const prevDoneRef = useRef(null);
+	const planReady = !planDetail?.progress || planDetail.progress.done;
 	useEffect(() => {
 		const prog = planDetail?.progress;
 		if (!prog) {
@@ -1863,14 +1864,6 @@ export default function MealPlanPage() {
 		}
 	}
 
-	const confirmMutation = useMutation({
-		mutationFn: (planId) => mealPlanApi.confirm(planId),
-		onSuccess: () => {
-			qc.invalidateQueries({ queryKey: ["meal-plans"] });
-			qc.invalidateQueries({ queryKey: ["meal-plan", selectedPlan] });
-		},
-	});
-
 	const deleteMutation = useMutation({
 		mutationFn: (planId) => mealPlanApi.delete(planId),
 		onSuccess: (_, planId) => {
@@ -1887,10 +1880,12 @@ export default function MealPlanPage() {
 		)
 			return;
 		setRecalculating(true);
+		setShowShopping(false);
 		setError("");
 		try {
 			await mealPlanApi.recalculate(selectedPlan);
 			qc.invalidateQueries({ queryKey: ["meal-plan", selectedPlan] });
+			qc.invalidateQueries({ queryKey: ["shopping", selectedPlan] });
 		} catch (e) {
 			setError(e.response?.data?.detail || "再計算に失敗しました");
 		} finally {
@@ -2038,7 +2033,7 @@ export default function MealPlanPage() {
 						marginTop: 6,
 					}}
 				>
-					※ 無料プラン: 週間献立は月1回まで
+					※ 生成後はそのまま暫定採用され、あとから献立修正やAI相談で差し替えできます
 				</div>
 			</div>
 		);
@@ -2224,11 +2219,15 @@ export default function MealPlanPage() {
 										flexShrink: 0,
 									}}
 								>
+									{plan.conditions?._progress?.done === false ? (
+										<span className="tag tag-orange">生成中</span>
+									) : (
 									<span
-										className={`tag ${plan.status === "confirmed" ? "tag-green" : "tag-orange"}`}
+											className="tag tag-green"
 									>
-										{plan.status === "confirmed" ? "確定済み" : "下書き"}
+											暫定採用
 									</span>
+									)}
 									<button
 										className="btn-icon"
 										style={{
@@ -2261,8 +2260,7 @@ export default function MealPlanPage() {
 					{/* 生成進捗 */}
 					<GenerationProgress progress={planDetail.progress} />
 
-					{planDetail.status === "draft" &&
-						(!planDetail.progress || planDetail.progress.done) && (
+					{planReady && (
 							<>
 								<div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
 									<button
@@ -2274,30 +2272,16 @@ export default function MealPlanPage() {
 										{recalculating ? "再計算中..." : "🔄 再計算"}
 									</button>
 									<button
-										className="btn btn-primary"
+										className="btn btn-secondary"
 										style={{ flex: 1 }}
-										onClick={() => confirmMutation.mutate(selectedPlan)}
-										disabled={confirmMutation.isPending}
+										onClick={() => setShowShopping((current) => !current)}
 									>
-										{confirmMutation.isPending ? "確定中..." : "✓ 献立を確定"}
+										🛒 {showShopping ? "献立に戻る" : "買い物リストを見る"}
 									</button>
 								</div>
 								<PlanPromptViewer plan={planDetail} />
 							</>
 						)}
-
-					{planDetail.status === "confirmed" && (
-						<>
-							<button
-								className="btn btn-secondary btn-full"
-								style={{ marginBottom: 12 }}
-								onClick={() => setShowShopping(!showShopping)}
-							>
-								🛒 {showShopping ? "献立に戻る" : "買い物リストを見る"}
-							</button>
-							<PlanPromptViewer plan={planDetail} />
-						</>
-					)}
 
 					{showShopping && shopping ? (
 						<div className="card">
@@ -2369,7 +2353,7 @@ export default function MealPlanPage() {
 											dayDate={day.date}
 											daySlots={day.slots}
 											planId={planDetail.id}
-											planStatus={planDetail.status}
+											canEdit={planReady}
 											onEditSlot={setEditingSlot}
 										/>
 									);
