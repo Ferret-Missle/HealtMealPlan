@@ -731,7 +731,7 @@ function ItemCard({ item, planId, isEditable }) {
 							) : (
 								<span
 									style={{
-										cursor: isDraft ? "pointer" : "default",
+										cursor: isEditable ? "pointer" : "default",
 										textDecoration: isEditable ? "underline dotted" : "none",
 									}}
 									onClick={() => isEditable && setEditGrams(true)}
