@@ -7,6 +7,7 @@ from ..database import get_db
 from .. import models
 from ..auth_deps import get_current_user
 from ..services import healthplanet, fitbit
+from ..services.body_snapshot import merge_missing_weight_metrics
 
 router = APIRouter()
 
@@ -98,6 +99,13 @@ async def sync_body_data(
         try:
             hp = await healthplanet.get_innerscan(current_user.id, today, db)
             if hp:
+                hp_payload = merge_missing_weight_metrics(
+                    db,
+                    current_user.id,
+                    {k: v for k, v in hp.items() if k != "source"},
+                    source="healthplanet",
+                    before_date=today,
+                )
                 existing = (
                     db.query(models.WeightLog)
                     .filter_by(user_id=current_user.id, date=today, source="healthplanet")
@@ -105,15 +113,15 @@ async def sync_body_data(
                 )
                 if existing:
                     # Update existing record
-                    for k, v in hp.items():
-                        if k != "source" and v is not None:
+                    for k, v in hp_payload.items():
+                        if v is not None:
                             setattr(existing, k, v)
                 else:
                     log = models.WeightLog(
                         user_id=current_user.id,
                         date=today,
                         source="healthplanet",
-                        **{k: v for k, v in hp.items() if k != "source"},
+                        **hp_payload,
                     )
                     db.add(log)
                 db.commit()
@@ -195,15 +203,28 @@ async def sync_weight_history(
 
     if "healthplanet" in connected:
         try:
-            for e in await healthplanet.get_innerscan_range(current_user.id, start, end, db):
+            entries = sorted(
+                await healthplanet.get_innerscan_range(current_user.id, start, end, db),
+                key=lambda entry: entry["date"],
+            )
+            for e in entries:
+                extra = merge_missing_weight_metrics(
+                    db,
+                    current_user.id,
+                    {
+                        "body_fat": e.get("body_fat"),
+                        "muscle_mass": e.get("muscle_mass"),
+                        "basal_metabolism_kcal": e.get("basal_metabolism_kcal"),
+                        "body_age": e.get("body_age"),
+                        "bone_mass": e.get("bone_mass"),
+                        "visceral_fat_level": e.get("visceral_fat_level"),
+                    },
+                    source="healthplanet",
+                    before_date=e["date"],
+                )
                 await _save_weight(
                     e["date"], e.get("weight"), "healthplanet",
-                    body_fat=e.get("body_fat"),
-                    muscle_mass=e.get("muscle_mass"),
-                    basal_metabolism_kcal=e.get("basal_metabolism_kcal"),
-                    body_age=e.get("body_age"),
-                    bone_mass=e.get("bone_mass"),
-                    visceral_fat_level=e.get("visceral_fat_level"),
+                    **extra,
                 )
         except Exception as exc:
             print(f"[sync-weight-history healthplanet] {exc}")

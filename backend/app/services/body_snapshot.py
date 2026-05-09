@@ -23,6 +23,44 @@ SOURCE_PRIORITY = {
 }
 
 
+def merge_missing_weight_metrics(
+    db: Session,
+    user_id: str,
+    payload: dict,
+    *,
+    source: str | None = None,
+    before_date: str | None = None,
+) -> dict:
+    merged = dict(payload)
+    missing_fields = [field for field in WEIGHT_METRIC_FIELDS if merged.get(field) is None]
+    if not missing_fields:
+        return merged
+
+    query = db.query(models.WeightLog).filter_by(user_id=user_id)
+    if source:
+        query = query.filter_by(source=source)
+    if before_date:
+        query = query.filter(models.WeightLog.date <= before_date)
+
+    logs = (
+        query
+        .order_by(models.WeightLog.date.desc(), models.WeightLog.created_at.desc())
+        .all()
+    )
+    for log in logs:
+        for field in missing_fields:
+            if merged.get(field) is not None:
+                continue
+            value = getattr(log, field, None)
+            if value is None:
+                continue
+            merged[field] = value
+        missing_fields = [field for field in missing_fields if merged.get(field) is None]
+        if not missing_fields:
+            break
+    return merged
+
+
 def get_weight_metric_snapshot(
     db: Session,
     user_id: str,

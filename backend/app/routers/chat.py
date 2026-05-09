@@ -10,7 +10,11 @@ from .. import models
 from ..auth_deps import get_current_user
 from .meal_plan import _get_plan_type, _check_usage_limit, _record_usage
 from ..services import healthplanet
-from ..services.body_snapshot import build_weight_metric_lines, get_weight_metric_snapshot
+from ..services.body_snapshot import (
+    build_weight_metric_lines,
+    get_weight_metric_snapshot,
+    merge_missing_weight_metrics,
+)
 
 router = APIRouter()
 
@@ -175,7 +179,7 @@ async def _backfill_healthplanet_body_metrics(db: Session, user_id: str, days: i
         return False
 
     saved = False
-    for entry in entries:
+    for entry in sorted(entries, key=lambda item: item.get("date") or ""):
         date = entry.get("date")
         if not date:
             continue
@@ -184,7 +188,10 @@ async def _backfill_healthplanet_body_metrics(db: Session, user_id: str, days: i
             .filter_by(user_id=user_id, date=date, source="healthplanet")
             .first()
         )
-        payload = {
+        payload = merge_missing_weight_metrics(
+            db,
+            user_id,
+            {
             "weight": entry.get("weight"),
             "body_fat": entry.get("body_fat"),
             "muscle_mass": entry.get("muscle_mass"),
@@ -192,7 +199,10 @@ async def _backfill_healthplanet_body_metrics(db: Session, user_id: str, days: i
             "body_age": entry.get("body_age"),
             "bone_mass": entry.get("bone_mass"),
             "visceral_fat_level": entry.get("visceral_fat_level"),
-        }
+            },
+            source="healthplanet",
+            before_date=date,
+        )
         if existing:
             for field, value in payload.items():
                 if value is not None:
