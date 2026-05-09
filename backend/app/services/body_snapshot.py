@@ -15,21 +15,66 @@ WEIGHT_METRIC_FIELDS = (
     "bone_mass",
     "visceral_fat_level",
 )
-HEALTHPLANET_METRIC_FIELDS = [
-    ("weight", "体重", "kg"),
-    ("body_fat", "体脂肪率", "%"),
-    ("muscle_mass", "筋肉量", "kg"),
-    ("basal_metabolism_kcal", "基礎代謝量", "kcal"),
-    ("body_age", "体内年齢", "才"),
-    ("bone_mass", "推定骨量", "kg"),
-    ("visceral_fat_level", "内臓脂肪レベル", ""),
-]
 BODY_SNAPSHOT_STALE_DAYS = 7
 SOURCE_PRIORITY = {
     "manual": 3,
     "healthplanet": 2,
     "fitbit": 1,
 }
+
+
+def normalize_gender(value: str | None) -> str | None:
+    lowered = (value or "").strip().lower()
+    if lowered in {"male", "man", "m", "男性", "男"}:
+        return "male"
+    if lowered in {"female", "woman", "f", "女性", "女"}:
+        return "female"
+    return None
+
+
+def estimate_age_from_age_group(age_group: str | None) -> int | None:
+    import re
+
+    if not age_group:
+        return None
+    match = re.search(r"(\d{2})", age_group)
+    if match:
+        decade = int(match.group(1))
+        if 10 <= decade <= 90:
+            return decade + 5
+    return None
+
+
+def estimate_basal_metabolism(
+    latest_body_snapshot: dict | None,
+    goals: models.UserGoals | None,
+) -> dict | None:
+    if not latest_body_snapshot or not goals:
+        return None
+
+    weight = latest_body_snapshot.get("weight")
+    height_cm = getattr(goals, "height_cm", None)
+    age = estimate_age_from_age_group(getattr(goals, "age_group", None))
+    gender = normalize_gender(getattr(goals, "gender", None))
+    if weight is None or height_cm is None or age is None or gender is None:
+        return None
+
+    weight = float(weight)
+    height_cm = float(height_cm)
+    if gender == "male":
+        kcal = 10 * weight + 6.25 * height_cm - 5 * age + 5
+    else:
+        kcal = 10 * weight + 6.25 * height_cm - 5 * age - 161
+
+    return {
+        "value": round(kcal),
+        "weight": round(weight, 1),
+        "height_cm": round(height_cm, 1),
+        "age": age,
+        "gender": gender,
+        "reference_date": latest_body_snapshot.get("weight_date") or latest_body_snapshot.get("reference_date"),
+        "formula": "Mifflin-St Jeor",
+    }
 
 
 def merge_missing_weight_metrics(
@@ -154,7 +199,6 @@ def build_weight_metric_lines(snapshot: dict | None) -> list[str]:
         _line_with_optional_date("体脂肪率", "body_fat", "%"),
         _line_with_optional_date("筋肉量", "muscle_mass", "kg"),
         _line_with_optional_date("BMI", "bmi"),
-        _line_with_optional_date("基礎代謝量", "basal_metabolism_kcal", "kcal"),
         _line_with_optional_date("体内年齢", "body_age", "才"),
         _line_with_optional_date("推定骨量", "bone_mass", "kg"),
         _line_with_optional_date("内臓脂肪レベル", "visceral_fat_level"),
@@ -162,68 +206,3 @@ def build_weight_metric_lines(snapshot: dict | None) -> list[str]:
         if candidate:
             lines.append(candidate)
     return lines
-
-
-def get_healthplanet_dataset(db: Session, user_id: str) -> dict:
-    connected = (
-        db.query(models.OAuthToken)
-        .filter_by(user_id=user_id, service="healthplanet")
-        .first()
-    )
-    if not connected:
-        return {
-            "connected": False,
-            "latest_date": None,
-            "metrics": [],
-            "lines": ["連携状態: 未接続"],
-        }
-
-    logs = (
-        db.query(models.WeightLog)
-        .filter_by(user_id=user_id, source="healthplanet")
-        .order_by(models.WeightLog.date.desc(), models.WeightLog.created_at.desc())
-        .all()
-    )
-    if not logs:
-        return {
-            "connected": True,
-            "latest_date": None,
-            "metrics": [],
-            "lines": ["連携状態: 接続済み", "取得データ: まだ保存されていません"],
-        }
-
-    latest_date = logs[0].date if logs else None
-    metrics: list[dict[str, object]] = []
-    for field, label, unit in HEALTHPLANET_METRIC_FIELDS:
-        found_log = next((log for log in logs if getattr(log, field, None) is not None), None)
-        if not found_log:
-            continue
-        metrics.append({
-            "field": field,
-            "label": label,
-            "unit": unit,
-            "value": getattr(found_log, field),
-            "date": found_log.date,
-        })
-
-    lines = ["連携状態: 接続済み"]
-    if latest_date:
-        lines.append(f"直近測定日: {latest_date}")
-    for metric in metrics:
-        date_prefix = (
-            f" ({metric['date']})"
-            if metric.get("date") and metric.get("date") != latest_date
-            else ""
-        )
-        lines.append(
-            f"{metric['label']}{date_prefix}: {metric['value']}{metric['unit']}"
-        )
-    if len(lines) == 2:
-        lines.append("体組成データ: 有効な測定値なし")
-
-    return {
-        "connected": True,
-        "latest_date": latest_date,
-        "metrics": metrics,
-        "lines": lines,
-    }

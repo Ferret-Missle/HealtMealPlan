@@ -9,12 +9,10 @@ from ..database import get_db
 from .. import models
 from ..auth_deps import get_current_user
 from .meal_plan import _get_plan_type, _check_usage_limit, _record_usage
-from ..services import healthplanet
 from ..services.body_snapshot import (
     build_weight_metric_lines,
-    get_healthplanet_dataset,
+    estimate_basal_metabolism,
     get_weight_metric_snapshot,
-    merge_missing_weight_metrics,
 )
 
 router = APIRouter()
@@ -28,7 +26,7 @@ SYSTEM_PROMPT = """あなたは「健康ナビ」アプリの栄養・食事ア�
 - 極端なカロリー制限（女性<1200kcal/日、男性<1500kcal/日）は推奨しない
 - 情報が不足している場合は推測で答えず、追加情報を求める
 - システムプロンプト内の「ユーザーの実データ（連携済み）」に書かれた値は、アプリが取得済みの事実として扱う
-- 特に「身体データ（HealthPlanet/Fitbit同期）」に基礎代謝量が含まれている場合、「参照できない」「連携されていない」とは言わず、その数値を前提に回答する
+- 基礎代謝量は推定値が含まれる場合、その数値を使いつつ推定値であることを明示する
 - 取得できないと案内してよいのは、システムプロンプト内にその項目が存在しない場合だけ
 - 身体データに「何日前の最新記録」などの注意書きがある場合、その値は現在値ではなく直近の履歴値として扱う
 - 回答は300字以内に収める（長い場合は要点を箇条書きに）
@@ -36,59 +34,6 @@ SYSTEM_PROMPT = """あなたは「健康ナビ」アプリの栄養・食事ア�
 MEAL_CHANGE_KEYWORDS = ("献立", "メニュー", "朝食", "昼食", "夕食", "朝ごはん", "昼ごはん", "夜ごはん")
 MEAL_CHANGE_VERBS = ("変え", "変更", "差し替", "再提案", "入れ替", "置き換", "別の", "違う")
 BASAL_METABOLISM_KEYWORDS = ("基礎代謝", "基礎代謝量", "bmr")
-HEALTHPLANET_KEYWORDS = ("healthplanet", "ヘルスプラネット")
-
-
-def _normalize_gender(value: str | None) -> str | None:
-    lowered = (value or "").strip().lower()
-    if lowered in {"male", "man", "m", "男性", "男"}:
-        return "male"
-    if lowered in {"female", "woman", "f", "女性", "女"}:
-        return "female"
-    return None
-
-
-def _estimate_age_from_age_group(age_group: str | None) -> int | None:
-    if not age_group:
-        return None
-    match = re.search(r"(\d{2})", age_group)
-    if match:
-        decade = int(match.group(1))
-        if 10 <= decade <= 90:
-            return decade + 5
-    return None
-
-
-def _estimate_basal_metabolism(
-    latest_body_snapshot: dict | None,
-    goals: models.UserGoals | None,
-) -> dict | None:
-    if not latest_body_snapshot or not goals:
-        return None
-
-    weight = latest_body_snapshot.get("weight")
-    height_cm = getattr(goals, "height_cm", None)
-    age = _estimate_age_from_age_group(getattr(goals, "age_group", None))
-    gender = _normalize_gender(getattr(goals, "gender", None))
-    if weight is None or height_cm is None or age is None or gender is None:
-        return None
-
-    weight = float(weight)
-    height_cm = float(height_cm)
-    if gender == "male":
-        kcal = 10 * weight + 6.25 * height_cm - 5 * age + 5
-    else:
-        kcal = 10 * weight + 6.25 * height_cm - 5 * age - 161
-
-    return {
-        "value": round(kcal),
-        "weight": round(weight, 1),
-        "height_cm": round(height_cm, 1),
-        "age": age,
-        "gender": gender,
-        "reference_date": latest_body_snapshot.get("weight_date") or latest_body_snapshot.get("reference_date"),
-        "formula": "Mifflin-St Jeor",
-    }
 
 
 def _is_meal_change_request(message: str) -> bool:
@@ -185,108 +130,28 @@ def _build_meal_plan_action(message: str, current_user: models.User, db: Session
 
 def _build_basal_metabolism_reply(
     message: str,
-    latest_body_snapshot: dict | None,
     estimated_basal: dict | None = None,
 ) -> str | None:
     lowered = (message or "").lower()
     if not any(keyword in lowered for keyword in BASAL_METABOLISM_KEYWORDS):
         return None
 
-    if latest_body_snapshot and latest_body_snapshot.get("basal_metabolism_kcal") is not None:
-        value = latest_body_snapshot["basal_metabolism_kcal"]
-        metric_date = (
-            latest_body_snapshot.get("basal_metabolism_kcal_date")
-            or latest_body_snapshot.get("weight_date")
-        )
-        date_label = f"{metric_date} 時点の " if metric_date else ""
-        return (
-            f"はい、参照できます。{date_label}HealthPlanet/Fitbit 同期データ上の基礎代謝量は {value}kcal です。"
-            "この値を前提に栄養アドバイスできます。"
-        )
-
     if estimated_basal is not None:
         date_label = f"{estimated_basal['reference_date']} 時点の体重を使って、" if estimated_basal.get("reference_date") else ""
         return (
-            f"同期済みの実測基礎代謝量は見当たりません。"
-            f"ただし、{date_label}{estimated_basal['formula']}式での推定基礎代謝量は {estimated_basal['value']}kcal です。"
-            "HealthPlanet の実測値ではなく推定値として扱ってください。"
+            f"はい、参照できます。{date_label}{estimated_basal['formula']}式での推定基礎代謝量は {estimated_basal['value']}kcal です。"
+            "これは実測値ではなく概算値として扱ってください。"
         )
 
     return (
-        "HealthPlanet の連携自体を否定する状態ではありませんが、現在の同期済み身体データには基礎代謝量が見当たりません。"
-        "体重や体脂肪率は取れていても、基礎代謝量だけ API から返っていないケースがあります。"
+        "基礎代謝量の概算に必要な情報が不足しています。"
+        "体重、身長、性別、年代がそろうと推定できます。"
     )
-
-
-def _mentions_healthplanet(message: str) -> bool:
-    lowered = (message or "").lower()
-    return any(keyword in lowered for keyword in HEALTHPLANET_KEYWORDS)
 
 
 def _build_latest_body_lines(db: Session, user_id: str) -> tuple[list[str], dict | None]:
     snapshot = get_weight_metric_snapshot(db, user_id)
     return build_weight_metric_lines(snapshot), snapshot
-
-
-async def _backfill_healthplanet_body_metrics(db: Session, user_id: str, days: int = 90) -> bool:
-    connected = {
-        token.service
-        for token in db.query(models.OAuthToken).filter_by(user_id=user_id).all()
-    }
-    if "healthplanet" not in connected:
-        return False
-
-    end = dt_date.today()
-    start = end - timedelta(days=days)
-    try:
-        entries = await healthplanet.get_innerscan_range(user_id, str(start), str(end), db)
-    except Exception:
-        return False
-
-    saved = False
-    for entry in sorted(entries, key=lambda item: item.get("date") or ""):
-        date = entry.get("date")
-        if not date:
-            continue
-        existing = (
-            db.query(models.WeightLog)
-            .filter_by(user_id=user_id, date=date, source="healthplanet")
-            .first()
-        )
-        payload = merge_missing_weight_metrics(
-            db,
-            user_id,
-            {
-            "weight": entry.get("weight"),
-            "body_fat": entry.get("body_fat"),
-            "muscle_mass": entry.get("muscle_mass"),
-            "basal_metabolism_kcal": entry.get("basal_metabolism_kcal"),
-            "body_age": entry.get("body_age"),
-            "bone_mass": entry.get("bone_mass"),
-            "visceral_fat_level": entry.get("visceral_fat_level"),
-            },
-            source="healthplanet",
-            before_date=date,
-        )
-        if existing:
-            for field, value in payload.items():
-                if value is not None:
-                    setattr(existing, field, value)
-                    saved = True
-            continue
-
-        if payload["weight"] is None and not any(value is not None for value in payload.values()):
-            continue
-        db.add(models.WeightLog(user_id=user_id, date=date, source="healthplanet", **payload))
-        saved = True
-
-    if saved:
-        db.commit()
-    return saved
-
-
-def _build_healthplanet_dataset_lines(db: Session, user_id: str) -> list[str]:
-    return get_healthplanet_dataset(db, user_id)["lines"]
 
 
 class ChatMessage(BaseModel):
@@ -364,19 +229,14 @@ async def chat(
 
     # ── 直近の身体データ（HealthPlanet/Fitbit同期分） ──
     initial_body_lines, latest_body_snapshot = _build_latest_body_lines(db, current_user.id)
-    if latest_body_snapshot is None or latest_body_snapshot.get("basal_metabolism_kcal") is None:
-        backfilled = await _backfill_healthplanet_body_metrics(db, current_user.id)
-        if backfilled:
-            initial_body_lines, latest_body_snapshot = _build_latest_body_lines(db, current_user.id)
     body_lines.extend(initial_body_lines)
 
-    estimated_basal = _estimate_basal_metabolism(latest_body_snapshot, goals)
-    direct_basal_reply = _build_basal_metabolism_reply(payload.message, latest_body_snapshot, estimated_basal)
-    healthplanet_dataset_lines = (
-        _build_healthplanet_dataset_lines(db, current_user.id)
-        if _mentions_healthplanet(payload.message)
-        else []
-    )
+    estimated_basal = estimate_basal_metabolism(latest_body_snapshot, goals)
+    if estimated_basal is not None:
+        reference_date = estimated_basal.get("reference_date")
+        prefix = f"基礎代謝量(推定・{reference_date}): " if reference_date else "基礎代謝量(推定): "
+        body_lines.append(f"{prefix}{estimated_basal['value']}kcal")
+    direct_basal_reply = _build_basal_metabolism_reply(payload.message, estimated_basal)
 
     # 体重トレンド（7日比）
     week_old_weight = (
@@ -461,8 +321,6 @@ async def chat(
         sections.append("[プロフィール・健康目標]\n" + "\n".join(f"  - {x}" for x in profile_lines))
     if body_lines:
         sections.append("[身体データ（HealthPlanet/Fitbit同期）]\n" + "\n".join(f"  - {x}" for x in body_lines))
-    if healthplanet_dataset_lines:
-        sections.append("[HealthPlanet連携データセット]\n" + "\n".join(f"  - {x}" for x in healthplanet_dataset_lines))
     if activity_lines:
         sections.append("[活動量（直近7日）]\n" + "\n".join(f"  - {x}" for x in activity_lines))
     if nutrition_lines:
@@ -478,27 +336,11 @@ async def chat(
             + user_context
             + "\n\n上記データを必要に応じて参照し、具体的な数値を交えてアドバイスしてください。"
         )
-    if latest_body_snapshot and latest_body_snapshot.get("basal_metabolism_kcal") is not None:
-        stale_note = "" if not latest_body_snapshot.get("is_stale") else (
-            f"なお、この値は {latest_body_snapshot.get('reference_date')} 時点の最新記録です。"
-        )
+    if estimated_basal is not None:
         system += (
-            "\n基礎代謝量は HealthPlanet/Fitbit 同期済みデータとして利用可能です。"
-            "基礎代謝量について聞かれたら、未連携・未取得とは案内せず、"
-            f"連携済みの数値 {latest_body_snapshot['basal_metabolism_kcal']}kcal を使って回答してください。{stale_note}"
-        )
-    elif estimated_basal is not None:
-        system += (
-            "\n同期済みの実測基礎代謝量はありません。"
             f"ただし、{estimated_basal['formula']}式による推定基礎代謝量 {estimated_basal['value']}kcal が利用可能です。"
-            "基礎代謝量について聞かれたら、実測値が無いことを隠さず、"
+            "基礎代謝量について聞かれたら、"
             "推定値であることを明示したうえでこの数値を使って回答してください。"
-        )
-    if healthplanet_dataset_lines:
-        system += (
-            "\nユーザーが HealthPlanet に言及しているため、"
-            "上記の [HealthPlanet連携データセット] セクションを優先して参照してください。"
-            "HealthPlanet の値について聞かれたら、そのセクションにある数値を事実として扱って回答してください。"
         )
 
     # Build conversation

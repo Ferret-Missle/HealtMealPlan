@@ -91,7 +91,6 @@ function lsSet(key, val) {
 // ── 定数 ─────────────────────────────────────────────────────
 const WIDGET_IDS = [
 	"weight",
-	"healthplanet",
 	"calories",
 	"pfc",
 	"steps",
@@ -106,7 +105,6 @@ function normalizeWidgetOrder(order = []) {
 
 const WIDGET_META = {
 	weight: { label: "体重", Icon: Scale },
-	healthplanet: { label: "HealthPlanet", Icon: Scale },
 	calories: { label: "カロリー", Icon: Flame },
 	pfc: { label: "PFC", Icon: Layers },
 	steps: { label: "歩数", Icon: Footprints },
@@ -125,7 +123,6 @@ const WIDGET_REQUIREMENTS = {
 		any: true,
 		label: "Fitbit / HealthPlanet",
 	},
-	healthplanet: { services: ["healthplanet"], label: "HealthPlanet" },
 	steps: { services: ["fitbit"], label: "Fitbit" },
 	sleep: { services: ["fitbit"], label: "Fitbit" },
 };
@@ -139,7 +136,6 @@ function isServiceConnected(req, connectedServices = []) {
 
 const DEFAULT_ORDER = [
 	"weight",
-	"healthplanet",
 	"calories",
 	"pfc",
 	"steps",
@@ -1216,59 +1212,6 @@ function MealsList({ logs, onSync, isSyncing }) {
 	);
 }
 
-function HealthPlanetDatasetPanel({ dataset, onSync, isSyncing }) {
-	const metrics = dataset?.metrics ?? [];
-	const latestDate = dataset?.latest_date;
-
-	return (
-		<div className="healthplanet-widget-list">
-			<div className="healthplanet-widget-meta">
-				<span>連携状態: 接続済み</span>
-				{latestDate && <span>直近測定日: {latestDate}</span>}
-			</div>
-			{metrics.length === 0 ? (
-				<EmptyGraph msg="非空欄の HealthPlanet データがまだありません" />
-			) : (
-				metrics.map((metric) => {
-					const dateNote =
-						metric.date && metric.date !== latestDate
-							? ` (${metric.date})`
-							: "";
-					return (
-						<div key={metric.field} className="healthplanet-widget-row">
-							<div className="healthplanet-widget-label">
-								{metric.label}
-								{dateNote}
-							</div>
-							<div className="healthplanet-widget-value">
-								{metric.value}
-								{metric.unit}
-							</div>
-						</div>
-					);
-				})
-			)}
-			<button
-				className="btn btn-outline btn-sm"
-				style={{ ...widgetSyncButtonStyle, marginTop: 8 }}
-				onClick={onSync}
-				disabled={isSyncing}
-			>
-				<RefreshCw
-					size={11}
-					strokeWidth={2}
-					style={
-						isSyncing
-							? { animation: "spin 0.65s linear infinite", marginRight: 4 }
-							: { marginRight: 4 }
-					}
-				/>
-				{isSyncing ? "同期中…" : "HealthPlanet を再同期"}
-			</button>
-		</div>
-	);
-}
-
 // ── 今日の予定（フルワイド固定） ─────────────────────────────
 function ScheduleCard({ connected, calendarData, isLoading }) {
 	const events = calendarData?.events ?? [];
@@ -1577,22 +1520,7 @@ export default function DashboardPage() {
 		mutationFn: () => bodyApi.syncWeightHistory(weightDays),
 		onSuccess: () => {
 			qc.invalidateQueries({ queryKey: ["weight-history"] });
-			qc.invalidateQueries({ queryKey: ["healthplanet-dataset"] });
 		},
-	});
-
-	const shouldLoadHealthPlanetDataset =
-		deferredQueriesEnabled &&
-		connectedServices.includes("healthplanet") &&
-		(vis.healthplanet?.value || vis.healthplanet?.graph);
-	const {
-		data: healthplanetDataset,
-		isFetching: isHealthPlanetDatasetFetching,
-	} = useQuery({
-		queryKey: ["healthplanet-dataset"],
-		queryFn: () => dashboardApi.healthplanetDataset(),
-		enabled: shouldLoadHealthPlanetDataset,
-		staleTime: 5 * 60 * 1000,
 	});
 
 	// 睡眠・歩数履歴：ウィジェットごとに独立したクエリ
@@ -1719,8 +1647,6 @@ export default function DashboardPage() {
 		meals:
 			(shouldLoadMeals && isMealLogsFetching) ||
 			(shouldLoadDailyKcal && isDailyKcalFetching),
-		healthplanet:
-			shouldLoadHealthPlanetDataset && isHealthPlanetDatasetFetching,
 	};
 
 	// 一括同期：すべてのデータソースをまとめて更新（食事は過去8日分まとめて）
@@ -1738,7 +1664,6 @@ export default function DashboardPage() {
 			qc.invalidateQueries({ queryKey: ["dashboard"] });
 			qc.invalidateQueries({ queryKey: ["weight-history"] });
 			qc.invalidateQueries({ queryKey: ["activity-history"] });
-			qc.invalidateQueries({ queryKey: ["healthplanet-dataset"] });
 			qc.invalidateQueries({ queryKey: ["meals"] });
 			qc.invalidateQueries({ queryKey: ["meals-daily-kcal"] });
 			qc.invalidateQueries({ queryKey: ["meals-daily-nutrition"] });
@@ -1911,23 +1836,6 @@ export default function DashboardPage() {
 				/>
 			),
 		},
-		healthplanet: {
-			support: ["1d"],
-			value: (
-				<HealthPlanetDatasetPanel
-					dataset={healthplanetDataset}
-					onSync={() => syncMutation.mutate()}
-					isSyncing={syncMutation.isPending}
-				/>
-			),
-			graph: (
-				<HealthPlanetDatasetPanel
-					dataset={healthplanetDataset}
-					onSync={() => syncMutation.mutate()}
-					isSyncing={syncMutation.isPending}
-				/>
-			),
-		},
 	};
 
 	return (
@@ -2051,17 +1959,15 @@ export default function DashboardPage() {
 											graphContent={def.graph}
 											graphSupport={def.support}
 											span={
-												id === "healthplanet"
-													? "span-2"
-													: v.graph
-														? id === "meals"
+												v.graph
+													? id === "meals"
+														? "span-2"
+														: id === "weight" ||
+															  id === "sleep" ||
+															  (id === "steps" && periods.steps !== "1d")
 															? "span-2"
-															: id === "weight" ||
-																  id === "sleep" ||
-																  (id === "steps" && periods.steps !== "1d")
-																? "span-2"
-																: null
-														: null
+															: null
+													: null
 											}
 											needsConnection={
 												!isServiceConnected(

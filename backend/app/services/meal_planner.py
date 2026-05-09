@@ -4,7 +4,7 @@ from datetime import date as dt_date, timedelta
 from sqlalchemy.orm import Session
 from .. import models, security
 from ..llm.adapter import get_adapter
-from .body_snapshot import get_weight_metric_snapshot
+from .body_snapshot import estimate_basal_metabolism, get_weight_metric_snapshot
 from .plan_progress import write_plan_progress
 
 
@@ -270,8 +270,6 @@ def _gather_body_info(user_id: str, db: Session, scope: str, goals) -> dict | No
             info["muscle_mass_kg"] = weight_snapshot["muscle_mass"]
         if weight_snapshot.get("bmi") is not None:
             info["bmi"] = weight_snapshot["bmi"]
-        if weight_snapshot.get("basal_metabolism_kcal") is not None:
-            info["basal_metabolism_kcal"] = weight_snapshot["basal_metabolism_kcal"]
         if weight_snapshot.get("body_age") is not None:
             info["body_age"] = weight_snapshot["body_age"]
         if weight_snapshot.get("bone_mass") is not None:
@@ -297,6 +295,11 @@ def _gather_body_info(user_id: str, db: Session, scope: str, goals) -> dict | No
             info["age_group"] = goals.age_group
         if getattr(goals, "gender", None):
             info["gender"] = goals.gender
+
+    estimated_basal = estimate_basal_metabolism(weight_snapshot, goals)
+    if estimated_basal is not None:
+        info["basal_metabolism_kcal"] = estimated_basal["value"]
+        info["basal_metabolism_source"] = "estimated"
 
     if scope == "minimal":
         return info
@@ -390,7 +393,8 @@ def _format_body_info(body_info: dict | None) -> str:
     if "bmi" in body_info:
         lines.append(f"  - BMI: {body_info['bmi']}")
     if "basal_metabolism_kcal" in body_info:
-        lines.append(f"  - 基礎代謝量: {body_info['basal_metabolism_kcal']}kcal")
+        label = "基礎代謝量(推定)" if body_info.get("basal_metabolism_source") == "estimated" else "基礎代謝量"
+        lines.append(f"  - {label}: {body_info['basal_metabolism_kcal']}kcal")
     if "body_age" in body_info:
         lines.append(f"  - 体内年齢: {body_info['body_age']}才")
     if "bone_mass_kg" in body_info:
