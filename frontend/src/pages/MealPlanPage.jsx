@@ -1464,6 +1464,7 @@ function SlotEditPanel({ planId, slot, dayDate, onClose }) {
 	const [diningOutKcal, setDiningOutKcal] = useState(
 		slot.dining_out_kcal || "",
 	);
+	const [replaceRequest, setReplaceRequest] = useState("");
 	const [replacing, setReplacing] = useState(false);
 	const [saving, setSaving] = useState(false);
 
@@ -1488,7 +1489,9 @@ function SlotEditPanel({ planId, slot, dayDate, onClose }) {
 	const handleReplace = async () => {
 		setReplacing(true);
 		try {
-			await mealPlanApi.replaceSlot(planId, slot.id, {});
+			await mealPlanApi.replaceSlot(planId, slot.id, {
+				user_request: replaceRequest.trim() || undefined,
+			});
 			qc.invalidateQueries({ queryKey: ["meal-plan", planId] });
 			onClose();
 		} catch (e) {
@@ -1625,6 +1628,38 @@ function SlotEditPanel({ planId, slot, dayDate, onClose }) {
 							style={{ marginTop: 10 }}
 						/>
 					)}
+				</div>
+				<div
+					style={{
+						background: "var(--bg)",
+						borderRadius: 16,
+						padding: 14,
+						marginBottom: 12,
+					}}
+				>
+					<label className="form-label" htmlFor={`replace-request-${slot.id}`}>
+						AI差し替え時の希望
+					</label>
+					<textarea
+						id={`replace-request-${slot.id}`}
+						className="form-input"
+						value={replaceRequest}
+						onChange={(e) => setReplaceRequest(e.target.value)}
+						placeholder="例: 和食にしたい、辛いものは避けたい、15分以内で作りたい、鶏肉メインにしたい"
+						rows={4}
+						maxLength={300}
+						style={{ resize: "vertical", minHeight: 96 }}
+					/>
+					<div
+						style={{
+							fontSize: 12,
+							color: "var(--text-secondary)",
+							marginTop: 8,
+							lineHeight: 1.6,
+						}}
+					>
+						差し替え時だけ AI に追加で伝える希望です。未入力なら現在の条件だけで再提案します。
+					</div>
 				</div>
 				<div
 					style={{

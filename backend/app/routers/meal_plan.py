@@ -457,10 +457,12 @@ async def update_plan_item_feedback(
 
 class ReplaceMenuRequest(BaseModel):
     user_id: str | None = None  # specify for individual slot
+    user_request: str | None = None
 
 
 class ReplaceDayRequest(BaseModel):
     meal_types: list[str] | None = None
+    user_request: str | None = None
 
 
 @router.post("/{plan_id}/slots/{slot_id}/replace")
@@ -493,8 +495,16 @@ async def replace_slot_menu(
     # Re-generate menu for this slot
     from ..services import meal_planner
     target_user_ids = [payload.user_id] if payload.user_id else None
+    user_request = (payload.user_request or "").strip() or None
     try:
-        await meal_planner.generate_slot_menu(plan_id, slot_id, current_user.id, db, target_user_ids)
+        await meal_planner.generate_slot_menu(
+            plan_id,
+            slot_id,
+            current_user.id,
+            db,
+            target_user_ids,
+            user_request=user_request,
+        )
     except Exception as e:
         raise HTTPException(500, f"LLM generation failed: {str(e)}")
 
@@ -539,9 +549,16 @@ async def replace_day_menu(
     db.commit()
 
     from ..services import meal_planner
+    user_request = (payload.user_request or "").strip() or None
     try:
         for slot in slots:
-            await meal_planner.generate_slot_menu(plan_id, slot.id, current_user.id, db)
+            await meal_planner.generate_slot_menu(
+                plan_id,
+                slot.id,
+                current_user.id,
+                db,
+                user_request=user_request,
+            )
     except Exception as e:
         raise HTTPException(500, f"LLM generation failed: {str(e)}")
 

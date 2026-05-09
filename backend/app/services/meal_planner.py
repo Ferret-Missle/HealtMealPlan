@@ -558,6 +558,7 @@ async def _generate_slot_menu(
     recent_same_meal: list[str] | None = None,
     plan_used_ingredients: list[str] | None = None,
     all_day_slots: list | None = None,
+    user_request: str | None = None,
 ):
     if conditions is None:
         conditions = {}
@@ -609,6 +610,7 @@ async def _generate_slot_menu(
             plan_used_ingredients,
             same_day_used_ingredients=same_day_used_ingredients,
             day_sources_per_member=day_sources_per_member,
+            user_request=user_request,
         )
         db.add(_make_item(slot.id, None, data, meal_type_str))
         if data.get("menu_name"):
@@ -625,6 +627,7 @@ async def _generate_slot_menu(
                 plan_used_ingredients,
                 same_day_used_ingredients=same_day_used_ingredients,
                 day_sources_per_member={mc["user_id"]: day_sources_per_member.get(mc["user_id"], {})},
+                user_request=user_request,
             )
             db.add(_make_item(slot.id, mc["label"], data, meal_type_str))
             if data.get("menu_name"):
@@ -644,6 +647,7 @@ async def _call_llm(
     plan_used_ingredients: list[str] | None = None,
     same_day_used_ingredients: list[str] | None = None,
     day_sources_per_member: dict | None = None,
+    user_request: str | None = None,
 ) -> dict:
     same_day_done = same_day_done or []
     recent_same_meal = recent_same_meal or []
@@ -719,6 +723,14 @@ async def _call_llm(
     breakfast_note = ""
     if meal_type_str == "breakfast" and light_breakfast:
         breakfast_note = "【朝食は軽めに】消化が良く手軽な内容にしてください。\n"
+
+    user_request_section = ""
+    if user_request:
+        user_request_section = (
+            "\n[今回の差し替え希望]\n"
+            f"{user_request}\n"
+            "上記の希望を優先しつつ、栄養目標・除外条件・重複回避ルールは必ず守ってください。"
+        )
 
     # メンバー情報（よく食べるメニューも反映）
     member_lines = []
@@ -812,6 +824,8 @@ async def _call_llm(
 
 [食事条件]
 {breakfast_note}{source_note}
+
+{user_request_section}
 
 [メンバー情報]
 {member_info}{fav_section}{liked_section}{disliked_section}{body_section}
@@ -981,6 +995,7 @@ async def generate_slot_menu(
     user_id: str,
     db: Session,
     target_user_ids: list[str] | None = None,
+    user_request: str | None = None,
 ):
     plan = db.query(models.MealPlan).filter_by(id=plan_id).first()
     if not plan:
@@ -1086,6 +1101,7 @@ async def generate_slot_menu(
             recent_same_meal=recent_same_meal[-5:],
             plan_used_ingredients=plan_used_ingredients,
             all_day_slots=list(day.slots),
+            user_request=user_request,
         )
 
 
