@@ -38,6 +38,58 @@ BASAL_METABOLISM_KEYWORDS = ("基礎代謝", "基礎代謝量", "bmr")
 HEALTHPLANET_KEYWORDS = ("healthplanet", "ヘルスプラネット")
 
 
+def _normalize_gender(value: str | None) -> str | None:
+    lowered = (value or "").strip().lower()
+    if lowered in {"male", "man", "m", "男性", "男"}:
+        return "male"
+    if lowered in {"female", "woman", "f", "女性", "女"}:
+        return "female"
+    return None
+
+
+def _estimate_age_from_age_group(age_group: str | None) -> int | None:
+    if not age_group:
+        return None
+    match = re.search(r"(\d{2})", age_group)
+    if match:
+        decade = int(match.group(1))
+        if 10 <= decade <= 90:
+            return decade + 5
+    return None
+
+
+def _estimate_basal_metabolism(
+    latest_body_snapshot: dict | None,
+    goals: models.UserGoals | None,
+) -> dict | None:
+    if not latest_body_snapshot or not goals:
+        return None
+
+    weight = latest_body_snapshot.get("weight")
+    height_cm = getattr(goals, "height_cm", None)
+    age = _estimate_age_from_age_group(getattr(goals, "age_group", None))
+    gender = _normalize_gender(getattr(goals, "gender", None))
+    if weight is None or height_cm is None or age is None or gender is None:
+        return None
+
+    weight = float(weight)
+    height_cm = float(height_cm)
+    if gender == "male":
+        kcal = 10 * weight + 6.25 * height_cm - 5 * age + 5
+    else:
+        kcal = 10 * weight + 6.25 * height_cm - 5 * age - 161
+
+    return {
+        "value": round(kcal),
+        "weight": round(weight, 1),
+        "height_cm": round(height_cm, 1),
+        "age": age,
+        "gender": gender,
+        "reference_date": latest_body_snapshot.get("weight_date") or latest_body_snapshot.get("reference_date"),
+        "formula": "Mifflin-St Jeor",
+    }
+
+
 def _is_meal_change_request(message: str) -> bool:
     return any(word in message for word in MEAL_CHANGE_KEYWORDS) and any(word in message for word in MEAL_CHANGE_VERBS)
 
@@ -130,7 +182,11 @@ def _build_meal_plan_action(message: str, current_user: models.User, db: Session
     }
 
 
-def _build_basal_metabolism_reply(message: str, latest_body_snapshot: dict | None) -> str | None:
+def _build_basal_metabolism_reply(
+    message: str,
+    latest_body_snapshot: dict | None,
+    estimated_basal: dict | None = None,
+) -> str | None:
     lowered = (message or "").lower()
     if not any(keyword in lowered for keyword in BASAL_METABOLISM_KEYWORDS):
         return None
@@ -145,6 +201,14 @@ def _build_basal_metabolism_reply(message: str, latest_body_snapshot: dict | Non
         return (
             f"はい、参照できます。{date_label}HealthPlanet/Fitbit 同期データ上の基礎代謝量は {value}kcal です。"
             "この値を前提に栄養アドバイスできます。"
+        )
+
+    if estimated_basal is not None:
+        date_label = f"{estimated_basal['reference_date']} 時点の体重を使って、" if estimated_basal.get("reference_date") else ""
+        return (
+            f"同期済みの実測基礎代謝量は見当たりません。"
+            f"ただし、{date_label}{estimated_basal['formula']}式での推定基礎代謝量は {estimated_basal['value']}kcal です。"
+            "HealthPlanet の実測値ではなく推定値として扱ってください。"
         )
 
     return (
@@ -355,7 +419,8 @@ async def chat(
             initial_body_lines, latest_body_snapshot = _build_latest_body_lines(db, current_user.id)
     body_lines.extend(initial_body_lines)
 
-    direct_basal_reply = _build_basal_metabolism_reply(payload.message, latest_body_snapshot)
+    estimated_basal = _estimate_basal_metabolism(latest_body_snapshot, goals)
+    direct_basal_reply = _build_basal_metabolism_reply(payload.message, latest_body_snapshot, estimated_basal)
     healthplanet_dataset_lines = (
         _build_healthplanet_dataset_lines(db, current_user.id)
         if _mentions_healthplanet(payload.message)
@@ -470,6 +535,13 @@ async def chat(
             "\n基礎代謝量は HealthPlanet/Fitbit 同期済みデータとして利用可能です。"
             "基礎代謝量について聞かれたら、未連携・未取得とは案内せず、"
             f"連携済みの数値 {latest_body_snapshot['basal_metabolism_kcal']}kcal を使って回答してください。{stale_note}"
+        )
+    elif estimated_basal is not None:
+        system += (
+            "\n同期済みの実測基礎代謝量はありません。"
+            f"ただし、{estimated_basal['formula']}式による推定基礎代謝量 {estimated_basal['value']}kcal が利用可能です。"
+            "基礎代謝量について聞かれたら、実測値が無いことを隠さず、"
+            "推定値であることを明示したうえでこの数値を使って回答してください。"
         )
     if healthplanet_dataset_lines:
         system += (
