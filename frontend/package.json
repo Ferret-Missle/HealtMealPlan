@@ -5,7 +5,10 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:vercel": "npx vercel env run -- npm run dev",
     "build": "vite build",
+    "build:vercel": "npx vercel env run -- npm run build",
+    "env:pull:vercel": "npx vercel env pull .env.local --yes",
     "lint": "eslint .",
     "preview": "vite preview"
   },

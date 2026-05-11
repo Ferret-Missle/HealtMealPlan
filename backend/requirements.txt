@@ -11,3 +11,4 @@ firebase-admin==6.5.0
 python-multipart==0.0.12
 aiohttp==3.10.5
 cachetools==5.5.0
+python-dotenv==1.0.1

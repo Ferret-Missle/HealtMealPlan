@@ -43,7 +43,13 @@ echo "  → http://localhost:8000/docs"
 # Frontend
 echo "[2/2] Vite フロントエンドを起動..."
 cd ../frontend
-npm run dev &
+if [ -f ".env.local" ] || [ -f ".env" ]; then
+  npm run dev &
+else
+  echo "  → frontend/.env.local がないため Vercel の環境変数で起動します"
+  echo "  → 初回は Vercel CLI のログイン/プロジェクトリンクが必要です"
+  npm run dev:vercel &
+fi
 FRONTEND_PID=$!
 echo "  → http://localhost:5173"
 
