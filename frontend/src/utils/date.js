@@ -35,6 +35,25 @@ export function addJstDays(value, days) {
   return toJstDateString(date);
 }
 
+export function getJstWeekdayIndex(value) {
+  const weekday = parseJstDate(value).toLocaleDateString('en-US', {
+    timeZone: JST_TIME_ZONE,
+    weekday: 'short',
+  });
+  return ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(weekday);
+}
+
+export function startOfJstWeek(value) {
+  const weekdayIndex = getJstWeekdayIndex(value);
+  return addJstDays(value, -Math.max(weekdayIndex, 0));
+}
+
+export function startOfJstMonth(value) {
+  const date = parseJstDate(value);
+  const { year, month } = getJstParts(date);
+  return `${year}-${month}-01`;
+}
+
 export function addJstMonths(months, value = new Date()) {
   const date = parseJstDate(value);
   date.setUTCMonth(date.getUTCMonth() + months);

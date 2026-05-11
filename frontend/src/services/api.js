@@ -88,10 +88,10 @@ export const mealsApi = {
 
 // Body
 export const bodyApi = {
-  weightHistory: (days = 30) => api.get('/api/body/weight', { params: { days } }),
-  syncWeightHistory:    (days = 30) => api.post('/api/body/sync-weight-history', null, { params: { days } }),
-  activityHistory:      (days = 7)  => api.get('/api/body/activity-history', { params: { days } }),
-  syncActivityHistory:  (days = 7)  => api.post('/api/body/sync-activity-history', null, { params: { days } }),
+  weightHistory: (days = 30, baseDate) => api.get('/api/body/weight', { params: { days, ...(baseDate ? { base_date: baseDate } : {}) } }),
+  syncWeightHistory:    (days = 30, baseDate) => api.post('/api/body/sync-weight-history', null, { params: { days, ...(baseDate ? { base_date: baseDate } : {}) } }),
+  activityHistory:      (days = 7, baseDate)  => api.get('/api/body/activity-history', { params: { days, ...(baseDate ? { base_date: baseDate } : {}) } }),
+  syncActivityHistory:  (days = 7, baseDate)  => api.post('/api/body/sync-activity-history', null, { params: { days, ...(baseDate ? { base_date: baseDate } : {}) } }),
   addWeight: (data) => api.post('/api/body/weight', data),
   sync: (date) => api.post('/api/body/sync', null, { params: date ? { target_date: date } : {} }),
   goals: () => api.get('/api/body/goals'),

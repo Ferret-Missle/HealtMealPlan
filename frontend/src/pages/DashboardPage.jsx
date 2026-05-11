@@ -18,16 +18,10 @@ import {
     CalendarClock,
     ChevronLeft,
     ChevronRight,
-    Flame,
-    Footprints,
     GripVertical,
-    Layers,
     Link2Off,
-    Moon,
     RefreshCw,
-    Scale,
-    Settings2,
-    UtensilsCrossed,
+    Settings2
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
@@ -49,107 +43,43 @@ import {
 } from "recharts";
 import { bodyApi, dashboardApi, mealsApi, settingsApi } from "../services/api";
 import {
-    addJstDays,
-    formatJstDate,
     isTodayJst,
-    toJstDateString,
+    startOfJstMonth,
+    startOfJstWeek
 } from "../utils/date";
 
-// ── 日付ユーティリティ ────────────────────────────────────────
-function todayStr() {
-	return toJstDateString();
-}
-function offsetDate(base, days) {
-	return addJstDays(base, days);
-}
-function fmtDate(dateStr) {
-	return formatJstDate(dateStr, {
-		month: "long",
-		day: "numeric",
-		weekday: "short",
-	});
-}
-function fmtShort(dateStr) {
-	return formatJstDate(dateStr, { month: "numeric", day: "numeric" });
+function getWidgetStepDays(period, supported = []) {
+	if (supported.length <= 1) return 1;
+	if (period === "30d") return 30;
+	if (period === "7d") return 7;
+	return 1;
 }
 
-// ── localStorage ─────────────────────────────────────────────
-function lsGet(key, def) {
-	try {
-		return JSON.parse(localStorage.getItem(key)) ?? def;
-	} catch {
-		return def;
-	}
-}
-function lsSet(key, val) {
-	try {
-		localStorage.setItem(key, JSON.stringify(val));
-	} catch {
-		return undefined;
-	}
+function getWidgetRangeStart(dateStr, period, supported = []) {
+	if (period === "7d" && supported.includes("7d"))
+		return startOfJstWeek(dateStr);
+	if (period === "30d" && supported.includes("30d"))
+		return startOfJstMonth(dateStr);
+	return dateStr;
 }
 
-// ── 定数 ─────────────────────────────────────────────────────
-const WIDGET_IDS = ["weight", "calories", "pfc", "steps", "sleep", "meals"];
-
-function normalizeWidgetOrder(order = []) {
-	const valid = order.filter((id) => WIDGET_IDS.includes(id));
-	return [...valid, ...WIDGET_IDS.filter((id) => !valid.includes(id))];
+function getWidgetRangeEnd(dateStr, period, supported = []) {
+	const start = getWidgetRangeStart(dateStr, period, supported);
+	return offsetDate(start, getWidgetStepDays(period, supported) - 1);
 }
 
-const WIDGET_META = {
-	weight: { label: "体重", Icon: Scale },
-	calories: { label: "カロリー", Icon: Flame },
-	pfc: { label: "PFC", Icon: Layers },
-	steps: { label: "歩数", Icon: Footprints },
-	sleep: { label: "睡眠", Icon: Moon },
-	meals: { label: "食事記録", Icon: UtensilsCrossed },
-};
-
-// ── 連携要件マップ ──────────────────────────────────────────
-// required: そのウィジェットを機能させるのに必須の外部サービス
-//   any:true → どれか1つ連携でOK
-//   any:false (default) → すべて必要
-// 手動入力で代替可能なウィジェット (calories/pfc/meals) は要件なし
-const WIDGET_REQUIREMENTS = {
-	weight: {
-		services: ["fitbit", "healthplanet"],
-		any: true,
-		label: "Fitbit / HealthPlanet",
-	},
-	steps: { services: ["fitbit"], label: "Fitbit" },
-	sleep: { services: ["fitbit"], label: "Fitbit" },
-};
-
-function isServiceConnected(req, connectedServices = []) {
-	if (!req) return true;
-	return req.any
-		? req.services.some((s) => connectedServices.includes(s))
-		: req.services.every((s) => connectedServices.includes(s));
+function getWidgetHistoryBaseDate(dateStr, period, supported = []) {
+	const start = getWidgetRangeStart(dateStr, period, supported);
+	return offsetDate(start, getWidgetStepDays(period, supported));
 }
 
-const DEFAULT_ORDER = ["weight", "calories", "pfc", "steps", "sleep", "meals"];
-const DEFAULT_VIS = Object.fromEntries(
-	WIDGET_IDS.map((id) => [id, { value: true, graph: false }]),
-);
-const DEFAULT_PERIODS = Object.fromEntries(WIDGET_IDS.map((id) => [id, "7d"]));
-
-const BRAND = "#16a34a";
-const CALORIE_BURN = "#f97316";
-const CALORIE_BALANCE = "#0f766e";
-const PFC_COLORS = ["#16a34a", "#f59e0b", "#3b82f6"];
-const widgetSyncButtonStyle = {
-	marginTop: 6,
-	marginBottom: 0,
-	width: "100%",
-	fontSize: 11,
-};
-const tipStyle = {
-	fontSize: 11,
-	padding: "4px 8px",
-	borderRadius: 6,
-	border: "1px solid #e2e8f0",
-};
+function getWidgetRangeLabel(dateStr, period, supported = []) {
+	const start = getWidgetRangeStart(dateStr, period, supported);
+	const spanDays = getWidgetStepDays(period, supported);
+	if (spanDays === 1) return fmtDate(start);
+	const end = offsetDate(start, spanDays - 1);
+	return `${fmtShort(start)} - ${fmtShort(end)}`;
+}
 
 // ── 共通パーツ ────────────────────────────────────────────────
 function Dot({ color }) {
@@ -236,6 +166,10 @@ function WidgetShell({
 	vis,
 	period,
 	onPeriodChange,
+	dateLabel,
+	onDatePrev,
+	onDateNext,
+	onDateToday,
 	valueContent,
 	graphContent,
 	graphSupport,
@@ -256,6 +190,61 @@ function WidgetShell({
 	const showBoth = vis.value && vis.graph;
 	const spanClass =
 		span === "full" ? " full" : span === "span-2" ? " span-2" : "";
+	const showPeriodPills = vis.graph && graphSupport.length > 1;
+	const controls = (
+		<div
+			style={{
+				display: "flex",
+				alignItems: "center",
+				gap: 8,
+				justifyContent: "space-between",
+				marginBottom: vis.graph ? 8 : 0,
+			}}
+		>
+			<div>{showPeriodPills ? (
+				<PeriodPills
+					period={period}
+					onChange={onPeriodChange}
+					supported={graphSupport}
+				/>
+			) : null}</div>
+			<div
+				style={{
+					display: "flex",
+					alignItems: "center",
+					gap: 6,
+					marginLeft: "auto",
+				}}
+			>
+				<span style={{ fontSize: 11, color: "var(--text-2)", whiteSpace: "nowrap" }}>
+					{dateLabel}
+				</span>
+				<button
+					className="btn-ghost"
+					style={{ padding: "4px 6px", borderRadius: 8 }}
+					onClick={onDatePrev}
+					title="前へ"
+				>
+					<ChevronLeft size={15} strokeWidth={1.8} />
+				</button>
+				<button
+					className="btn-ghost"
+					style={{ padding: "4px 8px", borderRadius: 8, fontSize: 11 }}
+					onClick={onDateToday}
+				>
+					今日
+				</button>
+				<button
+					className="btn-ghost"
+					style={{ padding: "4px 6px", borderRadius: 8 }}
+					onClick={onDateNext}
+					title="次へ"
+				>
+					<ChevronRight size={15} strokeWidth={1.8} />
+				</button>
+			</div>
+		</div>
+	);
 
 	return (
 		<div
@@ -294,14 +283,10 @@ function WidgetShell({
 			) : (
 				<>
 					{vis.value && <div>{valueContent}</div>}
-					{showBoth && <div className="widget-divider" />}
+					{(showBoth || !vis.graph) && <div className="widget-divider" />}
+					{controls}
 					{vis.graph && (
 						<div>
-							<PeriodPills
-								period={period}
-								onChange={onPeriodChange}
-								supported={graphSupport}
-							/>
 							{graphContent}
 						</div>
 					)}
@@ -1517,10 +1502,7 @@ function SettingsPanel({ vis, onToggle }) {
 export default function DashboardPage() {
 	const qc = useQueryClient();
 	const autoBodySyncRef = useRef("");
-
-	// 日付
-	const [dateStr, setDateStr] = useState(todayStr);
-	const isToday = isTodayJst(dateStr);
+	const todayDate = todayStr();
 
 	// ウィジェット設定：cloud 同期（初期はローカルキャッシュをフォールバック）
 	const [order, setOrder] = useState(() =>
@@ -1529,6 +1511,9 @@ export default function DashboardPage() {
 	const [vis, setVis] = useState(() => lsGet("db-vis", DEFAULT_VIS));
 	const [periods, setPeriods] = useState(() =>
 		lsGet("db-periods", DEFAULT_PERIODS),
+	);
+	const [widgetDates, setWidgetDates] = useState(() =>
+		lsGet("db-dates", DEFAULT_WIDGET_DATES),
 	);
 	const [showSettings, setShowSettings] = useState(false);
 	const [deferredQueriesEnabled, setDeferredQueriesEnabled] = useState(false);
@@ -1555,6 +1540,8 @@ export default function DashboardPage() {
 				setVis({ ...DEFAULT_VIS, ...s.vis });
 			if (s.periods && typeof s.periods === "object")
 				setPeriods({ ...DEFAULT_PERIODS, ...s.periods });
+			if (s.dates && typeof s.dates === "object")
+				setWidgetDates({ ...DEFAULT_WIDGET_DATES, ...s.dates });
 			dashSettingsLoadedRef.current = true;
 		}
 	}, [dashSettingsData]);
@@ -1575,34 +1562,172 @@ export default function DashboardPage() {
 		setVis((prev) => {
 			const next = { ...prev, [id]: { ...prev[id], [key]: !prev[id][key] } };
 			lsSet("db-vis", next);
-			persistDashSettings({ order, vis: next, periods });
+			persistDashSettings({ order, vis: next, periods, dates: widgetDates });
 			return next;
 		});
 	const setPeriod = (id, p) =>
 		setPeriods((prev) => {
 			const next = { ...prev, [id]: p };
 			lsSet("db-periods", next);
-			persistDashSettings({ order, vis, periods: next });
+			persistDashSettings({ order, vis, periods: next, dates: widgetDates });
+			return next;
+		});
+	const setWidgetDate = (id, valueOrUpdater) =>
+		setWidgetDates((prev) => {
+			const current = prev[id] ?? todayDate;
+			const nextDate =
+				typeof valueOrUpdater === "function"
+					? valueOrUpdater(current)
+					: valueOrUpdater;
+			const next = { ...prev, [id]: nextDate };
+			lsSet("db-dates", next);
+			persistDashSettings({ order, vis, periods, dates: next });
 			return next;
 		});
 
-	// データ取得
-	const { data: summary, isLoading } = useQuery({
-		queryKey: ["dashboard", dateStr],
-		queryFn: () => dashboardApi.today(dateStr).then((r) => r.data),
+	const weightPeriod = periods.weight ?? DEFAULT_PERIODS.weight;
+	const caloriesPeriod = periods.calories ?? DEFAULT_PERIODS.calories;
+	const pfcPeriod = periods.pfc ?? DEFAULT_PERIODS.pfc;
+	const stepsPeriod = periods.steps ?? DEFAULT_PERIODS.steps;
+	const sleepPeriod = periods.sleep ?? DEFAULT_PERIODS.sleep;
+	const mealsPeriod = periods.meals ?? DEFAULT_PERIODS.meals;
+
+	const weightDate = widgetDates.weight ?? todayDate;
+	const caloriesDate = widgetDates.calories ?? todayDate;
+	const pfcDate = widgetDates.pfc ?? todayDate;
+	const stepsDate = widgetDates.steps ?? todayDate;
+	const sleepDate = widgetDates.sleep ?? todayDate;
+	const mealsDate = widgetDates.meals ?? todayDate;
+
+	const weightDays = weightPeriod === "30d" ? 30 : 7;
+	const caloriesDays = getWidgetStepDays(
+		caloriesPeriod,
+		WIDGET_PERIOD_SUPPORTS.calories,
+	);
+	const pfcDays = getWidgetStepDays(pfcPeriod, WIDGET_PERIOD_SUPPORTS.pfc);
+	const stepsDays = getWidgetStepDays(stepsPeriod, WIDGET_PERIOD_SUPPORTS.steps);
+	const sleepDays = getWidgetStepDays(sleepPeriod, WIDGET_PERIOD_SUPPORTS.sleep);
+
+	const weightRangeEnd = getWidgetRangeEnd(
+		weightDate,
+		weightPeriod,
+		WIDGET_PERIOD_SUPPORTS.weight,
+	);
+	const caloriesRangeEnd = getWidgetRangeEnd(
+		caloriesDate,
+		caloriesPeriod,
+		WIDGET_PERIOD_SUPPORTS.calories,
+	);
+	const pfcRangeEnd = getWidgetRangeEnd(
+		pfcDate,
+		pfcPeriod,
+		WIDGET_PERIOD_SUPPORTS.pfc,
+	);
+	const stepsRangeEnd = getWidgetRangeEnd(
+		stepsDate,
+		stepsPeriod,
+		WIDGET_PERIOD_SUPPORTS.steps,
+	);
+	const sleepRangeEnd = getWidgetRangeEnd(
+		sleepDate,
+		sleepPeriod,
+		WIDGET_PERIOD_SUPPORTS.sleep,
+	);
+	const caloriesHistoryBaseDate = getWidgetHistoryBaseDate(
+		caloriesDate,
+		caloriesPeriod,
+		WIDGET_PERIOD_SUPPORTS.calories,
+	);
+	const pfcHistoryBaseDate = getWidgetHistoryBaseDate(
+		pfcDate,
+		pfcPeriod,
+		WIDGET_PERIOD_SUPPORTS.pfc,
+	);
+
+	const widgetDateLabel = {
+		weight: getWidgetRangeLabel(weightDate, weightPeriod, WIDGET_PERIOD_SUPPORTS.weight),
+		calories: getWidgetRangeLabel(caloriesDate, caloriesPeriod, WIDGET_PERIOD_SUPPORTS.calories),
+		pfc: getWidgetRangeLabel(pfcDate, pfcPeriod, WIDGET_PERIOD_SUPPORTS.pfc),
+		steps: getWidgetRangeLabel(stepsDate, stepsPeriod, WIDGET_PERIOD_SUPPORTS.steps),
+		sleep: getWidgetRangeLabel(sleepDate, sleepPeriod, WIDGET_PERIOD_SUPPORTS.sleep),
+		meals: getWidgetRangeLabel(mealsDate, mealsPeriod, WIDGET_PERIOD_SUPPORTS.meals),
+	};
+
+	const moveWidgetDate = (id, direction) => {
+		const supported = WIDGET_PERIOD_SUPPORTS[id] ?? ["1d"];
+		const period = periods[id] ?? DEFAULT_PERIODS[id] ?? supported[0] ?? "1d";
+		const stepDays = getWidgetStepDays(period, supported);
+		setWidgetDate(id, (prev) => offsetDate(prev, direction * stepDays));
+	};
+
+	const { data: dashboardMeta, isLoading } = useQuery({
+		queryKey: ["dashboard-summary", "meta", todayDate],
+		queryFn: () => dashboardApi.today(todayDate).then((r) => r.data),
 	});
-	const connectedServices = summary?.connected_services ?? [];
+	const connectedServices = dashboardMeta?.connected_services ?? [];
 	const connectedServicesKey = connectedServices.slice().sort().join(",");
+	const goals = dashboardMeta?.goals || {};
+
+	const shouldLoadWeightSummary = deferredQueriesEnabled && vis.weight.value;
+	const { data: weightSummary, isFetching: isWeightSummaryFetching } = useQuery({
+		queryKey: ["dashboard-summary", "weight", weightDate],
+		queryFn: () => dashboardApi.today(weightDate).then((r) => r.data),
+		enabled: shouldLoadWeightSummary,
+		staleTime: 5 * 60 * 1000,
+	});
+	const shouldLoadCaloriesSummary =
+		deferredQueriesEnabled &&
+		(vis.calories.value || (vis.calories.graph && caloriesPeriod === "1d"));
+	const { data: caloriesSummary, isFetching: isCaloriesSummaryFetching } = useQuery({
+		queryKey: ["dashboard-summary", "calories", caloriesDate],
+		queryFn: () => dashboardApi.today(caloriesDate).then((r) => r.data),
+		enabled: shouldLoadCaloriesSummary,
+		staleTime: 5 * 60 * 1000,
+	});
+	const shouldLoadPfcSummary =
+		deferredQueriesEnabled && (vis.pfc.value || (vis.pfc.graph && pfcPeriod === "1d"));
+	const { data: pfcSummary, isFetching: isPfcSummaryFetching } = useQuery({
+		queryKey: ["dashboard-summary", "pfc", pfcDate],
+		queryFn: () => dashboardApi.today(pfcDate).then((r) => r.data),
+		enabled: shouldLoadPfcSummary,
+		staleTime: 5 * 60 * 1000,
+	});
+	const shouldLoadStepsSummary =
+		deferredQueriesEnabled && (vis.steps.value || (vis.steps.graph && stepsPeriod === "1d"));
+	const { data: stepsSummary, isFetching: isStepsSummaryFetching } = useQuery({
+		queryKey: ["dashboard-summary", "steps", stepsDate],
+		queryFn: () => dashboardApi.today(stepsDate).then((r) => r.data),
+		enabled: shouldLoadStepsSummary,
+		staleTime: 5 * 60 * 1000,
+	});
+	const shouldLoadSleepSummary = deferredQueriesEnabled && vis.sleep.value;
+	const { data: sleepSummary, isFetching: isSleepSummaryFetching } = useQuery({
+		queryKey: ["dashboard-summary", "sleep", sleepDate],
+		queryFn: () => dashboardApi.today(sleepDate).then((r) => r.data),
+		enabled: shouldLoadSleepSummary,
+		staleTime: 5 * 60 * 1000,
+	});
+
+	const todayTrackedWidgets = [weightDate, caloriesDate, pfcDate, stepsDate, sleepDate].filter(
+		(date, index) =>
+			[
+				vis.weight.value || vis.weight.graph,
+				vis.calories.value || vis.calories.graph,
+				vis.pfc.value || vis.pfc.graph,
+				vis.steps.value || vis.steps.graph,
+				vis.sleep.value || vis.sleep.graph,
+			][index] && isTodayJst(date),
+	);
 	const shouldAutoSyncBody =
 		deferredQueriesEnabled &&
-		isToday &&
+		todayTrackedWidgets.length > 0 &&
 		connectedServices.some(
 			(service) => service === "fitbit" || service === "healthplanet",
 		);
 	const { mutate: runBodySync, isPending: isBodySyncing } = useMutation({
-		mutationFn: () => bodyApi.sync(dateStr),
+		mutationFn: () => bodyApi.sync(todayDate),
 		onSuccess: () => {
-			qc.invalidateQueries({ queryKey: ["dashboard", dateStr] });
+			qc.invalidateQueries({ queryKey: ["dashboard-summary"] });
 			qc.invalidateQueries({ queryKey: ["weight-history"] });
 			qc.invalidateQueries({ queryKey: ["activity-history"] });
 		},
@@ -1610,114 +1735,111 @@ export default function DashboardPage() {
 
 	useEffect(() => {
 		if (!shouldAutoSyncBody) return;
-		const syncKey = `${dateStr}:${connectedServicesKey}`;
+		const syncKey = `${todayTrackedWidgets.join("|")}:${connectedServicesKey}`;
 		if (autoBodySyncRef.current === syncKey) return;
 		autoBodySyncRef.current = syncKey;
 		runBodySync();
-	}, [connectedServicesKey, dateStr, runBodySync, shouldAutoSyncBody]);
+	}, [connectedServicesKey, runBodySync, shouldAutoSyncBody, todayTrackedWidgets]);
 
-	// 体重履歴：選択中の期間に応じて日数を調整
-	const weightDays = periods.weight === "30d" ? 30 : 7;
-	const calPeriod = periods.calories ?? "1d";
-	const pfcPeriod = periods.pfc ?? "1d";
-	const calorieHistoryDays =
-		calPeriod === "30d" ? 30 : calPeriod === "7d" ? 7 : 0;
 	const shouldLoadWeightHistory =
 		deferredQueriesEnabled && (vis.weight.value || vis.weight.graph);
-	const { data: weightHistory = [], isFetching: isWeightHistoryFetching } =
-		useQuery({
-			queryKey: ["weight-history", weightDays],
-			queryFn: () => bodyApi.weightHistory(weightDays).then((r) => r.data),
-			enabled: shouldLoadWeightHistory,
-			staleTime: 5 * 60 * 1000,
-		});
-
-	const bulkSyncMutation = useMutation({
-		mutationFn: () => bodyApi.syncWeightHistory(weightDays),
+	const { data: weightHistory = [], isFetching: isWeightHistoryFetching } = useQuery({
+		queryKey: ["weight-history", weightDays, weightRangeEnd],
+		queryFn: () => bodyApi.weightHistory(weightDays, weightRangeEnd).then((r) => r.data),
+		enabled: shouldLoadWeightHistory,
+		staleTime: 5 * 60 * 1000,
+	});
+	const weightSyncMutation = useMutation({
+		mutationFn: ({ days, baseDate }) => bodyApi.syncWeightHistory(days, baseDate),
 		onSuccess: () => {
 			qc.invalidateQueries({ queryKey: ["weight-history"] });
+			qc.invalidateQueries({ queryKey: ["dashboard-summary"] });
 		},
 	});
 
-	// 睡眠・歩数履歴：ウィジェットごとに独立したクエリ
-	const sleepDays = periods.sleep === "30d" ? 30 : 7;
-	const stepsDays = periods.steps === "30d" ? 30 : 7;
-	const activityDays = Math.max(sleepDays, stepsDays, calorieHistoryDays);
-	const shouldLoadActivityHistory =
-		deferredQueriesEnabled &&
-		(vis.sleep.graph ||
-			(vis.steps.graph && periods.steps !== "1d") ||
-			(vis.calories.graph && calPeriod !== "1d"));
-
-	const { data: activityHistory = [], isFetching: isActivityHistoryFetching } =
-		useQuery({
-			queryKey: ["activity-history", activityDays],
-			queryFn: () => bodyApi.activityHistory(activityDays).then((r) => r.data),
-			enabled: shouldLoadActivityHistory,
-			staleTime: 5 * 60 * 1000,
-		});
-	const sleepHistory = activityHistory.slice(-sleepDays);
-	const stepsHistory = activityHistory.slice(-stepsDays);
-
-	// 同期はより多い日数に合わせて実行
-	const sleepBulkSyncMutation = useMutation({
-		mutationFn: () => bodyApi.syncActivityHistory(activityDays),
-		onSuccess: () => qc.invalidateQueries({ queryKey: ["activity-history"] }),
+	const shouldLoadCaloriesActivityHistory =
+		deferredQueriesEnabled && vis.calories.graph && caloriesPeriod !== "1d";
+	const { data: caloriesActivityHistory = [], isFetching: isCaloriesActivityHistoryFetching } = useQuery({
+		queryKey: ["activity-history", "calories", caloriesDays, caloriesRangeEnd],
+		queryFn: () => bodyApi.activityHistory(caloriesDays, caloriesRangeEnd).then((r) => r.data),
+		enabled: shouldLoadCaloriesActivityHistory,
+		staleTime: 5 * 60 * 1000,
+	});
+	const shouldLoadStepsHistory =
+		deferredQueriesEnabled && vis.steps.graph && stepsPeriod !== "1d";
+	const { data: stepsHistory = [], isFetching: isStepsHistoryFetching } = useQuery({
+		queryKey: ["activity-history", "steps", stepsDays, stepsRangeEnd],
+		queryFn: () => bodyApi.activityHistory(stepsDays, stepsRangeEnd).then((r) => r.data),
+		enabled: shouldLoadStepsHistory,
+		staleTime: 5 * 60 * 1000,
+	});
+	const shouldLoadSleepHistory = deferredQueriesEnabled && vis.sleep.graph;
+	const { data: sleepHistory = [], isFetching: isSleepHistoryFetching } = useQuery({
+		queryKey: ["activity-history", "sleep", sleepDays, sleepRangeEnd],
+		queryFn: () => bodyApi.activityHistory(sleepDays, sleepRangeEnd).then((r) => r.data),
+		enabled: shouldLoadSleepHistory,
+		staleTime: 5 * 60 * 1000,
+	});
+	const activitySyncMutation = useMutation({
+		mutationFn: ({ days, baseDate }) => bodyApi.syncActivityHistory(days, baseDate),
+		onSuccess: () => {
+			qc.invalidateQueries({ queryKey: ["activity-history"] });
+			qc.invalidateQueries({ queryKey: ["dashboard-summary"] });
+		},
 	});
 
-	// 食事記録
 	const shouldLoadMeals =
 		deferredQueriesEnabled && (vis.meals.value || vis.meals.graph);
 	const { data: mealLogs = [], isFetching: isMealLogsFetching } = useQuery({
-		queryKey: ["meals", dateStr],
-		queryFn: () => mealsApi.list(dateStr).then((r) => r.data),
+		queryKey: ["meals", mealsDate],
+		queryFn: () => mealsApi.list(mealsDate).then((r) => r.data),
 		enabled: shouldLoadMeals,
 		staleTime: 5 * 60 * 1000,
 	});
-
-	// 昨日・7日平均カロリー（食事記録ウィジェットのサブ表示用）
-	const shouldLoadDailyKcal =
-		deferredQueriesEnabled &&
-		(vis.meals.value || vis.meals.graph || vis.calories.value);
-	const { data: dailyKcal = [], isFetching: isDailyKcalFetching } = useQuery({
-		queryKey: ["meals-daily-kcal", dateStr],
-		queryFn: () => mealsApi.dailyKcal(dateStr, 8),
-		enabled: shouldLoadDailyKcal,
+	const shouldLoadMealsDailyKcal =
+		deferredQueriesEnabled && (vis.meals.value || vis.meals.graph);
+	const { data: mealsDailyKcal = [], isFetching: isMealsDailyKcalFetching } = useQuery({
+		queryKey: ["meals-daily-kcal", "meals", mealsDate],
+		queryFn: () => mealsApi.dailyKcal(mealsDate, 8),
+		enabled: shouldLoadMealsDailyKcal,
+		staleTime: 5 * 60 * 1000,
+	});
+	const shouldLoadCaloriesDailyKcal = deferredQueriesEnabled && vis.calories.value;
+	const { data: caloriesDailyKcal = [], isFetching: isCaloriesDailyKcalFetching } = useQuery({
+		queryKey: ["meals-daily-kcal", "calories", caloriesDate],
+		queryFn: () => mealsApi.dailyKcal(caloriesDate, 8),
+		enabled: shouldLoadCaloriesDailyKcal,
+		staleTime: 5 * 60 * 1000,
+	});
+	const shouldLoadCaloriesNutrition =
+		deferredQueriesEnabled && vis.calories.graph && caloriesPeriod !== "1d";
+	const { data: caloriesDailyNutrition = [], isFetching: isCaloriesDailyNutritionFetching } = useQuery({
+		queryKey: ["meals-daily-nutrition", "calories", caloriesHistoryBaseDate, caloriesDays],
+		queryFn: () => mealsApi.dailyNutrition(caloriesHistoryBaseDate, caloriesDays),
+		enabled: shouldLoadCaloriesNutrition,
+		staleTime: 5 * 60 * 1000,
+	});
+	const shouldLoadPfcNutrition =
+		deferredQueriesEnabled && vis.pfc.graph && pfcPeriod !== "1d";
+	const { data: pfcDailyNutrition = [], isFetching: isPfcDailyNutritionFetching } = useQuery({
+		queryKey: ["meals-daily-nutrition", "pfc", pfcHistoryBaseDate, pfcDays],
+		queryFn: () => mealsApi.dailyNutrition(pfcHistoryBaseDate, pfcDays),
+		enabled: shouldLoadPfcNutrition,
 		staleTime: 5 * 60 * 1000,
 	});
 
-	// PFC・カロリー履歴（calories / pfc ウィジェットの 7d / 30d 用 + 前日値表示）
-	const nutritionDays = (() => {
-		const max = Math.max(
-			calPeriod === "30d" ? 30 : calPeriod === "7d" ? 7 : 2,
-			pfcPeriod === "30d" ? 30 : pfcPeriod === "7d" ? 7 : 2,
-		);
-		return max + 1; // +1 for safety; minimum 3 to always include yesterday
+	const caloriesYesterdayKcal = (() => {
+		const yStr = offsetDate(caloriesDate, -1);
+		const rec = caloriesDailyKcal.find((r) => r.date === yStr);
+		return rec ? rec.total_kcal : null;
 	})();
-	const shouldLoadNutrition =
-		deferredQueriesEnabled &&
-		(vis.calories.value ||
-			vis.calories.graph ||
-			vis.pfc.value ||
-			vis.pfc.graph);
-	const { data: dailyNutrition = [], isFetching: isDailyNutritionFetching } =
-		useQuery({
-			queryKey: ["meals-daily-nutrition", dateStr, nutritionDays],
-			queryFn: () => mealsApi.dailyNutrition(dateStr, nutritionDays),
-			enabled: shouldLoadNutrition,
-			staleTime: 5 * 60 * 1000,
-		});
-	const yesterdayNutrition = (() => {
-		const yStr = offsetDate(dateStr, -1);
-		return dailyNutrition.find((r) => r.date === yStr) ?? null;
-	})();
-	const yesterdayKcal = (() => {
-		const yStr = offsetDate(dateStr, -1);
-		const rec = dailyKcal.find((r) => r.date === yStr);
+	const mealsYesterdayKcal = (() => {
+		const yStr = offsetDate(mealsDate, -1);
+		const rec = mealsDailyKcal.find((r) => r.date === yStr);
 		return rec ? rec.total_kcal : null;
 	})();
 	const avgKcal7 = (() => {
-		const vals = dailyKcal
+		const vals = caloriesDailyKcal
 			.slice(0, 7)
 			.map((r) => r.total_kcal)
 			.filter((v) => v > 0);
@@ -1725,12 +1847,11 @@ export default function DashboardPage() {
 		return Math.round(vals.reduce((a, b) => a + b, 0) / vals.length);
 	})();
 	const calorieHistory = (() => {
-		if (calPeriod === "1d") return [];
+		if (caloriesPeriod === "1d") return [];
 		const activityByDate = new Map(
-			activityHistory.map((entry) => [entry.date, entry]),
+			caloriesActivityHistory.map((entry) => [entry.date, entry]),
 		);
-		return dailyNutrition
-			.slice(0, calorieHistoryDays)
+		return caloriesDailyNutrition
 			.map((entry) => {
 				const activity = activityByDate.get(entry.date);
 				const caloriesOut = Number.isFinite(activity?.calories_out)
@@ -1740,87 +1861,83 @@ export default function DashboardPage() {
 					date: entry.date,
 					total_kcal: entry.total_kcal,
 					calories_out: caloriesOut,
-					balance: caloriesOut != null ? entry.total_kcal - caloriesOut : null,
+					balance:
+						caloriesOut != null ? entry.total_kcal - caloriesOut : null,
 				};
 			})
 			.reverse();
 	})();
 
 	const syncFatSecretMutation = useMutation({
-		mutationFn: () => mealsApi.syncFatSecret(dateStr),
+		mutationFn: ({ date }) => mealsApi.syncFatSecret(date),
 		onSuccess: () => {
-			qc.invalidateQueries({ queryKey: ["meals", dateStr] });
-			qc.invalidateQueries({ queryKey: ["meals-daily-kcal", dateStr] });
-			qc.invalidateQueries({ queryKey: ["dashboard", dateStr] });
+			qc.invalidateQueries({ queryKey: ["meals"] });
+			qc.invalidateQueries({ queryKey: ["meals-daily-kcal"] });
+			qc.invalidateQueries({ queryKey: ["dashboard-summary"] });
+			qc.invalidateQueries({ queryKey: ["meals-daily-nutrition"] });
 		},
 	});
 
-	// カレンダー予定（個別クエリ）
 	const { data: calendarData, isFetching: isCalendarFetching } = useQuery({
-		queryKey: ["dashboard-calendar", dateStr],
-		queryFn: () => dashboardApi.calendar(dateStr),
+		queryKey: ["dashboard-calendar", todayDate],
+		queryFn: () => dashboardApi.calendar(todayDate),
 		enabled: deferredQueriesEnabled && connectedServices.includes("google"),
 		staleTime: 5 * 60 * 1000,
 	});
 	const widgetBusy = {
 		weight:
-			isBodySyncing || (shouldLoadWeightHistory && isWeightHistoryFetching),
+			isBodySyncing ||
+			(shouldLoadWeightHistory && isWeightHistoryFetching) ||
+			(shouldLoadWeightSummary && isWeightSummaryFetching),
 		calories:
-			(shouldLoadDailyKcal && isDailyKcalFetching) ||
-			(shouldLoadNutrition && isDailyNutritionFetching) ||
-			(shouldLoadActivityHistory &&
-				isActivityHistoryFetching &&
-				vis.calories.graph &&
-				calPeriod !== "1d"),
-		pfc: shouldLoadNutrition && isDailyNutritionFetching,
+			(shouldLoadCaloriesSummary && isCaloriesSummaryFetching) ||
+			(shouldLoadCaloriesDailyKcal && isCaloriesDailyKcalFetching) ||
+			(shouldLoadCaloriesNutrition && isCaloriesDailyNutritionFetching) ||
+			(shouldLoadCaloriesActivityHistory && isCaloriesActivityHistoryFetching),
+		pfc:
+			(shouldLoadPfcSummary && isPfcSummaryFetching) ||
+			(shouldLoadPfcNutrition && isPfcDailyNutritionFetching),
 		steps:
 			isBodySyncing ||
-			(shouldLoadActivityHistory &&
-				isActivityHistoryFetching &&
-				vis.steps.graph &&
-				periods.steps !== "1d"),
+			(shouldLoadStepsSummary && isStepsSummaryFetching) ||
+			(shouldLoadStepsHistory && isStepsHistoryFetching),
 		sleep:
 			isBodySyncing ||
-			(shouldLoadActivityHistory &&
-				isActivityHistoryFetching &&
-				vis.sleep.graph),
+			(shouldLoadSleepSummary && isSleepSummaryFetching) ||
+			(shouldLoadSleepHistory && isSleepHistoryFetching),
 		meals:
 			(shouldLoadMeals && isMealLogsFetching) ||
-			(shouldLoadDailyKcal && isDailyKcalFetching),
+			(shouldLoadMealsDailyKcal && isMealsDailyKcalFetching),
 	};
 
-	// 一括同期：すべてのデータソースをまとめて更新（食事は過去8日分まとめて）
 	const syncMutation = useMutation({
 		mutationFn: async () => {
-			await bodyApi.sync(dateStr);
+			await bodyApi.sync(todayDate);
 			await Promise.allSettled([
-				bodyApi.syncWeightHistory(weightDays),
-				bodyApi.syncActivityHistory(activityDays),
-				// 過去8日分の FatSecret を bulk 同期
-				mealsApi.syncFatSecretBulk(dateStr, 8),
+				bodyApi.syncWeightHistory(weightDays, weightRangeEnd),
+				bodyApi.syncActivityHistory(
+					Math.max(caloriesDays, stepsDays, sleepDays),
+					todayDate,
+				),
+				mealsApi.syncFatSecretBulk(todayDate, 8),
 			]);
 		},
 		onSuccess: () => {
-			qc.invalidateQueries({ queryKey: ["dashboard"] });
+			qc.invalidateQueries({ queryKey: ["dashboard-summary"] });
 			qc.invalidateQueries({ queryKey: ["weight-history"] });
 			qc.invalidateQueries({ queryKey: ["activity-history"] });
 			qc.invalidateQueries({ queryKey: ["meals"] });
 			qc.invalidateQueries({ queryKey: ["meals-daily-kcal"] });
 			qc.invalidateQueries({ queryKey: ["meals-daily-nutrition"] });
-			qc.invalidateQueries({ queryKey: ["dashboard-calendar", dateStr] });
+			qc.invalidateQueries({ queryKey: ["dashboard-calendar"] });
 		},
 	});
 
-	// 派生値
-	const nut = summary?.nutrition || {};
-	const goals = summary?.goals || {};
-
-	const latestW = weightHistory.at(-1)?.weight ?? summary?.weight;
+	const latestW = weightHistory.at(-1)?.weight ?? weightSummary?.weight;
 	const oldestW = weightHistory[0]?.weight;
-	// 7日基準で固定（表示期間が7d/30dに変わっても常に7日前との比較）
 	const wRef7d = (() => {
 		if (!weightHistory.length) return null;
-		const cutoff = offsetDate(dateStr, -7);
+		const cutoff = offsetDate(weightDate, -7);
 		return (
 			[...weightHistory].reverse().find((w) => w.date <= cutoff)?.weight ??
 			weightHistory[0]?.weight
@@ -1843,9 +1960,11 @@ export default function DashboardPage() {
 				)
 			: null;
 
-	const calIntake = nut.kcal ? Math.round(nut.kcal) : null;
-	const calBurned = Number.isFinite(summary?.calories_out)
-		? Math.round(summary.calories_out)
+	const caloriesNut = caloriesSummary?.nutrition || {};
+	const pfcNut = pfcSummary?.nutrition || {};
+	const calIntake = caloriesNut.kcal ? Math.round(caloriesNut.kcal) : null;
+	const calBurned = Number.isFinite(caloriesSummary?.calories_out)
+		? Math.round(caloriesSummary.calories_out)
 		: null;
 	const calBalance =
 		calIntake != null && calBurned != null ? calIntake - calBurned : null;
@@ -1855,7 +1974,6 @@ export default function DashboardPage() {
 	const calRemaining =
 		calIntake != null && calTarget != null ? calTarget - calIntake : null;
 
-	// PFC 推奨摂取量（kcal × 比率 → g換算）
 	const proteinRatio = goals.target_protein_ratio ?? 0.3;
 	const fatRatio = goals.target_fat_ratio ?? 0.25;
 	const carbRatio = goals.target_carb_ratio ?? 0.45;
@@ -1880,7 +1998,7 @@ export default function DashboardPage() {
 				prev.indexOf(over.id),
 			);
 			lsSet("db-order", next);
-			persistDashSettings({ order: next, vis, periods });
+			persistDashSettings({ order: next, vis, periods, dates: widgetDates });
 			return next;
 		});
 	};
@@ -1888,18 +2006,23 @@ export default function DashboardPage() {
 	// ウィジェット定義
 	const widgetDef = {
 		weight: {
-			support: ["7d", "30d"], // 1日は体重トレンドとして意味がないため除外
+			support: WIDGET_PERIOD_SUPPORTS.weight,
 			value: <WeightValue latest={latestW} delta={wDelta} pct={wPct} />,
 			graph: (
 				<WeightGraph
 					history={weightHistory}
-					onBulkSync={() => bulkSyncMutation.mutate()}
-					isSyncing={bulkSyncMutation.isPending}
+					onBulkSync={() =>
+						weightSyncMutation.mutate({
+							days: weightDays,
+							baseDate: weightRangeEnd,
+						})
+					}
+					isSyncing={weightSyncMutation.isPending}
 				/>
 			),
 		},
 		calories: {
-			support: ["1d", "7d", "30d"],
+			support: WIDGET_PERIOD_SUPPORTS.calories,
 			value: (
 				<CaloriesValue
 					intake={calIntake}
@@ -1908,7 +2031,7 @@ export default function DashboardPage() {
 					target={calTarget}
 					pct={calPct}
 					remaining={calRemaining}
-					yesterdayKcal={yesterdayNutrition?.total_kcal ?? null}
+					yesterdayKcal={caloriesYesterdayKcal}
 					avgKcal7={avgKcal7}
 				/>
 			),
@@ -1917,17 +2040,17 @@ export default function DashboardPage() {
 					intake={calIntake}
 					target={calTarget}
 					history={calorieHistory}
-					period={calPeriod}
+					period={caloriesPeriod}
 				/>
 			),
 		},
 		pfc: {
-			support: ["1d", "7d", "30d"],
+			support: WIDGET_PERIOD_SUPPORTS.pfc,
 			value: (
 				<PFCValue
-					p={nut.protein_g}
-					f={nut.fat_g}
-					c={nut.carb_g}
+					p={pfcNut.protein_g}
+					f={pfcNut.fat_g}
+					c={pfcNut.carb_g}
 					tp={targetProtein}
 					tf={targetFat}
 					tc={targetCarb}
@@ -1935,47 +2058,60 @@ export default function DashboardPage() {
 			),
 			graph: (
 				<PFCGraph
-					p={nut.protein_g}
-					f={nut.fat_g}
-					c={nut.carb_g}
-					history={dailyNutrition}
+					p={pfcNut.protein_g}
+					f={pfcNut.fat_g}
+					c={pfcNut.carb_g}
+					history={pfcDailyNutrition}
 					period={pfcPeriod}
 				/>
 			),
 		},
 		steps: {
-			support: ["1d", "7d", "30d"],
-			value: <StepsValue steps={summary?.steps} />,
+			support: WIDGET_PERIOD_SUPPORTS.steps,
+			value: <StepsValue steps={stepsSummary?.steps} />,
 			graph: (
 				<StepsGraph
-					steps={summary?.steps}
+					steps={stepsSummary?.steps}
 					history={stepsHistory}
-					period={periods.steps ?? "1d"}
-					onBulkSync={() => sleepBulkSyncMutation.mutate()}
-					isSyncing={sleepBulkSyncMutation.isPending}
+					period={stepsPeriod}
+					onBulkSync={() =>
+						activitySyncMutation.mutate({
+							days: stepsDays,
+							baseDate: stepsRangeEnd,
+						})
+					}
+					isSyncing={activitySyncMutation.isPending}
 				/>
 			),
 		},
 		sleep: {
-			support: ["7d", "30d"],
+			support: WIDGET_PERIOD_SUPPORTS.sleep,
 			value: (
-				<SleepValue hours={summary?.sleep_hours} score={summary?.sleep_score} />
+				<SleepValue
+					hours={sleepSummary?.sleep_hours}
+					score={sleepSummary?.sleep_score}
+				/>
 			),
 			graph: (
 				<SleepGraph
 					history={sleepHistory}
-					onBulkSync={() => sleepBulkSyncMutation.mutate()}
-					isSyncing={sleepBulkSyncMutation.isPending}
+					onBulkSync={() =>
+						activitySyncMutation.mutate({
+							days: sleepDays,
+							baseDate: sleepRangeEnd,
+						})
+					}
+					isSyncing={activitySyncMutation.isPending}
 				/>
 			),
 		},
 		meals: {
-			support: ["1d"],
-			value: <MealsValue logs={mealLogs} yesterdayKcal={yesterdayKcal} />,
+			support: WIDGET_PERIOD_SUPPORTS.meals,
+			value: <MealsValue logs={mealLogs} yesterdayKcal={mealsYesterdayKcal} />,
 			graph: (
 				<MealsList
 					logs={mealLogs}
-					onSync={() => syncFatSecretMutation.mutate()}
+					onSync={() => syncFatSecretMutation.mutate({ date: mealsDate })}
 					isSyncing={syncFatSecretMutation.isPending}
 				/>
 			),
@@ -2019,46 +2155,8 @@ export default function DashboardPage() {
 			{/* ウィジェット設定パネル */}
 			{showSettings && <SettingsPanel vis={vis} onToggle={toggleVis} />}
 
-			{/* 日付ナビゲーション */}
-			<div className="dash-date-nav">
-				<button
-					className="btn-ghost"
-					style={{ padding: "6px 10px", borderRadius: 8 }}
-					onClick={() => setDateStr((prev) => offsetDate(prev, -1))}
-				>
-					<ChevronLeft size={18} strokeWidth={1.8} />
-				</button>
-
-				{/* 日付ラベル：クリックで今日に戻る */}
-				<button
-					className="btn-ghost"
-					style={{
-						padding: "5px 14px",
-						borderRadius: 20,
-						fontSize: 13,
-						fontWeight: 600,
-						minWidth: 140,
-						textAlign: "center",
-						color: isToday ? "var(--brand)" : "var(--text)",
-					}}
-					onClick={() => setDateStr(todayStr())}
-					title="クリックで今日に戻る"
-				>
-					{isToday ? "今日 · " : ""}
-					{fmtDate(dateStr)}
-				</button>
-
-				<button
-					className="btn-ghost"
-					style={{ padding: "6px 10px", borderRadius: 8 }}
-					onClick={() => setDateStr((prev) => offsetDate(prev, 1))}
-				>
-					<ChevronRight size={18} strokeWidth={1.8} />
-				</button>
-			</div>
-
 			{/* 未連携バナー */}
-			{!isLoading && summary?.connected_services?.length === 0 && (
+			{!isLoading && connectedServices.length === 0 && (
 				<div className="alert alert-warn">
 					外部サービスが未連携です。
 					<Link to="/me" style={{ fontWeight: 700, marginLeft: 4 }}>
@@ -2097,8 +2195,12 @@ export default function DashboardPage() {
 											key={id}
 											id={id}
 											vis={v}
-											period={periods[id] ?? "7d"}
+											period={periods[id] ?? DEFAULT_PERIODS[id]}
 											onPeriodChange={(p) => setPeriod(id, p)}
+											dateLabel={widgetDateLabel[id]}
+											onDatePrev={() => moveWidgetDate(id, -1)}
+											onDateNext={() => moveWidgetDate(id, 1)}
+											onDateToday={() => setWidgetDate(id, todayDate)}
 											valueContent={def.value}
 											graphContent={def.graph}
 											graphSupport={def.support}
@@ -2108,7 +2210,7 @@ export default function DashboardPage() {
 														? "span-2"
 														: id === "weight" ||
 															  id === "sleep" ||
-															  (id === "steps" && periods.steps !== "1d")
+															  (id === "steps" && stepsPeriod !== "1d")
 															? "span-2"
 															: null
 													: null
@@ -2116,7 +2218,7 @@ export default function DashboardPage() {
 											needsConnection={
 												!isServiceConnected(
 													WIDGET_REQUIREMENTS[id],
-													summary?.connected_services,
+													connectedServices,
 												)
 											}
 											requirementLabel={WIDGET_REQUIREMENTS[id]?.label}
@@ -2132,7 +2234,6 @@ export default function DashboardPage() {
 						connected={connectedServices.includes("google")}
 						calendarData={calendarData}
 						isLoading={deferredQueriesEnabled && isCalendarFetching}
-						dateStr={dateStr}
 					/>
 
 					<Link

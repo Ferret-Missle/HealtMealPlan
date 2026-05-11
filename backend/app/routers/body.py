@@ -28,15 +28,18 @@ class WeightLogCreate(BaseModel):
 @router.get("/weight")
 async def get_weight_history(
     days: int = 30,
+    base_date: str | None = None,
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    start = str(dt_date.today() - timedelta(days=days))
+    anchor = dt_date.fromisoformat(base_date) if base_date else dt_date.today()
+    start = str(anchor - timedelta(days=max(days - 1, 0)))
     logs = (
         db.query(models.WeightLog)
         .filter(
             models.WeightLog.user_id == current_user.id,
             models.WeightLog.date >= start,
+            models.WeightLog.date <= str(anchor),
         )
         .order_by(models.WeightLog.date)
         .all()
@@ -183,12 +186,14 @@ async def sync_body_data(
 @router.post("/sync-weight-history")
 async def sync_weight_history(
     days: int = 30,
+    base_date: str | None = None,
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Fitbit / HealthPlanet から過去 N 日分の体重を一括取得して保存する。"""
-    end   = str(dt_date.today())
-    start = str(dt_date.today() - timedelta(days=days))
+    anchor = dt_date.fromisoformat(base_date) if base_date else dt_date.today()
+    end   = str(anchor)
+    start = str(anchor - timedelta(days=max(days - 1, 0)))
 
     connected = [
         t.service
@@ -260,11 +265,13 @@ async def sync_weight_history(
 @router.get("/activity-history")
 async def get_activity_history(
     days: int = 7,
+    base_date: str | None = None,
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """過去 N 日分の歩数・睡眠・消費カロリーログを返す。"""
-    start = str(dt_date.today() - timedelta(days=days))
+    anchor = dt_date.fromisoformat(base_date) if base_date else dt_date.today()
+    start = str(anchor - timedelta(days=max(days - 1, 0)))
     connected = [
         t.service
         for t in db.query(models.OAuthToken).filter_by(user_id=current_user.id).all()
@@ -274,6 +281,7 @@ async def get_activity_history(
         .filter(
             models.ActivityLog.user_id == current_user.id,
             models.ActivityLog.date >= start,
+            models.ActivityLog.date <= str(anchor),
         )
         .order_by(models.ActivityLog.date)
         .all()
@@ -283,7 +291,7 @@ async def get_activity_history(
     has_missing_days = len({log.date for log in logs}) < days
     if "fitbit" in connected and (not logs or has_missing_calories or has_missing_days):
         try:
-            end = str(dt_date.today())
+            end = str(anchor)
             activity_entries = await fitbit.get_activities_range(current_user.id, start, end, db)
             for entry in activity_entries:
                 log = (
@@ -306,6 +314,7 @@ async def get_activity_history(
                 .filter(
                     models.ActivityLog.user_id == current_user.id,
                     models.ActivityLog.date >= start,
+                    models.ActivityLog.date <= str(anchor),
                 )
                 .order_by(models.ActivityLog.date)
                 .all()
@@ -329,12 +338,14 @@ async def get_activity_history(
 @router.post("/sync-activity-history")
 async def sync_activity_history(
     days: int = 7,
+    base_date: str | None = None,
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Fitbit から過去 N 日分の睡眠・歩数・消費カロリーを一括取得して保存する。"""
-    end   = str(dt_date.today())
-    start = str(dt_date.today() - timedelta(days=days))
+    anchor = dt_date.fromisoformat(base_date) if base_date else dt_date.today()
+    end   = str(anchor)
+    start = str(anchor - timedelta(days=max(days - 1, 0)))
 
     connected = [
         t.service
