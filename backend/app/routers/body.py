@@ -153,6 +153,30 @@ async def sync_body_data(
         except Exception:
             pass
 
+        try:
+            activity = await fitbit.get_activities(current_user.id, today, db)
+            activity_log = (
+                db.query(models.ActivityLog)
+                .filter_by(user_id=current_user.id, date=today)
+                .first()
+            )
+            if activity_log:
+                activity_log.steps = activity.get("steps")
+                activity_log.active_kcal = activity.get("active_kcal")
+                activity_log.calories_out = activity.get("calories_out")
+            else:
+                db.add(models.ActivityLog(
+                    user_id=current_user.id,
+                    date=today,
+                    steps=activity.get("steps"),
+                    active_kcal=activity.get("active_kcal"),
+                    calories_out=activity.get("calories_out"),
+                    source="fitbit",
+                ))
+            db.commit()
+        except Exception:
+            pass
+
     return {"synced": synced, "date": today}
 
 
@@ -241,6 +265,10 @@ async def get_activity_history(
 ):
     """過去 N 日分の歩数・睡眠・消費カロリーログを返す。"""
     start = str(dt_date.today() - timedelta(days=days))
+    connected = [
+        t.service
+        for t in db.query(models.OAuthToken).filter_by(user_id=current_user.id).all()
+    ]
     logs = (
         db.query(models.ActivityLog)
         .filter(
@@ -250,6 +278,41 @@ async def get_activity_history(
         .order_by(models.ActivityLog.date)
         .all()
     )
+
+    has_missing_calories = any(log.calories_out is None for log in logs)
+    has_missing_days = len({log.date for log in logs}) < days
+    if "fitbit" in connected and (not logs or has_missing_calories or has_missing_days):
+        try:
+            end = str(dt_date.today())
+            activity_entries = await fitbit.get_activities_range(current_user.id, start, end, db)
+            for entry in activity_entries:
+                log = (
+                    db.query(models.ActivityLog)
+                    .filter_by(user_id=current_user.id, date=entry["date"])
+                    .first()
+                )
+                if log:
+                    log.calories_out = entry["calories_out"]
+                else:
+                    db.add(models.ActivityLog(
+                        user_id=current_user.id,
+                        date=entry["date"],
+                        calories_out=entry["calories_out"],
+                        source="fitbit",
+                    ))
+            db.commit()
+            logs = (
+                db.query(models.ActivityLog)
+                .filter(
+                    models.ActivityLog.user_id == current_user.id,
+                    models.ActivityLog.date >= start,
+                )
+                .order_by(models.ActivityLog.date)
+                .all()
+            )
+        except Exception:
+            pass
+
     return [
         {
             "date":        log.date,

@@ -8,7 +8,7 @@ from slowapi.util import get_remote_address
 from ..database import get_db
 from .. import models
 from ..auth_deps import get_current_user
-from ..services import gcal
+from ..services import fitbit, gcal
 from ..services.body_snapshot import get_weight_metric_snapshot
 
 limiter = Limiter(key_func=get_remote_address)
@@ -48,6 +48,29 @@ async def today_summary(
         t.service
         for t in db.query(models.OAuthToken).filter_by(user_id=current_user.id).all()
     ]
+
+    if "fitbit" in connected and (
+        activity_log is None
+        or activity_log.calories_out is None
+        or activity_log.steps is None
+        or activity_log.active_kcal is None
+    ):
+        try:
+            fitbit_activity = await fitbit.get_activities(current_user.id, today, db)
+            if activity_log is None:
+                activity_log = models.ActivityLog(
+                    user_id=current_user.id,
+                    date=today,
+                    source="fitbit",
+                )
+                db.add(activity_log)
+            activity_log.steps = fitbit_activity.get("steps")
+            activity_log.active_kcal = fitbit_activity.get("active_kcal")
+            activity_log.calories_out = fitbit_activity.get("calories_out")
+            db.commit()
+            db.refresh(activity_log)
+        except Exception:
+            pass
 
     # Aggregate meal nutrition
     total_kcal = sum(m.kcal for m in meal_logs)
