@@ -151,6 +151,7 @@ const DEFAULT_WIDGET_DATES = Object.fromEntries(
 const BRAND = "#16a34a";
 const CALORIE_BURN = "#f97316";
 const CALORIE_BALANCE = "#0f766e";
+const CALORIE_DEFICIT = "#15803d";
 const PFC_COLORS = ["#16a34a", "#f59e0b", "#3b82f6"];
 const widgetSyncButtonStyle = {
 	marginTop: 6,
@@ -324,13 +325,15 @@ function WidgetShell({
 				marginBottom: vis.graph ? 8 : 0,
 			}}
 		>
-			<div>{showPeriodPills ? (
-				<PeriodPills
-					period={period}
-					onChange={onPeriodChange}
-					supported={graphSupport}
-				/>
-			) : null}</div>
+			<div>
+				{showPeriodPills ? (
+					<PeriodPills
+						period={period}
+						onChange={onPeriodChange}
+						supported={graphSupport}
+					/>
+				) : null}
+			</div>
 			<div
 				style={{
 					display: "flex",
@@ -339,7 +342,9 @@ function WidgetShell({
 					marginLeft: "auto",
 				}}
 			>
-				<span style={{ fontSize: 11, color: "var(--text-2)", whiteSpace: "nowrap" }}>
+				<span
+					style={{ fontSize: 11, color: "var(--text-2)", whiteSpace: "nowrap" }}
+				>
 					{dateLabel}
 				</span>
 				<button
@@ -408,11 +413,7 @@ function WidgetShell({
 					{vis.value && <div>{valueContent}</div>}
 					{(showBoth || !vis.graph) && <div className="widget-divider" />}
 					{controls}
-					{vis.graph && (
-						<div>
-							{graphContent}
-						</div>
-					)}
+					{vis.graph && <div>{graphContent}</div>}
 				</>
 			)}
 		</div>
@@ -537,12 +538,14 @@ function CaloriesValue({
 	avgKcal7,
 }) {
 	const fill = `progress-fill${pct > 100 ? " over" : pct > 75 ? " warn" : ""}`;
+	const isAggregatePeriod = period !== "1d";
 	const hasComparison =
 		yesterdayKcal != null ||
 		avgKcal7 != null ||
 		target != null ||
 		burned != null ||
-		balance != null;
+		balance != null ||
+		(isAggregatePeriod && intake != null);
 	const balanceColor =
 		balance == null
 			? "var(--text-2)"
@@ -552,6 +555,11 @@ function CaloriesValue({
 	const periodLabel = getPeriodLabel(period);
 	const showDailyComparison = period === "1d";
 	const showBalanceNote = burned != null || balance != null;
+	const primaryValue = isAggregatePeriod ? balance : intake;
+	const primaryColor = isAggregatePeriod ? balanceColor : "var(--text)";
+	const primaryLabel = isAggregatePeriod
+		? `${periodLabel}総収支`
+		: "摂取カロリー";
 	return (
 		<>
 			<div
@@ -563,8 +571,19 @@ function CaloriesValue({
 				}}
 			>
 				<div style={{ lineHeight: 1.1 }}>
-					<span className="widget-value">
-						{intake?.toLocaleString() ?? "—"}
+					<div
+						style={{
+							fontSize: 11,
+							color: "var(--text-2)",
+							marginBottom: 4,
+						}}
+					>
+						{primaryLabel}
+					</div>
+					<span className="widget-value" style={{ color: primaryColor }}>
+						{primaryValue != null
+							? `${primaryValue > 0 && isAggregatePeriod ? "+" : ""}${primaryValue.toLocaleString()}`
+							: "—"}
 					</span>
 					<span className="widget-unit">kcal</span>
 				</div>
@@ -577,6 +596,14 @@ function CaloriesValue({
 							paddingBottom: 2,
 						}}
 					>
+						{isAggregatePeriod && intake != null && (
+							<div>
+								{periodLabel}総摂取{" "}
+								<span style={{ color: BRAND, fontWeight: 700 }}>
+									{intake.toLocaleString()}
+								</span>
+							</div>
+						)}
 						{showDailyComparison && yesterdayKcal != null && (
 							<div>
 								昨日{" "}
@@ -601,7 +628,7 @@ function CaloriesValue({
 								</span>
 							</div>
 						)}
-						{balance != null && (
+						{!isAggregatePeriod && balance != null && (
 							<div>
 								{periodLabel}総収支{" "}
 								<span style={{ color: balanceColor, fontWeight: 700 }}>
@@ -612,7 +639,7 @@ function CaloriesValue({
 						)}
 						{target != null && (
 							<div>
-								目標{" "}
+								{isAggregatePeriod ? "期間目標" : "目標"}{" "}
 								<span style={{ color: "var(--text)", fontWeight: 700 }}>
 									{target.toLocaleString()}
 								</span>
@@ -621,7 +648,7 @@ function CaloriesValue({
 					</div>
 				)}
 			</div>
-			{remaining != null ? (
+			{!isAggregatePeriod && remaining != null ? (
 				<div className="widget-sub">残り {remaining.toLocaleString()}</div>
 			) : (
 				!hasComparison &&
@@ -687,22 +714,56 @@ function getBalanceAxisConfig(chartData) {
 	};
 }
 
-function CaloriesGraph({ history = [], target, period = "1d", totalBalance = null }) {
+function CaloriesGraph({
+	history = [],
+	target,
+	period = "1d",
+	totalBalance = null,
+}) {
 	if (!history.length) return <EmptyGraph />;
-	const chartData = history.map((entry) => ({
-		date:
-			period === "1d"
-				? fmtShort(entry.date)
-				: `${parseInt(entry.date.split("-")[1], 10)}/${parseInt(entry.date.split("-")[2], 10)}`,
-		intake: Number.isFinite(entry.total_kcal) ? entry.total_kcal : 0,
-		burned: Number.isFinite(entry.calories_out) ? entry.calories_out : null,
-		balance: Number.isFinite(entry.balance) ? entry.balance : null,
-	}));
-	const hasBurnedData = chartData.some((entry) => Number.isFinite(entry.burned));
-	const hasBalanceData = chartData.some((entry) => Number.isFinite(entry.balance));
-	const { domain, ticks } = getCalorieAxisConfig(chartData, ["intake", "burned"], [target]);
+	const chartData = history.reduce((entries, entry) => {
+		const balance = Number.isFinite(entry.balance) ? entry.balance : null;
+		const deficit =
+			Number.isFinite(balance) && balance < 0 ? Math.abs(balance) : 0;
+		const previousCumulative = entries.at(-1)?.cumulativeDeficit ?? 0;
+		return [
+			...entries,
+			{
+				date:
+					period === "1d"
+						? fmtShort(entry.date)
+						: `${parseInt(entry.date.split("-")[1], 10)}/${parseInt(entry.date.split("-")[2], 10)}`,
+				intake: Number.isFinite(entry.total_kcal) ? entry.total_kcal : 0,
+				burned: Number.isFinite(entry.calories_out) ? entry.calories_out : null,
+				balance,
+				deficit,
+				cumulativeDeficit: Number.isFinite(balance)
+					? previousCumulative + deficit
+					: null,
+			},
+		];
+	}, []);
+	const hasBurnedData = chartData.some((entry) =>
+		Number.isFinite(entry.burned),
+	);
+	const hasBalanceData = chartData.some((entry) =>
+		Number.isFinite(entry.balance),
+	);
+	const hasCompleteBalanceData =
+		chartData.length > 0 &&
+		chartData.every((entry) => Number.isFinite(entry.balance));
+	const { domain, ticks } = getCalorieAxisConfig(
+		chartData,
+		["intake", "burned"],
+		[target],
+	);
 	const balanceAxis = getBalanceAxisConfig(chartData);
+	const deficitAxis = getCalorieAxisConfig(chartData, ["cumulativeDeficit"]);
 	const periodLabel = getPeriodLabel(period);
+	const showDeficitTrend = period !== "1d";
+	const totalDeficit = hasCompleteBalanceData
+		? (chartData.at(-1)?.cumulativeDeficit ?? 0)
+		: null;
 	const totalBalanceColor =
 		totalBalance == null
 			? "var(--text-2)"
@@ -749,7 +810,15 @@ function CaloriesGraph({ history = [], target, period = "1d", totalBalance = nul
 					</span>
 				</div>
 			</div>
-			<div style={{ fontSize: 11, color: "var(--text-2)", display: "flex", gap: 12, flexWrap: "wrap" }}>
+			<div
+				style={{
+					fontSize: 11,
+					color: "var(--text-2)",
+					display: "flex",
+					gap: 12,
+					flexWrap: "wrap",
+				}}
+			>
 				<span>
 					<Dot color={CALORIE_BALANCE} />
 					収支（摂取 - 総消費）
@@ -757,7 +826,10 @@ function CaloriesGraph({ history = [], target, period = "1d", totalBalance = nul
 				{!hasBalanceData && <span>収支は総消費データ取得後に表示されます</span>}
 			</div>
 			<ResponsiveContainer width="100%" height={196}>
-				<ComposedChart data={chartData} margin={{ top: 6, right: 8, left: -20, bottom: 0 }}>
+				<ComposedChart
+					data={chartData}
+					margin={{ top: 6, right: 8, left: -20, bottom: 0 }}
+				>
 					<XAxis
 						dataKey="date"
 						tick={{ fontSize: 9, fill: "var(--text-3)" }}
@@ -806,11 +878,28 @@ function CaloriesGraph({ history = [], target, period = "1d", totalBalance = nul
 							label={{ value: "目標", fontSize: 9, fill: "#94a3b8" }}
 						/>
 					)}
-					<Bar yAxisId="bars" dataKey="intake" name="intake" fill={BRAND} radius={[4, 4, 0, 0]} />
-					<Bar yAxisId="bars" dataKey="burned" name="burned" fill={CALORIE_BURN} radius={[4, 4, 0, 0]} />
+					<Bar
+						yAxisId="bars"
+						dataKey="intake"
+						name="intake"
+						fill={BRAND}
+						radius={[4, 4, 0, 0]}
+					/>
+					<Bar
+						yAxisId="bars"
+						dataKey="burned"
+						name="burned"
+						fill={CALORIE_BURN}
+						radius={[4, 4, 0, 0]}
+					/>
 					{hasBalanceData && (
 						<>
-							<ReferenceLine yAxisId="balance" y={0} stroke="#cbd5e1" strokeDasharray="3 3" />
+							<ReferenceLine
+								yAxisId="balance"
+								y={0}
+								stroke="#cbd5e1"
+								strokeDasharray="3 3"
+							/>
 							<Line
 								yAxisId="balance"
 								type="monotone"
@@ -826,6 +915,79 @@ function CaloriesGraph({ history = [], target, period = "1d", totalBalance = nul
 					)}
 				</ComposedChart>
 			</ResponsiveContainer>
+			{showDeficitTrend && (
+				<div style={{ display: "grid", gap: 8 }}>
+					<div
+						style={{
+							display: "flex",
+							alignItems: "center",
+							justifyContent: "space-between",
+							gap: 12,
+							flexWrap: "wrap",
+							fontSize: 11,
+							color: "var(--text-2)",
+						}}
+					>
+						<span>
+							<Dot color={CALORIE_DEFICIT} />
+							累積マイナス収支
+						</span>
+						<span>
+							{periodLabel}で削れたカロリー{" "}
+							<span style={{ color: CALORIE_DEFICIT, fontWeight: 700 }}>
+								{totalDeficit == null
+									? "—"
+									: `${totalDeficit.toLocaleString()} kcal`}
+							</span>
+						</span>
+					</div>
+					{hasCompleteBalanceData ? (
+						<ResponsiveContainer width="100%" height={96}>
+							<AreaChart
+								data={chartData}
+								margin={{ top: 6, right: 8, left: -20, bottom: 0 }}
+							>
+								<XAxis
+									dataKey="date"
+									tick={{ fontSize: 9, fill: "var(--text-3)" }}
+									interval="preserveStartEnd"
+									axisLine={false}
+									tickLine={false}
+								/>
+								<YAxis
+									domain={deficitAxis.domain}
+									ticks={deficitAxis.ticks}
+									allowDecimals={false}
+									tick={{ fontSize: 9, fill: CALORIE_DEFICIT }}
+									axisLine={false}
+									tickLine={false}
+								/>
+								<Tooltip
+									contentStyle={tipStyle}
+									formatter={(value) => [
+										`${Number(value).toLocaleString()} kcal`,
+										"累積マイナス収支",
+									]}
+								/>
+								<Area
+									type="monotone"
+									dataKey="cumulativeDeficit"
+									stroke={CALORIE_DEFICIT}
+									strokeWidth={2}
+									fill={CALORIE_DEFICIT}
+									fillOpacity={0.16}
+									dot={{ r: 2.5, fill: CALORIE_DEFICIT, strokeWidth: 0 }}
+									activeDot={{ r: 4 }}
+								/>
+							</AreaChart>
+						</ResponsiveContainer>
+					) : (
+						<div style={{ fontSize: 11, color: "var(--text-2)" }}>
+							累積マイナス収支は総消費データ取得後に表示されます
+						</div>
+					)}
+				</div>
+			)}
 		</div>
 	);
 }
