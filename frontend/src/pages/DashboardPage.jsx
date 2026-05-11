@@ -1,60 +1,60 @@
 import {
-    closestCenter,
-    DndContext,
-    PointerSensor,
-    useSensor,
-    useSensors,
+	closestCenter,
+	DndContext,
+	PointerSensor,
+	useSensor,
+	useSensors,
 } from "@dnd-kit/core";
 import {
-    arrayMove,
-    rectSortingStrategy,
-    SortableContext,
-    useSortable,
+	arrayMove,
+	rectSortingStrategy,
+	SortableContext,
+	useSortable,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-    Calendar,
-    CalendarClock,
-    ChevronLeft,
-    ChevronRight,
-    Flame,
-    Footprints,
-    GripVertical,
-    Layers,
-    Link2Off,
-    Moon,
-    RefreshCw,
-    Scale,
-    Settings2,
-    UtensilsCrossed,
+	Calendar,
+	CalendarClock,
+	ChevronLeft,
+	ChevronRight,
+	Flame,
+	Footprints,
+	GripVertical,
+	Layers,
+	Link2Off,
+	Moon,
+	RefreshCw,
+	Scale,
+	Settings2,
+	UtensilsCrossed,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import {
-    Area,
-    AreaChart,
-    Bar,
-    BarChart,
-    Cell,
-    ComposedChart,
-    Line,
-    Pie,
-    PieChart,
-    ReferenceLine,
-    ResponsiveContainer,
-    Tooltip,
-    XAxis,
-    YAxis,
+	Area,
+	AreaChart,
+	Bar,
+	BarChart,
+	Cell,
+	ComposedChart,
+	Line,
+	Pie,
+	PieChart,
+	ReferenceLine,
+	ResponsiveContainer,
+	Tooltip,
+	XAxis,
+	YAxis,
 } from "recharts";
 import { bodyApi, dashboardApi, mealsApi, settingsApi } from "../services/api";
 import {
-    addJstDays,
-    formatJstDate,
-    isTodayJst,
-    startOfJstMonth,
-    startOfJstWeek,
-    toJstDateString
+	addJstDays,
+	formatJstDate,
+	isTodayJst,
+	startOfJstMonth,
+	startOfJstWeek,
+	toJstDateString,
 } from "../utils/date";
 
 function todayStr() {
@@ -122,8 +122,12 @@ const WIDGET_REQUIREMENTS = {
 function isServiceConnected(requirement, connectedServices = []) {
 	if (!requirement) return true;
 	return requirement.any
-		? requirement.services.some((service) => connectedServices.includes(service))
-		: requirement.services.every((service) => connectedServices.includes(service));
+		? requirement.services.some((service) =>
+				connectedServices.includes(service),
+			)
+		: requirement.services.every((service) =>
+				connectedServices.includes(service),
+			);
 }
 
 const DEFAULT_ORDER = [...WIDGET_IDS];

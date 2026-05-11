@@ -20,7 +20,7 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['favicon.svg', 'icons.svg'],
+      includeAssets: ['favicon.svg', 'app-icon.svg'],
       manifest: {
         name: '健康ナビ',
         short_name: '健康ナビ',
@@ -32,7 +32,7 @@ export default defineConfig({
         start_url: '/',
         icons: [
           { src: 'favicon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any' },
-          { src: 'icons.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'maskable' },
+          { src: 'app-icon.svg', sizes: '512x512', type: 'image/svg+xml', purpose: 'any maskable' },
         ],
       },
       workbox: {
