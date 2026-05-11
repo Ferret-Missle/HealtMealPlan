@@ -2,6 +2,14 @@ import { getApp, getApps, initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
 
 const apiBaseUrl = import.meta.env.VITE_API_URL?.trim()?.replace(/\/$/, '') || '';
+const defaultFirebaseConfig = {
+  apiKey: 'AIzaSyB0TwWaDGEvBjyJP1Z_Q_CJSoS-uCT2nbw',
+  authDomain: 'healthmealplan-13d77.firebaseapp.com',
+  projectId: 'healthmealplan-13d77',
+  storageBucket: 'healthmealplan-13d77.firebasestorage.app',
+  messagingSenderId: '496976184645',
+  appId: '1:496976184645:web:ea1c4a9920f513b7862a2c',
+};
 
 const readEnv = (...keys) => {
   for (const key of keys) {
@@ -14,12 +22,12 @@ const readEnv = (...keys) => {
 };
 
 const envFirebaseConfig = {
-  apiKey: readEnv('VITE_FIREBASE_API_KEY'),
-  authDomain: readEnv('VITE_FIREBASE_AUTH_DOMAIN'),
-  projectId: readEnv('VITE_FIREBASE_PROJECT_ID'),
-  storageBucket: readEnv('VITE_FIREBASE_STORAGE_BUCKET'),
-  messagingSenderId: readEnv('VITE_FIREBASE_MESSAGING_SENDER_ID'),
-  appId: readEnv('VITE_FIREBASE_APP_ID'),
+  apiKey: readEnv('VITE_FIREBASE_API_KEY') || defaultFirebaseConfig.apiKey,
+  authDomain: readEnv('VITE_FIREBASE_AUTH_DOMAIN') || defaultFirebaseConfig.authDomain,
+  projectId: readEnv('VITE_FIREBASE_PROJECT_ID') || defaultFirebaseConfig.projectId,
+  storageBucket: readEnv('VITE_FIREBASE_STORAGE_BUCKET') || defaultFirebaseConfig.storageBucket,
+  messagingSenderId: readEnv('VITE_FIREBASE_MESSAGING_SENDER_ID') || defaultFirebaseConfig.messagingSenderId,
+  appId: readEnv('VITE_FIREBASE_APP_ID') || defaultFirebaseConfig.appId,
 };
 
 const requiredFirebaseKeys = [

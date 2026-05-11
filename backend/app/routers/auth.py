@@ -48,6 +48,14 @@ FATSECRET_REDIRECT_URI = clean_url(os.getenv("FATSECRET_REDIRECT_URI"), "") if o
 
 FRONTEND_URL = get_primary_env_url("FRONTEND_URL", "http://localhost:5173")
 BACKEND_URL  = get_primary_env_url("BACKEND_URL",  "http://localhost:8000")
+DEFAULT_FIREBASE_CLIENT_CONFIG = {
+    "apiKey": "AIzaSyB0TwWaDGEvBjyJP1Z_Q_CJSoS-uCT2nbw",
+    "authDomain": "healthmealplan-13d77.firebaseapp.com",
+    "projectId": "healthmealplan-13d77",
+    "storageBucket": "healthmealplan-13d77.firebasestorage.app",
+    "messagingSenderId": "496976184645",
+    "appId": "1:496976184645:web:ea1c4a9920f513b7862a2c",
+}
 
 
 def _first_env(*names: str) -> str:
@@ -65,37 +73,37 @@ def _firebase_client_config() -> dict[str, str]:
             "NEXT_PUBLIC_FIREBASE_API_KEY",
             "REACT_APP_FIREBASE_API_KEY",
             "FIREBASE_API_KEY",
-        ),
+        ) or DEFAULT_FIREBASE_CLIENT_CONFIG["apiKey"],
         "authDomain": _first_env(
             "VITE_FIREBASE_AUTH_DOMAIN",
             "NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN",
             "REACT_APP_FIREBASE_AUTH_DOMAIN",
             "FIREBASE_AUTH_DOMAIN",
-        ),
+        ) or DEFAULT_FIREBASE_CLIENT_CONFIG["authDomain"],
         "projectId": _first_env(
             "VITE_FIREBASE_PROJECT_ID",
             "NEXT_PUBLIC_FIREBASE_PROJECT_ID",
             "REACT_APP_FIREBASE_PROJECT_ID",
             "FIREBASE_PROJECT_ID",
-        ),
+        ) or DEFAULT_FIREBASE_CLIENT_CONFIG["projectId"],
         "storageBucket": _first_env(
             "VITE_FIREBASE_STORAGE_BUCKET",
             "NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET",
             "REACT_APP_FIREBASE_STORAGE_BUCKET",
             "FIREBASE_STORAGE_BUCKET",
-        ),
+        ) or DEFAULT_FIREBASE_CLIENT_CONFIG["storageBucket"],
         "messagingSenderId": _first_env(
             "VITE_FIREBASE_MESSAGING_SENDER_ID",
             "NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID",
             "REACT_APP_FIREBASE_MESSAGING_SENDER_ID",
             "FIREBASE_MESSAGING_SENDER_ID",
-        ),
+        ) or DEFAULT_FIREBASE_CLIENT_CONFIG["messagingSenderId"],
         "appId": _first_env(
             "VITE_FIREBASE_APP_ID",
             "NEXT_PUBLIC_FIREBASE_APP_ID",
             "REACT_APP_FIREBASE_APP_ID",
             "FIREBASE_APP_ID",
-        ),
+        ) or DEFAULT_FIREBASE_CLIENT_CONFIG["appId"],
     }
 
 
