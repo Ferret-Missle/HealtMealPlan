@@ -9,6 +9,7 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
 from .database import engine, Base
+from .url_config import get_env_urls
 from .routers import auth, dashboard, meals, body, settings, meal_plan, group, shopping, chat
 
 logger = logging.getLogger(__name__)
@@ -82,12 +83,18 @@ app = FastAPI(title="健康ナビ API", version="1.0.0", lifespan=lifespan)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
+FRONTEND_URLS = get_env_urls("FRONTEND_URL", "http://localhost:5173")
+ALLOW_ORIGINS = []
+for origin in [*FRONTEND_URLS, "http://localhost:5173", "http://localhost:3000"]:
+    cleaned = origin.strip().rstrip("/")
+    if cleaned and cleaned not in ALLOW_ORIGINS:
+        ALLOW_ORIGINS.append(cleaned)
+
 # Vercel のプレビューデプロイ URL (xxx-git-branch-user.vercel.app, xxx-hash.vercel.app)
 # も許可するため正規表現で *.vercel.app を許可。
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[FRONTEND_URL, "http://localhost:5173", "http://localhost:3000"],
+    allow_origins=ALLOW_ORIGINS,
     allow_origin_regex=r"https://.*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],

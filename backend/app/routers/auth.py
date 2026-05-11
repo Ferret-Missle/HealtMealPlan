@@ -16,28 +16,38 @@ from .. import models, security
 from ..auth_deps import get_current_user, require_firebase_admin
 from ..services.user_identity import register_or_reconcile_user
 from ..services import fatsecret
+from ..url_config import clean_url, get_primary_env_url
 
 router = APIRouter()
 
 FITBIT_CLIENT_ID = os.getenv("FITBIT_CLIENT_ID", "")
 FITBIT_CLIENT_SECRET = os.getenv("FITBIT_CLIENT_SECRET", "")
-FITBIT_REDIRECT_URI = os.getenv("FITBIT_REDIRECT_URI", "http://localhost:8000/api/auth/fitbit/callback")
+FITBIT_REDIRECT_URI = clean_url(
+    os.getenv("FITBIT_REDIRECT_URI"),
+    "http://localhost:8000/api/auth/fitbit/callback",
+)
 
 HEALTHPLANET_CLIENT_ID = os.getenv("HEALTHPLANET_CLIENT_ID", "")
 HEALTHPLANET_CLIENT_SECRET = os.getenv("HEALTHPLANET_CLIENT_SECRET", "")
-HEALTHPLANET_REDIRECT_URI = os.getenv("HEALTHPLANET_REDIRECT_URI", "http://localhost:8000/api/auth/healthplanet/callback")
+HEALTHPLANET_REDIRECT_URI = clean_url(
+    os.getenv("HEALTHPLANET_REDIRECT_URI"),
+    "http://localhost:8000/api/auth/healthplanet/callback",
+)
 
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
-GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI", "http://localhost:8000/api/auth/google/callback")
+GOOGLE_REDIRECT_URI = clean_url(
+    os.getenv("GOOGLE_REDIRECT_URI"),
+    "http://localhost:8000/api/auth/google/callback",
+)
 
 # FatSecret のユーザー委任は OAuth 1.0a 3-legged を使う。
 FATSECRET_CONSUMER_KEY    = os.getenv("FATSECRET_CONSUMER_KEY", "")
 FATSECRET_CONSUMER_SECRET = os.getenv("FATSECRET_CONSUMER_SECRET", "")
-FATSECRET_REDIRECT_URI    = os.getenv("FATSECRET_REDIRECT_URI", "")
+FATSECRET_REDIRECT_URI = clean_url(os.getenv("FATSECRET_REDIRECT_URI"), "") if os.getenv("FATSECRET_REDIRECT_URI") else ""
 
-FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
-BACKEND_URL  = os.getenv("BACKEND_URL",  "http://localhost:8000")
+FRONTEND_URL = get_primary_env_url("FRONTEND_URL", "http://localhost:5173")
+BACKEND_URL  = get_primary_env_url("BACKEND_URL",  "http://localhost:8000")
 
 # ---- Register / Me ----
 

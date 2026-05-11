@@ -11,6 +11,7 @@ import httpx
 from ..database import get_db
 from .. import models, security
 from ..auth_deps import get_current_user
+from ..url_config import get_primary_env_url
 
 router = APIRouter()
 MAX_MEMBERS = 7
@@ -240,7 +241,7 @@ async def get_my_pending_invitations(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    frontend_url = os.getenv("FRONTEND_URL", "http://localhost:5173")
+    frontend_url = get_primary_env_url("FRONTEND_URL", "http://localhost:5173")
     now = datetime.utcnow()
 
     invitations = (
@@ -310,7 +311,7 @@ async def invite_member(
     db.add(invite)
     db.commit()
 
-    frontend_url = os.getenv("FRONTEND_URL", "http://localhost:5173")
+    frontend_url = get_primary_env_url("FRONTEND_URL", "http://localhost:5173")
     return {
         "invite_url": f"{frontend_url}/invite/{token}",
         "expires_at": invite.expires_at.isoformat(),
