@@ -1,9 +1,11 @@
 import asyncio
+from datetime import datetime
 from datetime import date as dt_date, timedelta
 from fastapi import APIRouter, Depends, Request, Query
 from sqlalchemy.orm import Session
 from slowapi import Limiter
 from slowapi.util import get_remote_address
+from zoneinfo import ZoneInfo
 
 from ..database import get_db
 from .. import models
@@ -49,8 +51,12 @@ async def today_summary(
         for t in db.query(models.OAuthToken).filter_by(user_id=current_user.id).all()
     ]
 
+    today_jst = datetime.now(ZoneInfo("Asia/Tokyo")).date().isoformat()
+    should_refresh_live_fitbit = "fitbit" in connected and today == today_jst
+
     if "fitbit" in connected and (
-        activity_log is None
+        should_refresh_live_fitbit
+        or activity_log is None
         or activity_log.calories_out is None
         or activity_log.steps is None
         or activity_log.active_kcal is None

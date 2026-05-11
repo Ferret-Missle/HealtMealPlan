@@ -440,6 +440,7 @@ function CaloriesValue({
 			: balance <= 0
 				? CALORIE_BALANCE
 				: "#dc2626";
+	const showBalanceNote = burned != null || balance != null;
 	return (
 		<>
 			<div
@@ -483,7 +484,7 @@ function CaloriesValue({
 						)}
 						{burned != null && (
 							<div>
-								消費{" "}
+								総消費{" "}
 								<span style={{ color: CALORIE_BURN, fontWeight: 700 }}>
 									{burned.toLocaleString()}
 								</span>
@@ -516,6 +517,11 @@ function CaloriesValue({
 				target && (
 					<div className="widget-sub">目標 {target.toLocaleString()}</div>
 				)
+			)}
+			{showBalanceNote && (
+				<div className="widget-sub" style={{ fontSize: 10 }}>
+					収支 = 摂取 - 総消費
+				</div>
 			)}
 			{pct != null && (
 				<div className="progress-bar" style={{ marginTop: 6 }}>
@@ -609,14 +615,14 @@ function CaloriesGraph({ intake, target, history = [], period = "1d" }) {
 					</span>
 					<span>
 						<Dot color={CALORIE_BURN} />
-						消費カロリー
+						総消費カロリー
 					</span>
 					<span>
 						<Dot color={CALORIE_BALANCE} />
-						収支
+						収支（摂取 - 総消費）
 					</span>
-					{!hasBurnedData && <span>消費データは未同期です</span>}
-					{!hasBalanceData && <span>収支は消費データ取得後に表示されます</span>}
+					{!hasBurnedData && <span>総消費データは未同期です</span>}
+					{!hasBalanceData && <span>収支は総消費データ取得後に表示されます</span>}
 				</div>
 				<ResponsiveContainer width="100%" height={196}>
 					<ComposedChart
@@ -657,7 +663,7 @@ function CaloriesGraph({ intake, target, history = [], period = "1d" }) {
 									name === "intake"
 										? "摂取"
 										: name === "burned"
-											? "消費"
+											? "総消費"
 											: "収支";
 								return [`${value.toLocaleString()} kcal`, label];
 							}}
