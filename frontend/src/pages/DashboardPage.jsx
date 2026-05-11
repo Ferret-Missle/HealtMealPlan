@@ -14,44 +14,42 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-	Calendar,
-	CalendarClock,
-	ChevronLeft,
-	ChevronRight,
-	Flame,
-	Footprints,
-	GripVertical,
-	Layers,
-	Link2Off,
-	Moon,
-	RefreshCw,
-	Scale,
-	Settings2,
-	UtensilsCrossed,
+    Calendar,
+    CalendarClock,
+    ChevronLeft,
+    ChevronRight,
+    Flame,
+    Footprints,
+    GripVertical,
+    Layers,
+    Link2Off,
+    Moon,
+    RefreshCw,
+    Scale,
+    Settings2,
+    UtensilsCrossed,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import {
-	Area,
-	AreaChart,
-	Bar,
-	BarChart,
-	ComposedChart,
-	Line,
-	ReferenceLine,
-	ResponsiveContainer,
-	Tooltip,
-	XAxis,
-	YAxis,
+    Area,
+    AreaChart,
+    Bar,
+    BarChart,
+    ComposedChart,
+    Line,
+    ReferenceLine,
+    ResponsiveContainer,
+    Tooltip,
+    XAxis,
+    YAxis,
 } from "recharts";
 import { bodyApi, dashboardApi, mealsApi, settingsApi } from "../services/api";
 import {
-	addJstDays,
-	formatJstDate,
-	isTodayJst,
-	startOfJstMonth,
-	startOfJstWeek,
-	toJstDateString,
+    addJstDays,
+    formatJstDate,
+    isTodayJst,
+    toJstDateString
 } from "../utils/date";
 
 function todayStr() {
