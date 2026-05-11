@@ -52,6 +52,8 @@ import {
     addJstDays,
     formatJstDate,
     isTodayJst,
+	startOfJstMonth,
+	startOfJstWeek,
     toJstDateString
 } from "../utils/date";
 
@@ -162,6 +164,41 @@ const tipStyle = {
 	borderRadius: 6,
 	border: "1px solid #e2e8f0",
 };
+
+function getWidgetStepDays(period, supported = []) {
+	if (supported.length <= 1) return 1;
+	if (period === "30d") return 30;
+	if (period === "7d") return 7;
+	return 1;
+}
+
+function getWidgetRangeStart(dateStr, period, supported = []) {
+	if (period === "7d" && supported.includes("7d")) {
+		return startOfJstWeek(dateStr);
+	}
+	if (period === "30d" && supported.includes("30d")) {
+		return startOfJstMonth(dateStr);
+	}
+	return dateStr;
+}
+
+function getWidgetRangeEnd(dateStr, period, supported = []) {
+	const start = getWidgetRangeStart(dateStr, period, supported);
+	return offsetDate(start, getWidgetStepDays(period, supported) - 1);
+}
+
+function getWidgetHistoryBaseDate(dateStr, period, supported = []) {
+	const start = getWidgetRangeStart(dateStr, period, supported);
+	return offsetDate(start, getWidgetStepDays(period, supported));
+}
+
+function getWidgetRangeLabel(dateStr, period, supported = []) {
+	const start = getWidgetRangeStart(dateStr, period, supported);
+	const spanDays = getWidgetStepDays(period, supported);
+	if (spanDays === 1) return fmtDate(start);
+	const end = offsetDate(start, spanDays - 1);
+	return `${fmtShort(start)} - ${fmtShort(end)}`;
+}
 
 function Dot({ color }) {
 	return (
