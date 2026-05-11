@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { auth } from '../firebase';
+import { auth, ensureFirebaseAuth } from '../firebase';
 
 const envBaseUrl = import.meta.env.VITE_API_URL?.trim();
 const BASE_URL = envBaseUrl ? envBaseUrl.replace(/\/$/, "") : "";
@@ -7,7 +7,8 @@ const BASE_URL = envBaseUrl ? envBaseUrl.replace(/\/$/, "") : "";
 const api = axios.create({ baseURL: BASE_URL });
 
 api.interceptors.request.use(async (config) => {
-  const user = auth?.currentUser;
+  const readyAuth = auth || await ensureFirebaseAuth();
+  const user = readyAuth?.currentUser;
   if (user) {
     const token = await user.getIdToken();
     config.headers.Authorization = `Bearer ${token}`;

@@ -49,6 +49,68 @@ FATSECRET_REDIRECT_URI = clean_url(os.getenv("FATSECRET_REDIRECT_URI"), "") if o
 FRONTEND_URL = get_primary_env_url("FRONTEND_URL", "http://localhost:5173")
 BACKEND_URL  = get_primary_env_url("BACKEND_URL",  "http://localhost:8000")
 
+
+def _first_env(*names: str) -> str:
+    for name in names:
+        value = os.getenv(name, "").strip()
+        if value:
+            return value
+    return ""
+
+
+def _firebase_client_config() -> dict[str, str]:
+    return {
+        "apiKey": _first_env(
+            "VITE_FIREBASE_API_KEY",
+            "NEXT_PUBLIC_FIREBASE_API_KEY",
+            "REACT_APP_FIREBASE_API_KEY",
+            "FIREBASE_API_KEY",
+        ),
+        "authDomain": _first_env(
+            "VITE_FIREBASE_AUTH_DOMAIN",
+            "NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN",
+            "REACT_APP_FIREBASE_AUTH_DOMAIN",
+            "FIREBASE_AUTH_DOMAIN",
+        ),
+        "projectId": _first_env(
+            "VITE_FIREBASE_PROJECT_ID",
+            "NEXT_PUBLIC_FIREBASE_PROJECT_ID",
+            "REACT_APP_FIREBASE_PROJECT_ID",
+            "FIREBASE_PROJECT_ID",
+        ),
+        "storageBucket": _first_env(
+            "VITE_FIREBASE_STORAGE_BUCKET",
+            "NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET",
+            "REACT_APP_FIREBASE_STORAGE_BUCKET",
+            "FIREBASE_STORAGE_BUCKET",
+        ),
+        "messagingSenderId": _first_env(
+            "VITE_FIREBASE_MESSAGING_SENDER_ID",
+            "NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID",
+            "REACT_APP_FIREBASE_MESSAGING_SENDER_ID",
+            "FIREBASE_MESSAGING_SENDER_ID",
+        ),
+        "appId": _first_env(
+            "VITE_FIREBASE_APP_ID",
+            "NEXT_PUBLIC_FIREBASE_APP_ID",
+            "REACT_APP_FIREBASE_APP_ID",
+            "FIREBASE_APP_ID",
+        ),
+    }
+
+
+@router.get("/firebase-client-config")
+async def firebase_client_config():
+    config = _firebase_client_config()
+    required_keys = ("apiKey", "authDomain", "projectId", "appId")
+    missing = [key for key in required_keys if not config.get(key)]
+    if missing:
+        raise HTTPException(
+            status_code=503,
+            detail={"message": "Firebase client config is unavailable.", "missing": missing},
+        )
+    return config
+
 # ---- Register / Me ----
 
 class RegisterRequest(BaseModel):

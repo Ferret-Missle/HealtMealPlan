@@ -1,20 +1,20 @@
 /* eslint-disable react-refresh/only-export-components */
 import {
-	createUserWithEmailAndPassword,
-	GoogleAuthProvider,
-	onAuthStateChanged,
-	signInWithEmailAndPassword,
-	signInWithPopup,
-	signOut,
+    createUserWithEmailAndPassword,
+    GoogleAuthProvider,
+    onAuthStateChanged,
+    signInWithEmailAndPassword,
+    signInWithPopup,
+    signOut,
 } from "firebase/auth";
 import {
-	createContext,
-	useCallback,
-	useContext,
-	useEffect,
-	useState,
+    createContext,
+    useCallback,
+    useContext,
+    useEffect,
+    useState,
 } from "react";
-import { auth, firebaseInitError } from "../firebase";
+import { auth, ensureFirebaseAuth, firebaseInitError } from "../firebase";
 import { authApi, groupApi } from "../services/api";
 
 const defaultAuthContext = {
@@ -70,19 +70,7 @@ export function AuthProvider({ children }) {
 
 	useEffect(() => {
 		let active = true;
-
-		if (!auth) {
-			if (firebaseInitError) {
-				console.error("Firebase auth is unavailable:", firebaseInitError);
-			}
-			setUser(null);
-			setProfile(null);
-			setPendingInvitations([]);
-			setLoading(false);
-			return () => {
-				active = false;
-			};
-		}
+		let unsub = () => {};
 
 		const loadProfile = async (firebaseUser) => {
 			try {
@@ -124,20 +112,38 @@ export function AuthProvider({ children }) {
 			}
 		};
 
-		const unsub = onAuthStateChanged(auth, (firebaseUser) => {
+		const setupAuth = async () => {
+			const readyAuth = await ensureFirebaseAuth();
 			if (!active) return;
 
-			setUser(firebaseUser);
-			setLoading(false);
-
-			if (!firebaseUser) {
+			if (!readyAuth) {
+				if (firebaseInitError) {
+					console.error("Firebase auth is unavailable:", firebaseInitError);
+				}
+				setUser(null);
 				setProfile(null);
 				setPendingInvitations([]);
+				setLoading(false);
 				return;
 			}
 
-			void loadProfile(firebaseUser);
-		});
+			unsub = onAuthStateChanged(readyAuth, (firebaseUser) => {
+				if (!active) return;
+
+				setUser(firebaseUser);
+				setLoading(false);
+
+				if (!firebaseUser) {
+					setProfile(null);
+					setPendingInvitations([]);
+					return;
+				}
+
+				void loadProfile(firebaseUser);
+			});
+		};
+
+		void setupAuth();
 
 		return () => {
 			active = false;
@@ -145,16 +151,20 @@ export function AuthProvider({ children }) {
 		};
 	}, [applyAuthenticatedProfile]);
 
-	const loginEmail = (email, password) =>
-		auth
-			? signInWithEmailAndPassword(auth, email, password)
-			: Promise.reject(new Error("Firebase authentication is not configured."));
+	const loginEmail = async (email, password) => {
+		const readyAuth = auth || (await ensureFirebaseAuth());
+		if (!readyAuth) {
+			throw firebaseInitError || new Error("Firebase authentication is not configured.");
+		}
+		return signInWithEmailAndPassword(readyAuth, email, password);
+	};
 
 	const registerEmail = async (email, password, name) => {
-		if (!auth) {
-			throw new Error("Firebase authentication is not configured.");
+		const readyAuth = auth || (await ensureFirebaseAuth());
+		if (!readyAuth) {
+			throw firebaseInitError || new Error("Firebase authentication is not configured.");
 		}
-		const cred = await createUserWithEmailAndPassword(auth, email, password);
+		const cred = await createUserWithEmailAndPassword(readyAuth, email, password);
 		await authApi.register({
 			uid: cred.user.uid,
 			email,
@@ -168,11 +178,12 @@ export function AuthProvider({ children }) {
 	};
 
 	const loginGoogle = async () => {
-		if (!auth) {
-			throw new Error("Firebase authentication is not configured.");
+		const readyAuth = auth || (await ensureFirebaseAuth());
+		if (!readyAuth) {
+			throw firebaseInitError || new Error("Firebase authentication is not configured.");
 		}
 		const provider = new GoogleAuthProvider();
-		const cred = await signInWithPopup(auth, provider);
+		const cred = await signInWithPopup(readyAuth, provider);
 		try {
 			await authApi.register({
 				uid: cred.user.uid,
@@ -189,10 +200,13 @@ export function AuthProvider({ children }) {
 		return cred;
 	};
 
-	const logout = () =>
-		auth
-			? signOut(auth)
-			: Promise.reject(new Error("Firebase authentication is not configured."));
+	const logout = async () => {
+		const readyAuth = auth || (await ensureFirebaseAuth());
+		if (!readyAuth) {
+			throw firebaseInitError || new Error("Firebase authentication is not configured.");
+		}
+		return signOut(readyAuth);
+	};
 
 	const refreshProfile = useCallback(async () => {
 		const res = await authApi.me();
