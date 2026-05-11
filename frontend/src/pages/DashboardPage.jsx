@@ -18,10 +18,16 @@ import {
     CalendarClock,
     ChevronLeft,
     ChevronRight,
+	Flame,
+	Footprints,
     GripVertical,
+	Layers,
     Link2Off,
+	Moon,
     RefreshCw,
-    Settings2
+	Scale,
+	Settings2,
+	UtensilsCrossed,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
@@ -43,10 +49,121 @@ import {
 } from "recharts";
 import { bodyApi, dashboardApi, mealsApi, settingsApi } from "../services/api";
 import {
+    addJstDays,
+    formatJstDate,
     isTodayJst,
     startOfJstMonth,
-    startOfJstWeek
+    startOfJstWeek,
+    toJstDateString,
 } from "../utils/date";
+
+function todayStr() {
+	return toJstDateString();
+}
+
+function offsetDate(base, days) {
+	return addJstDays(base, days);
+}
+
+function fmtDate(dateStr) {
+	return formatJstDate(dateStr, {
+		month: "long",
+		day: "numeric",
+		weekday: "short",
+	});
+}
+
+function fmtShort(dateStr) {
+	return formatJstDate(dateStr, { month: "numeric", day: "numeric" });
+}
+
+function lsGet(key, defaultValue) {
+	try {
+		return JSON.parse(localStorage.getItem(key)) ?? defaultValue;
+	} catch {
+		return defaultValue;
+	}
+}
+
+function lsSet(key, value) {
+	try {
+		localStorage.setItem(key, JSON.stringify(value));
+	} catch {
+		return undefined;
+	}
+}
+
+const WIDGET_IDS = ["weight", "calories", "pfc", "steps", "sleep", "meals"];
+
+function normalizeWidgetOrder(order = []) {
+	const valid = order.filter((id) => WIDGET_IDS.includes(id));
+	return [...valid, ...WIDGET_IDS.filter((id) => !valid.includes(id))];
+}
+
+const WIDGET_META = {
+	weight: { label: "体重", Icon: Scale },
+	calories: { label: "カロリー", Icon: Flame },
+	pfc: { label: "PFC", Icon: Layers },
+	steps: { label: "歩数", Icon: Footprints },
+	sleep: { label: "睡眠", Icon: Moon },
+	meals: { label: "食事記録", Icon: UtensilsCrossed },
+};
+
+const WIDGET_REQUIREMENTS = {
+	weight: {
+		services: ["fitbit", "healthplanet"],
+		any: true,
+		label: "Fitbit / HealthPlanet",
+	},
+	steps: { services: ["fitbit"], label: "Fitbit" },
+	sleep: { services: ["fitbit"], label: "Fitbit" },
+};
+
+function isServiceConnected(requirement, connectedServices = []) {
+	if (!requirement) return true;
+	return requirement.any
+		? requirement.services.some((service) => connectedServices.includes(service))
+		: requirement.services.every((service) => connectedServices.includes(service));
+}
+
+const DEFAULT_ORDER = [...WIDGET_IDS];
+const DEFAULT_VIS = Object.fromEntries(
+	WIDGET_IDS.map((id) => [id, { value: true, graph: false }]),
+);
+const WIDGET_PERIOD_SUPPORTS = {
+	weight: ["7d", "30d"],
+	calories: ["1d", "7d", "30d"],
+	pfc: ["1d", "7d", "30d"],
+	steps: ["1d", "7d", "30d"],
+	sleep: ["7d", "30d"],
+	meals: ["1d"],
+};
+const DEFAULT_PERIODS = Object.fromEntries(
+	Object.entries(WIDGET_PERIOD_SUPPORTS).map(([id, supported]) => [
+		id,
+		supported[0] ?? "1d",
+	]),
+);
+const DEFAULT_WIDGET_DATES = Object.fromEntries(
+	WIDGET_IDS.map((id) => [id, todayStr()]),
+);
+
+const BRAND = "#16a34a";
+const CALORIE_BURN = "#f97316";
+const CALORIE_BALANCE = "#0f766e";
+const PFC_COLORS = ["#16a34a", "#f59e0b", "#3b82f6"];
+const widgetSyncButtonStyle = {
+	marginTop: 6,
+	marginBottom: 0,
+	width: "100%",
+	fontSize: 11,
+};
+const tipStyle = {
+	fontSize: 11,
+	padding: "4px 8px",
+	borderRadius: 6,
+	border: "1px solid #e2e8f0",
+};
 
 function getWidgetStepDays(period, supported = []) {
 	if (supported.length <= 1) return 1;

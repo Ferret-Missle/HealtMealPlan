@@ -14,10 +14,27 @@ import {
 	useEffect,
 	useState,
 } from "react";
-import { auth } from "../firebase";
+import { auth, firebaseInitError } from "../firebase";
 import { authApi, groupApi } from "../services/api";
 
-const AuthContext = createContext(null);
+const defaultAuthContext = {
+	user: null,
+	profile: null,
+	pendingInvitations: [],
+	loading: false,
+	loginEmail: () =>
+		Promise.reject(new Error("Firebase authentication is not configured.")),
+	registerEmail: () =>
+		Promise.reject(new Error("Firebase authentication is not configured.")),
+	loginGoogle: () =>
+		Promise.reject(new Error("Firebase authentication is not configured.")),
+	logout: () =>
+		Promise.reject(new Error("Firebase authentication is not configured.")),
+	refreshProfile: () => Promise.resolve(null),
+	refreshPendingInvitations: () => Promise.resolve([]),
+};
+
+const AuthContext = createContext(defaultAuthContext);
 
 export function AuthProvider({ children }) {
 	const [user, setUser] = useState(null);
@@ -26,7 +43,7 @@ export function AuthProvider({ children }) {
 	const [loading, setLoading] = useState(true);
 
 	const loadPendingInvitations = useCallback(async () => {
-		if (!auth.currentUser) {
+		if (!auth?.currentUser) {
 			setPendingInvitations([]);
 			return [];
 		}
@@ -53,6 +70,19 @@ export function AuthProvider({ children }) {
 
 	useEffect(() => {
 		let active = true;
+
+		if (!auth) {
+			if (firebaseInitError) {
+				console.error("Firebase auth is unavailable:", firebaseInitError);
+			}
+			setUser(null);
+			setProfile(null);
+			setPendingInvitations([]);
+			setLoading(false);
+			return () => {
+				active = false;
+			};
+		}
 
 		const loadProfile = async (firebaseUser) => {
 			try {
@@ -116,9 +146,14 @@ export function AuthProvider({ children }) {
 	}, [applyAuthenticatedProfile]);
 
 	const loginEmail = (email, password) =>
-		signInWithEmailAndPassword(auth, email, password);
+		auth
+			? signInWithEmailAndPassword(auth, email, password)
+			: Promise.reject(new Error("Firebase authentication is not configured."));
 
 	const registerEmail = async (email, password, name) => {
+		if (!auth) {
+			throw new Error("Firebase authentication is not configured.");
+		}
 		const cred = await createUserWithEmailAndPassword(auth, email, password);
 		await authApi.register({
 			uid: cred.user.uid,
@@ -133,6 +168,9 @@ export function AuthProvider({ children }) {
 	};
 
 	const loginGoogle = async () => {
+		if (!auth) {
+			throw new Error("Firebase authentication is not configured.");
+		}
 		const provider = new GoogleAuthProvider();
 		const cred = await signInWithPopup(auth, provider);
 		try {
@@ -151,7 +189,10 @@ export function AuthProvider({ children }) {
 		return cred;
 	};
 
-	const logout = () => signOut(auth);
+	const logout = () =>
+		auth
+			? signOut(auth)
+			: Promise.reject(new Error("Firebase authentication is not configured."));
 
 	const refreshProfile = useCallback(async () => {
 		const res = await authApi.me();
@@ -190,5 +231,5 @@ export function AuthProvider({ children }) {
 }
 
 export function useAuth() {
-	return useContext(AuthContext);
+	return useContext(AuthContext) ?? defaultAuthContext;
 }
