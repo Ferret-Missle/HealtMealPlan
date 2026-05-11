@@ -32,29 +32,26 @@ import {
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import {
-    Area,
-    AreaChart,
-    Bar,
-    BarChart,
-    Cell,
-    ComposedChart,
-    Line,
-    Pie,
-    PieChart,
-    ReferenceLine,
-    ResponsiveContainer,
-    Tooltip,
-    XAxis,
-    YAxis,
+	Area,
+	AreaChart,
+	Bar,
+	BarChart,
+	ComposedChart,
+	Line,
+	ReferenceLine,
+	ResponsiveContainer,
+	Tooltip,
+	XAxis,
+	YAxis,
 } from "recharts";
 import { bodyApi, dashboardApi, mealsApi, settingsApi } from "../services/api";
 import {
-    addJstDays,
-    formatJstDate,
-    isTodayJst,
-    startOfJstMonth,
-    startOfJstWeek,
-    toJstDateString,
+	addJstDays,
+	formatJstDate,
+	isTodayJst,
+	startOfJstMonth,
+	startOfJstWeek,
+	toJstDateString,
 } from "../utils/date";
 
 function todayStr() {
@@ -165,40 +162,6 @@ const tipStyle = {
 	border: "1px solid #e2e8f0",
 };
 
-function getWidgetStepDays(period, supported = []) {
-	if (supported.length <= 1) return 1;
-	if (period === "30d") return 30;
-	if (period === "7d") return 7;
-	return 1;
-}
-
-function getWidgetRangeStart(dateStr, period, supported = []) {
-	if (period === "7d" && supported.includes("7d"))
-		return startOfJstWeek(dateStr);
-	if (period === "30d" && supported.includes("30d"))
-		return startOfJstMonth(dateStr);
-	return dateStr;
-}
-
-function getWidgetRangeEnd(dateStr, period, supported = []) {
-	const start = getWidgetRangeStart(dateStr, period, supported);
-	return offsetDate(start, getWidgetStepDays(period, supported) - 1);
-}
-
-function getWidgetHistoryBaseDate(dateStr, period, supported = []) {
-	const start = getWidgetRangeStart(dateStr, period, supported);
-	return offsetDate(start, getWidgetStepDays(period, supported));
-}
-
-function getWidgetRangeLabel(dateStr, period, supported = []) {
-	const start = getWidgetRangeStart(dateStr, period, supported);
-	const spanDays = getWidgetStepDays(period, supported);
-	if (spanDays === 1) return fmtDate(start);
-	const end = offsetDate(start, spanDays - 1);
-	return `${fmtShort(start)} - ${fmtShort(end)}`;
-}
-
-// ── 共通パーツ ────────────────────────────────────────────────
 function Dot({ color }) {
 	return (
 		<span
@@ -213,12 +176,17 @@ function Dot({ color }) {
 		/>
 	);
 }
+
 function EmptyGraph({ msg = "データなし" }) {
 	return (
 		<div style={{ color: "var(--text-2)", fontSize: 12, padding: "8px 0" }}>
 			{msg}
 		</div>
 	);
+}
+
+function getPeriodLabel(period) {
+	return period === "30d" ? "30日" : period === "7d" ? "7日" : "1日";
 }
 function PeriodPills({ period, onChange, supported = ["1d", "7d", "30d"] }) {
 	const labels = { "1d": "1日", "7d": "7日", "30d": "30日" };
@@ -523,6 +491,7 @@ function CaloriesValue({
 	intake,
 	burned,
 	balance,
+	period = "1d",
 	target,
 	pct,
 	remaining,
@@ -542,6 +511,8 @@ function CaloriesValue({
 			: balance <= 0
 				? CALORIE_BALANCE
 				: "#dc2626";
+	const periodLabel = getPeriodLabel(period);
+	const showDailyComparison = period === "1d";
 	const showBalanceNote = burned != null || balance != null;
 	return (
 		<>
@@ -568,7 +539,7 @@ function CaloriesValue({
 							paddingBottom: 2,
 						}}
 					>
-						{yesterdayKcal != null && (
+						{showDailyComparison && yesterdayKcal != null && (
 							<div>
 								昨日{" "}
 								<span style={{ color: "var(--orange-text)", fontWeight: 700 }}>
@@ -576,7 +547,7 @@ function CaloriesValue({
 								</span>
 							</div>
 						)}
-						{avgKcal7 != null && (
+						{showDailyComparison && avgKcal7 != null && (
 							<div>
 								7日平均{" "}
 								<span style={{ color: "var(--blue-text)", fontWeight: 700 }}>
@@ -594,7 +565,7 @@ function CaloriesValue({
 						)}
 						{balance != null && (
 							<div>
-								収支{" "}
+								{periodLabel}総収支{" "}
 								<span style={{ color: balanceColor, fontWeight: 700 }}>
 									{balance > 0 ? "+" : ""}
 									{balance.toLocaleString()}
@@ -622,7 +593,7 @@ function CaloriesValue({
 			)}
 			{showBalanceNote && (
 				<div className="widget-sub" style={{ fontSize: 10 }}>
-					収支 = 摂取 - 総消費
+					{periodLabel}総収支 = 期間内の摂取合計 - 総消費合計
 				</div>
 			)}
 			{pct != null && (
@@ -678,30 +649,40 @@ function getBalanceAxisConfig(chartData) {
 	};
 }
 
-function CaloriesGraph({ intake, target, history = [], period = "1d" }) {
-	if (period !== "1d") {
-		if (!history.length) return <EmptyGraph />;
-		const fmtDate = (d) => {
-			const parts = d.split("-");
-			return `${parseInt(parts[1])}/${parseInt(parts[2])}`;
-		};
-		const chartData = history.map((r) => ({
-			date: fmtDate(r.date),
-			intake: r.total_kcal,
-			burned: r.calories_out,
-			balance: r.balance,
-		}));
-		const hasBurnedData = chartData.some((entry) => Number.isFinite(entry.burned));
-		const hasBalanceData = chartData.some((entry) => Number.isFinite(entry.balance));
-		const { domain, ticks } = getCalorieAxisConfig(
-			chartData,
-			["intake", "burned"],
-			[target],
-		);
-		const balanceAxis = getBalanceAxisConfig(chartData);
+function CaloriesGraph({ history = [], target, period = "1d", totalBalance = null }) {
+	if (!history.length) return <EmptyGraph />;
+	const chartData = history.map((entry) => ({
+		date:
+			period === "1d"
+				? fmtShort(entry.date)
+				: `${parseInt(entry.date.split("-")[1], 10)}/${parseInt(entry.date.split("-")[2], 10)}`,
+		intake: Number.isFinite(entry.total_kcal) ? entry.total_kcal : 0,
+		burned: Number.isFinite(entry.calories_out) ? entry.calories_out : null,
+		balance: Number.isFinite(entry.balance) ? entry.balance : null,
+	}));
+	const hasBurnedData = chartData.some((entry) => Number.isFinite(entry.burned));
+	const hasBalanceData = chartData.some((entry) => Number.isFinite(entry.balance));
+	const { domain, ticks } = getCalorieAxisConfig(chartData, ["intake", "burned"], [target]);
+	const balanceAxis = getBalanceAxisConfig(chartData);
+	const periodLabel = getPeriodLabel(period);
+	const totalBalanceColor =
+		totalBalance == null
+			? "var(--text-2)"
+			: totalBalance <= 0
+				? CALORIE_BALANCE
+				: "#dc2626";
 
-		return (
-			<div style={{ display: "grid", gap: 10 }}>
+	return (
+		<div style={{ display: "grid", gap: 10 }}>
+			<div
+				style={{
+					display: "flex",
+					alignItems: "center",
+					justifyContent: "space-between",
+					gap: 12,
+					flexWrap: "wrap",
+				}}
+			>
 				<div
 					style={{
 						display: "flex",
@@ -719,156 +700,94 @@ function CaloriesGraph({ intake, target, history = [], period = "1d" }) {
 						<Dot color={CALORIE_BURN} />
 						総消費カロリー
 					</span>
-					<span>
-						<Dot color={CALORIE_BALANCE} />
-						収支（摂取 - 総消費）
-					</span>
 					{!hasBurnedData && <span>総消費データは未同期です</span>}
-					{!hasBalanceData && <span>収支は総消費データ取得後に表示されます</span>}
 				</div>
-				<ResponsiveContainer width="100%" height={196}>
-					<ComposedChart
-						data={chartData}
-						margin={{ top: 6, right: 8, left: -20, bottom: 0 }}
-					>
-						<XAxis
-							dataKey="date"
-							tick={{ fontSize: 9, fill: "var(--text-3)" }}
-							interval="preserveStartEnd"
-							axisLine={false}
-							tickLine={false}
-						/>
-						<YAxis
+				<div style={{ fontSize: 11, color: "var(--text-2)" }}>
+					{periodLabel}総収支{" "}
+					<span style={{ color: totalBalanceColor, fontWeight: 700 }}>
+						{totalBalance == null
+							? "—"
+							: `${totalBalance > 0 ? "+" : ""}${totalBalance.toLocaleString()} kcal`}
+					</span>
+				</div>
+			</div>
+			<div style={{ fontSize: 11, color: "var(--text-2)", display: "flex", gap: 12, flexWrap: "wrap" }}>
+				<span>
+					<Dot color={CALORIE_BALANCE} />
+					収支（摂取 - 総消費）
+				</span>
+				{!hasBalanceData && <span>収支は総消費データ取得後に表示されます</span>}
+			</div>
+			<ResponsiveContainer width="100%" height={196}>
+				<ComposedChart data={chartData} margin={{ top: 6, right: 8, left: -20, bottom: 0 }}>
+					<XAxis
+						dataKey="date"
+						tick={{ fontSize: 9, fill: "var(--text-3)" }}
+						interval="preserveStartEnd"
+						axisLine={false}
+						tickLine={false}
+					/>
+					<YAxis
+						yAxisId="bars"
+						domain={domain}
+						ticks={ticks}
+						allowDecimals={false}
+						tick={{ fontSize: 9, fill: "var(--text-3)" }}
+						axisLine={false}
+						tickLine={false}
+					/>
+					<YAxis
+						yAxisId="balance"
+						orientation="right"
+						domain={balanceAxis.domain}
+						ticks={balanceAxis.ticks}
+						allowDecimals={false}
+						tick={{ fontSize: 9, fill: CALORIE_BALANCE }}
+						axisLine={false}
+						tickLine={false}
+						hide={!hasBalanceData}
+					/>
+					<Tooltip
+						contentStyle={tipStyle}
+						formatter={(value, name) => {
+							const label =
+								name === "intake"
+									? "摂取"
+									: name === "burned"
+										? "総消費"
+										: "収支";
+							return [`${Number(value).toLocaleString()} kcal`, label];
+						}}
+					/>
+					{target && (
+						<ReferenceLine
 							yAxisId="bars"
-							domain={domain}
-							ticks={ticks}
-							allowDecimals={false}
-							tick={{ fontSize: 9, fill: "var(--text-3)" }}
-							axisLine={false}
-							tickLine={false}
+							y={target}
+							stroke="#94a3b8"
+							strokeDasharray="3 3"
+							label={{ value: "目標", fontSize: 9, fill: "#94a3b8" }}
 						/>
-						<YAxis
-							yAxisId="balance"
-							orientation="right"
-							domain={balanceAxis.domain}
-							ticks={balanceAxis.ticks}
-							allowDecimals={false}
-							tick={{ fontSize: 9, fill: CALORIE_BALANCE }}
-							axisLine={false}
-							tickLine={false}
-							hide={!hasBalanceData}
-						/>
-						<Tooltip
-							contentStyle={tipStyle}
-							formatter={(value, name) => {
-								const label =
-									name === "intake"
-										? "摂取"
-										: name === "burned"
-											? "総消費"
-											: "収支";
-								return [`${value.toLocaleString()} kcal`, label];
-							}}
-						/>
-						{target && (
-							<ReferenceLine
-								yAxisId="bars"
-								y={target}
-								stroke="#94a3b8"
-								strokeDasharray="3 3"
-								label={{ value: "目標", fontSize: 9, fill: "#94a3b8" }}
+					)}
+					<Bar yAxisId="bars" dataKey="intake" name="intake" fill={BRAND} radius={[4, 4, 0, 0]} />
+					<Bar yAxisId="bars" dataKey="burned" name="burned" fill={CALORIE_BURN} radius={[4, 4, 0, 0]} />
+					{hasBalanceData && (
+						<>
+							<ReferenceLine yAxisId="balance" y={0} stroke="#cbd5e1" strokeDasharray="3 3" />
+							<Line
+								yAxisId="balance"
+								type="monotone"
+								dataKey="balance"
+								name="balance"
+								stroke={CALORIE_BALANCE}
+								strokeWidth={2}
+								dot={{ r: 3, fill: CALORIE_BALANCE, strokeWidth: 0 }}
+								activeDot={{ r: 4 }}
+								connectNulls={false}
 							/>
-						)}
-						<Bar
-							yAxisId="bars"
-							dataKey="intake"
-							name="intake"
-							fill={BRAND}
-							radius={[4, 4, 0, 0]}
-						/>
-						<Bar
-							yAxisId="bars"
-							dataKey="burned"
-							name="burned"
-							fill={CALORIE_BURN}
-							radius={[4, 4, 0, 0]}
-						/>
-						{hasBalanceData && (
-							<>
-								<ReferenceLine
-									yAxisId="balance"
-									y={0}
-									stroke="#cbd5e1"
-									strokeDasharray="3 3"
-								/>
-								<Line
-									yAxisId="balance"
-									type="monotone"
-									dataKey="balance"
-									name="balance"
-									stroke={CALORIE_BALANCE}
-									strokeWidth={2}
-									dot={{ r: 3, fill: CALORIE_BALANCE, strokeWidth: 0 }}
-									activeDot={{ r: 4 }}
-									connectNulls={false}
-								/>
-							</>
-						)}
-					</ComposedChart>
-				</ResponsiveContainer>
-			</div>
-		);
-	}
-
-	// 1d：ドーナツ
-	if (!intake) return <EmptyGraph />;
-	const over = target && intake > target ? intake - target : 0;
-	const consumed = intake - over;
-	const remain = target ? Math.max(0, target - intake) : 0;
-	const data = [
-		{ name: "摂取", value: consumed, fill: BRAND },
-		{ name: "オーバー", value: over, fill: "#dc2626" },
-		{ name: "残り", value: remain, fill: "#e2e8f0" },
-	].filter((d) => d.value > 0);
-	return (
-		<div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-			<ResponsiveContainer width={72} height={72}>
-				<PieChart>
-					<Pie
-						data={data}
-						cx="50%"
-						cy="50%"
-						innerRadius={22}
-						outerRadius={34}
-						dataKey="value"
-						startAngle={90}
-						endAngle={-270}
-						strokeWidth={0}
-					>
-						{data.map((d, i) => (
-							<Cell key={i} fill={d.fill} />
-						))}
-					</Pie>
-				</PieChart>
+						</>
+					)}
+				</ComposedChart>
 			</ResponsiveContainer>
-			<div style={{ fontSize: 11, lineHeight: 1.9 }}>
-				<div>
-					<Dot color={BRAND} />
-					摂取 {intake.toLocaleString()}
-				</div>
-				{target && (
-					<div>
-						<Dot color="#e2e8f0" />
-						残り {remain.toLocaleString()}
-					</div>
-				)}
-				{over > 0 && (
-					<div>
-						<Dot color="#dc2626" />
-						超過 {over.toLocaleString()}
-					</div>
-				)}
-			</div>
 		</div>
 	);
 }
@@ -1875,7 +1794,7 @@ export default function DashboardPage() {
 	});
 
 	const shouldLoadCaloriesActivityHistory =
-		deferredQueriesEnabled && vis.calories.graph && caloriesPeriod !== "1d";
+		deferredQueriesEnabled && (vis.calories.graph || vis.calories.value) && caloriesPeriod !== "1d";
 	const { data: caloriesActivityHistory = [], isFetching: isCaloriesActivityHistoryFetching } = useQuery({
 		queryKey: ["activity-history", "calories", caloriesDays, caloriesRangeEnd],
 		queryFn: () => bodyApi.activityHistory(caloriesDays, caloriesRangeEnd).then((r) => r.data),
@@ -1929,7 +1848,7 @@ export default function DashboardPage() {
 		staleTime: 5 * 60 * 1000,
 	});
 	const shouldLoadCaloriesNutrition =
-		deferredQueriesEnabled && vis.calories.graph && caloriesPeriod !== "1d";
+		deferredQueriesEnabled && (vis.calories.graph || vis.calories.value) && caloriesPeriod !== "1d";
 	const { data: caloriesDailyNutrition = [], isFetching: isCaloriesDailyNutritionFetching } = useQuery({
 		queryKey: ["meals-daily-nutrition", "calories", caloriesHistoryBaseDate, caloriesDays],
 		queryFn: () => mealsApi.dailyNutrition(caloriesHistoryBaseDate, caloriesDays),
@@ -1983,6 +1902,27 @@ export default function DashboardPage() {
 				};
 			})
 			.reverse();
+	})();
+	const caloriePeriodHistory = (() => {
+		if (caloriesPeriod !== "1d") return calorieHistory;
+		const singleDayIntake = Number.isFinite(caloriesSummary?.nutrition?.kcal)
+			? Math.round(caloriesSummary.nutrition.kcal)
+			: null;
+		const singleDayBurned = Number.isFinite(caloriesSummary?.calories_out)
+			? Math.round(caloriesSummary.calories_out)
+			: null;
+		if (singleDayIntake == null && singleDayBurned == null) return [];
+		return [
+			{
+				date: caloriesDate,
+				total_kcal: singleDayIntake,
+				calories_out: singleDayBurned,
+				balance:
+					singleDayIntake != null && singleDayBurned != null
+						? singleDayIntake - singleDayBurned
+						: null,
+			},
+		];
 	})();
 
 	const syncFatSecretMutation = useMutation({
@@ -2079,13 +2019,33 @@ export default function DashboardPage() {
 
 	const caloriesNut = caloriesSummary?.nutrition || {};
 	const pfcNut = pfcSummary?.nutrition || {};
-	const calIntake = caloriesNut.kcal ? Math.round(caloriesNut.kcal) : null;
-	const calBurned = Number.isFinite(caloriesSummary?.calories_out)
-		? Math.round(caloriesSummary.calories_out)
-		: null;
+	const calorieIntakeTotal = caloriePeriodHistory.reduce(
+		(sum, entry) =>
+			sum + (Number.isFinite(entry.total_kcal) ? Math.round(entry.total_kcal) : 0),
+		0,
+	);
+	const calorieBurnedEntries = caloriePeriodHistory.filter((entry) =>
+		Number.isFinite(entry.calories_out),
+	);
+	const calorieBurnedTotal = calorieBurnedEntries.reduce(
+		(sum, entry) => sum + Math.round(entry.calories_out),
+		0,
+	);
+	const hasCompleteCalorieBurnedData =
+		caloriePeriodHistory.length > 0 &&
+		calorieBurnedEntries.length === caloriePeriodHistory.length;
+	const calIntake = caloriePeriodHistory.length ? calorieIntakeTotal : (caloriesNut.kcal ? Math.round(caloriesNut.kcal) : null);
+	const calBurned =
+		calorieBurnedEntries.length > 0 ? calorieBurnedTotal : null;
 	const calBalance =
-		calIntake != null && calBurned != null ? calIntake - calBurned : null;
-	const calTarget = goals.target_kcal || null;
+		calIntake != null && hasCompleteCalorieBurnedData && calBurned != null
+			? calIntake - calBurned
+			: null;
+	const dailyCalTarget = goals.target_kcal || null;
+	const calTarget =
+		dailyCalTarget != null
+			? dailyCalTarget * (caloriesPeriod === "1d" ? 1 : caloriesDays)
+			: null;
 	const calPct =
 		calIntake && calTarget ? Math.round((calIntake / calTarget) * 100) : null;
 	const calRemaining =
@@ -2145,6 +2105,7 @@ export default function DashboardPage() {
 					intake={calIntake}
 					burned={calBurned}
 					balance={calBalance}
+					period={caloriesPeriod}
 					target={calTarget}
 					pct={calPct}
 					remaining={calRemaining}
@@ -2154,10 +2115,10 @@ export default function DashboardPage() {
 			),
 			graph: (
 				<CaloriesGraph
-					intake={calIntake}
-					target={calTarget}
-					history={calorieHistory}
+					target={dailyCalTarget}
+					history={caloriePeriodHistory}
 					period={caloriesPeriod}
+					totalBalance={calBalance}
 				/>
 			),
 		},
