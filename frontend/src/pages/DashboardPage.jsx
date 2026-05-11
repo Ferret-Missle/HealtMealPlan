@@ -1,58 +1,58 @@
 import {
-	closestCenter,
-	DndContext,
-	PointerSensor,
-	useSensor,
-	useSensors,
+    closestCenter,
+    DndContext,
+    PointerSensor,
+    useSensor,
+    useSensors,
 } from "@dnd-kit/core";
 import {
-	arrayMove,
-	rectSortingStrategy,
-	SortableContext,
-	useSortable,
+    arrayMove,
+    rectSortingStrategy,
+    SortableContext,
+    useSortable,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-	Calendar,
-	CalendarClock,
-	ChevronLeft,
-	ChevronRight,
-	Flame,
-	Footprints,
-	GripVertical,
-	Layers,
-	Link2Off,
-	Moon,
-	RefreshCw,
-	Scale,
-	Settings2,
-	UtensilsCrossed,
+    Calendar,
+    CalendarClock,
+    ChevronLeft,
+    ChevronRight,
+    Flame,
+    Footprints,
+    GripVertical,
+    Layers,
+    Link2Off,
+    Moon,
+    RefreshCw,
+    Scale,
+    Settings2,
+    UtensilsCrossed,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import {
-	Area,
-	AreaChart,
-	Bar,
-	BarChart,
-	Cell,
-	ComposedChart,
-	Line,
-	Pie,
-	PieChart,
-	ReferenceLine,
-	ResponsiveContainer,
-	Tooltip,
-	XAxis,
-	YAxis,
+    Area,
+    AreaChart,
+    Bar,
+    BarChart,
+    Cell,
+    ComposedChart,
+    Line,
+    Pie,
+    PieChart,
+    ReferenceLine,
+    ResponsiveContainer,
+    Tooltip,
+    XAxis,
+    YAxis,
 } from "recharts";
 import { bodyApi, dashboardApi, mealsApi, settingsApi } from "../services/api";
 import {
-	addJstDays,
-	formatJstDate,
-	isTodayJst,
-	toJstDateString,
+    addJstDays,
+    formatJstDate,
+    isTodayJst,
+    toJstDateString,
 } from "../utils/date";
 
 // ── 日付ユーティリティ ────────────────────────────────────────
@@ -254,7 +254,6 @@ function WidgetShell({
 	} = useSortable({ id });
 	const { label, Icon } = WIDGET_META[id];
 	const showBoth = vis.value && vis.graph;
-	// span: 'full' | 'span-2' | undefined
 	const spanClass =
 		span === "full" ? " full" : span === "span-2" ? " span-2" : "";
 
@@ -268,7 +267,6 @@ function WidgetShell({
 				opacity: isDragging ? 0.35 : 1,
 			}}
 		>
-			{/* ヘッダー */}
 			<div className="widget-header">
 				<span className="widget-label">
 					<Icon size={12} strokeWidth={1.8} />
@@ -295,13 +293,8 @@ function WidgetShell({
 				<NotConnectedOverlay label={requirementLabel} />
 			) : (
 				<>
-					{/* 数値セクション */}
 					{vis.value && <div>{valueContent}</div>}
-
-					{/* 区切り線（両方表示時） */}
 					{showBoth && <div className="widget-divider" />}
-
-					{/* グラフセクション */}
 					{vis.graph && (
 						<div>
 							<PeriodPills
@@ -578,7 +571,6 @@ function getBalanceAxisConfig(chartData) {
 }
 
 function CaloriesGraph({ intake, target, history = [], period = "1d" }) {
-	// 7d / 30d：摂取/消費の棒グラフ + 収支の線グラフ
 	if (period !== "1d") {
 		if (!history.length) return <EmptyGraph />;
 		const fmtDate = (d) => {
@@ -591,18 +583,15 @@ function CaloriesGraph({ intake, target, history = [], period = "1d" }) {
 			burned: r.calories_out,
 			balance: r.balance,
 		}));
-		const hasBurnedData = chartData.some((entry) =>
-			Number.isFinite(entry.burned),
-		);
-		const hasBalanceData = chartData.some((entry) =>
-			Number.isFinite(entry.balance),
-		);
+		const hasBurnedData = chartData.some((entry) => Number.isFinite(entry.burned));
+		const hasBalanceData = chartData.some((entry) => Number.isFinite(entry.balance));
 		const { domain, ticks } = getCalorieAxisConfig(
 			chartData,
 			["intake", "burned"],
 			[target],
 		);
 		const balanceAxis = getBalanceAxisConfig(chartData);
+
 		return (
 			<div style={{ display: "grid", gap: 10 }}>
 				<div
@@ -627,11 +616,12 @@ function CaloriesGraph({ intake, target, history = [], period = "1d" }) {
 						収支
 					</span>
 					{!hasBurnedData && <span>消費データは未同期です</span>}
+					{!hasBalanceData && <span>収支は消費データ取得後に表示されます</span>}
 				</div>
-				<ResponsiveContainer width="100%" height={128}>
-					<BarChart
+				<ResponsiveContainer width="100%" height={196}>
+					<ComposedChart
 						data={chartData}
-						margin={{ top: 4, right: 4, left: -20, bottom: 0 }}
+						margin={{ top: 6, right: 8, left: -20, bottom: 0 }}
 					>
 						<XAxis
 							dataKey="date"
@@ -641,6 +631,7 @@ function CaloriesGraph({ intake, target, history = [], period = "1d" }) {
 							tickLine={false}
 						/>
 						<YAxis
+							yAxisId="bars"
 							domain={domain}
 							ticks={ticks}
 							allowDecimals={false}
@@ -648,15 +639,32 @@ function CaloriesGraph({ intake, target, history = [], period = "1d" }) {
 							axisLine={false}
 							tickLine={false}
 						/>
+						<YAxis
+							yAxisId="balance"
+							orientation="right"
+							domain={balanceAxis.domain}
+							ticks={balanceAxis.ticks}
+							allowDecimals={false}
+							tick={{ fontSize: 9, fill: CALORIE_BALANCE }}
+							axisLine={false}
+							tickLine={false}
+							hide={!hasBalanceData}
+						/>
 						<Tooltip
 							contentStyle={tipStyle}
 							formatter={(value, name) => {
-								const label = name === "intake" ? "摂取" : "消費";
+								const label =
+									name === "intake"
+										? "摂取"
+										: name === "burned"
+											? "消費"
+											: "収支";
 								return [`${value.toLocaleString()} kcal`, label];
 							}}
 						/>
 						{target && (
 							<ReferenceLine
+								yAxisId="bars"
 								y={target}
 								stroke="#94a3b8"
 								strokeDasharray="3 3"
@@ -664,62 +672,42 @@ function CaloriesGraph({ intake, target, history = [], period = "1d" }) {
 							/>
 						)}
 						<Bar
+							yAxisId="bars"
 							dataKey="intake"
 							name="intake"
 							fill={BRAND}
 							radius={[4, 4, 0, 0]}
 						/>
 						<Bar
+							yAxisId="bars"
 							dataKey="burned"
 							name="burned"
 							fill={CALORIE_BURN}
 							radius={[4, 4, 0, 0]}
 						/>
-					</BarChart>
+						{hasBalanceData && (
+							<>
+								<ReferenceLine
+									yAxisId="balance"
+									y={0}
+									stroke="#cbd5e1"
+									strokeDasharray="3 3"
+								/>
+								<Line
+									yAxisId="balance"
+									type="monotone"
+									dataKey="balance"
+									name="balance"
+									stroke={CALORIE_BALANCE}
+									strokeWidth={2}
+									dot={{ r: 3, fill: CALORIE_BALANCE, strokeWidth: 0 }}
+									activeDot={{ r: 4 }}
+									connectNulls={false}
+								/>
+							</>
+						)}
+					</ComposedChart>
 				</ResponsiveContainer>
-				{hasBalanceData ? (
-					<ResponsiveContainer width="100%" height={112}>
-						<ComposedChart
-							data={chartData}
-							margin={{ top: 4, right: 4, left: -20, bottom: 0 }}
-						>
-							<XAxis
-								dataKey="date"
-								tick={{ fontSize: 9, fill: "var(--text-3)" }}
-								interval="preserveStartEnd"
-								axisLine={false}
-								tickLine={false}
-							/>
-							<YAxis
-								domain={balanceAxis.domain}
-								ticks={balanceAxis.ticks}
-								allowDecimals={false}
-								tick={{ fontSize: 9, fill: "var(--text-3)" }}
-								axisLine={false}
-								tickLine={false}
-							/>
-							<Tooltip
-								contentStyle={tipStyle}
-								formatter={(value) => [
-									`${value.toLocaleString()} kcal`,
-									"収支",
-								]}
-							/>
-							<ReferenceLine y={0} stroke="#cbd5e1" strokeDasharray="3 3" />
-							<Line
-								type="monotone"
-								dataKey="balance"
-								stroke={CALORIE_BALANCE}
-								strokeWidth={2}
-								dot={{ r: 3, fill: CALORIE_BALANCE, strokeWidth: 0 }}
-								activeDot={{ r: 4 }}
-								connectNulls={false}
-							/>
-						</ComposedChart>
-					</ResponsiveContainer>
-				) : (
-					<EmptyGraph msg="消費データを同期すると日ごとの収支が表示されます" />
-				)}
 			</div>
 		);
 	}
