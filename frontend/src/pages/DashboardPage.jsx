@@ -756,6 +756,9 @@ function CaloriesGraph({
 	const hasCompleteBalanceData =
 		chartData.length > 0 &&
 		chartData.every((entry) => Number.isFinite(entry.balance));
+	const hasDeficitData = chartData.some((entry) =>
+		Number.isFinite(entry.cumulativeDeficit),
+	);
 	const { domain, ticks } = getCalorieAxisConfig(
 		chartData,
 		["intake", "burned"],
@@ -765,9 +768,11 @@ function CaloriesGraph({
 	const deficitAxis = getCalorieAxisConfig(chartData, ["cumulativeDeficit"]);
 	const periodLabel = getPeriodLabel(period);
 	const showDeficitTrend = period !== "1d";
-	const totalDeficit = hasCompleteBalanceData
-		? (chartData.at(-1)?.cumulativeDeficit ?? 0)
-		: null;
+	const totalDeficit =
+		[...chartData]
+			.reverse()
+			.find((entry) => Number.isFinite(entry.cumulativeDeficit))
+			?.cumulativeDeficit ?? null;
 	const totalBalanceColor =
 		totalBalance == null
 			? "var(--text-2)"
@@ -945,7 +950,7 @@ function CaloriesGraph({
 							</span>
 						</span>
 					</div>
-					{hasCompleteBalanceData ? (
+					{hasDeficitData ? (
 						<ResponsiveContainer width="100%" height={96}>
 							<AreaChart
 								data={chartData}
@@ -982,12 +987,18 @@ function CaloriesGraph({
 									fillOpacity={0.16}
 									dot={{ r: 2.5, fill: CALORIE_DEFICIT, strokeWidth: 0 }}
 									activeDot={{ r: 4 }}
+									connectNulls={false}
 								/>
 							</AreaChart>
 						</ResponsiveContainer>
 					) : (
 						<div style={{ fontSize: 11, color: "var(--text-2)" }}>
 							累積マイナス収支は総消費データ取得後に表示されます
+						</div>
+					)}
+					{hasDeficitData && !hasCompleteBalanceData && (
+						<div style={{ fontSize: 11, color: "var(--text-2)" }}>
+							一部の総消費データが未同期のため、取得済みの日付のみで表示しています
 						</div>
 					)}
 				</div>
