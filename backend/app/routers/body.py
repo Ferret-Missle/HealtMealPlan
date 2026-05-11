@@ -239,7 +239,7 @@ async def get_activity_history(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """過去 N 日分の歩数・睡眠ログを返す。"""
+    """過去 N 日分の歩数・睡眠・消費カロリーログを返す。"""
     start = str(dt_date.today() - timedelta(days=days))
     logs = (
         db.query(models.ActivityLog)
@@ -254,6 +254,8 @@ async def get_activity_history(
         {
             "date":        log.date,
             "steps":       log.steps,
+            "active_kcal": log.active_kcal,
+            "calories_out": log.calories_out,
             "sleep_hours": log.sleep_hours,
             "sleep_score": log.sleep_score,
         }
@@ -267,7 +269,7 @@ async def sync_activity_history(
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Fitbit から過去 N 日分の睡眠・歩数を一括取得して保存する。"""
+    """Fitbit から過去 N 日分の睡眠・歩数・消費カロリーを一括取得して保存する。"""
     end   = str(dt_date.today())
     start = str(dt_date.today() - timedelta(days=days))
 
@@ -325,6 +327,28 @@ async def sync_activity_history(
         db.commit()
     except Exception as exc:
         print(f"[sync-activity-history] steps: {exc}")
+
+    try:
+        activity_entries = await fitbit.get_activities_range(current_user.id, start, end, db)
+        for e in activity_entries:
+            log = (
+                db.query(models.ActivityLog)
+                .filter_by(user_id=current_user.id, date=e["date"])
+                .first()
+            )
+            if log:
+                log.calories_out = e["calories_out"]
+            else:
+                db.add(models.ActivityLog(
+                    user_id=current_user.id,
+                    date=e["date"],
+                    calories_out=e["calories_out"],
+                    source="fitbit",
+                ))
+                saved += 1
+        db.commit()
+    except Exception as exc:
+        print(f"[sync-activity-history] calories: {exc}")
 
     return {"saved": saved, "from": start, "to": end}
 

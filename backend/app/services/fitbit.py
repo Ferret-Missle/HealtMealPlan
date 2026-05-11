@@ -148,6 +148,26 @@ async def get_steps_range(user_id: str, start: str, end: str, db: Session) -> li
     ]
 
 
+async def get_activities_range(user_id: str, start: str, end: str, db: Session) -> list[dict]:
+    """Fitbit の日付範囲で総消費カロリーと活動指標を一括取得する。"""
+    access_token = await _get_access_token(user_id, db)
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(
+            f"{BASE_URL}/1/user/-/activities/calories/date/{start}/{end}.json",
+            headers={"Authorization": f"Bearer {access_token}"},
+        )
+    resp.raise_for_status()
+    entries = resp.json().get("activities-calories", [])
+    result = []
+    for e in entries:
+        try:
+            calories_out = int(float(e.get("value", 0)))
+        except (TypeError, ValueError):
+            calories_out = 0
+        result.append({"date": e["dateTime"], "calories_out": calories_out})
+    return result
+
+
 async def get_heart_rate_zones(user_id: str, date: str, db: Session) -> list:
     access_token = await _get_access_token(user_id, db)
     async with httpx.AsyncClient() as client:

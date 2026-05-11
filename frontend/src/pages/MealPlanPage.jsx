@@ -736,7 +736,7 @@ function ItemCard({ item, planId, isEditable }) {
 									}}
 									onClick={() => isEditable && setEditGrams(true)}
 								>
-										{item.serving_grams}g{isEditable && " ✏️"}
+									{item.serving_grams}g{isEditable && " ✏️"}
 								</span>
 							)}
 						</>
@@ -1284,13 +1284,14 @@ function MemberDayCard({
 	memberLabel,
 	memberName,
 	isMe,
+	shouldStartExpanded,
 	dayDate,
 	daySlots,
 	planId,
 	canEdit,
 	onEditSlot,
 }) {
-	const [expanded, setExpanded] = useState(isMe);
+	const [expanded, setExpanded] = useState(shouldStartExpanded);
 
 	// このメンバー用の朝・昼・夕アイテムを抽出
 	const slotItems = daySlots.map((slot) => {
@@ -1438,11 +1439,7 @@ function MemberDayCard({
 										: ""}
 								</div>
 							) : item ? (
-								<ItemCard
-									item={item}
-									planId={planId}
-									isEditable={canEdit}
-								/>
+								<ItemCard item={item} planId={planId} isEditable={canEdit} />
 							) : (
 								<div style={{ fontSize: 12, color: "var(--text-secondary)" }}>
 									未生成
@@ -1658,7 +1655,8 @@ function SlotEditPanel({ planId, slot, dayDate, onClose }) {
 							lineHeight: 1.6,
 						}}
 					>
-						差し替え時だけ AI に追加で伝える希望です。未入力なら現在の条件だけで再提案します。
+						差し替え時だけ AI
+						に追加で伝える希望です。未入力なら現在の条件だけで再提案します。
 					</div>
 				</div>
 				<div
@@ -1750,7 +1748,7 @@ export default function MealPlanPage() {
 	const [error, setError] = useState("");
 
 	// データ取得
-	const { data: plans = [] } = useQuery({
+	const { data: plans = [], isLoading: isPlansLoading } = useQuery({
 		queryKey: ["meal-plans"],
 		queryFn: () => mealPlanApi.list(),
 	});
@@ -1820,6 +1818,7 @@ export default function MealPlanPage() {
 		queryFn: () => authApi.me().then((r) => r.data),
 	});
 	const currentUserId = meUser?.id;
+	const defaultExpandedDate = focusedDate || today;
 
 	// label "A","B","C"... と user_id をマッピング
 	const labelByUserId = {};
@@ -2068,7 +2067,8 @@ export default function MealPlanPage() {
 						marginTop: 6,
 					}}
 				>
-					※ 生成後はそのまま暫定採用され、あとから献立修正やAI相談で差し替えできます
+					※
+					生成後はそのまま暫定採用され、あとから献立修正やAI相談で差し替えできます
 				</div>
 			</div>
 		);
@@ -2140,7 +2140,21 @@ export default function MealPlanPage() {
 			)}
 
 			{/* 献立履歴 */}
-			{plans.length > 0 && (
+			{isPlansLoading ? (
+				<>
+					<div className="section-title">献立履歴</div>
+					<div
+						className="card"
+						style={{
+							display: "flex",
+							justifyContent: "center",
+							padding: "24px 16px",
+						}}
+					>
+						<div className="spinner" />
+					</div>
+				</>
+			) : plans.length > 0 ? (
 				<>
 					<div className="section-title">献立履歴</div>
 					{plans.map((plan) => (
@@ -2257,11 +2271,7 @@ export default function MealPlanPage() {
 									{plan.conditions?._progress?.done === false ? (
 										<span className="tag tag-orange">生成中</span>
 									) : (
-									<span
-											className="tag tag-green"
-									>
-											暫定採用
-									</span>
+										<span className="tag tag-green">暫定採用</span>
 									)}
 									<button
 										className="btn-icon"
@@ -2285,6 +2295,15 @@ export default function MealPlanPage() {
 						</div>
 					))}
 				</>
+			) : (
+				<div className="empty-state">
+					<div style={{ fontSize: 40 }}>📋</div>
+					<p>
+						「新しい献立を作成」ボタンで
+						<br />
+						AIが7日分の献立を提案します
+					</p>
+				</div>
 			)}
 
 			{/* 献立詳細 */}
@@ -2296,27 +2315,27 @@ export default function MealPlanPage() {
 					<GenerationProgress progress={planDetail.progress} />
 
 					{planReady && (
-							<>
-								<div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
-									<button
-										className="btn btn-secondary"
-										style={{ flex: 1 }}
-										onClick={handleRecalculate}
-										disabled={recalculating}
-									>
-										{recalculating ? "再計算中..." : "🔄 再計算"}
-									</button>
-									<button
-										className="btn btn-secondary"
-										style={{ flex: 1 }}
-										onClick={() => setShowShopping((current) => !current)}
-									>
-										🛒 {showShopping ? "献立に戻る" : "買い物リストを見る"}
-									</button>
-								</div>
-								<PlanPromptViewer plan={planDetail} />
-							</>
-						)}
+						<>
+							<div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+								<button
+									className="btn btn-secondary"
+									style={{ flex: 1 }}
+									onClick={handleRecalculate}
+									disabled={recalculating}
+								>
+									{recalculating ? "再計算中..." : "🔄 再計算"}
+								</button>
+								<button
+									className="btn btn-secondary"
+									style={{ flex: 1 }}
+									onClick={() => setShowShopping((current) => !current)}
+								>
+									🛒 {showShopping ? "献立に戻る" : "買い物リストを見る"}
+								</button>
+							</div>
+							<PlanPromptViewer plan={planDetail} />
+						</>
+					)}
 
 					{showShopping && shopping ? (
 						<div className="card">
@@ -2381,10 +2400,13 @@ export default function MealPlanPage() {
 									const isMe = m.user_id === currentUserId;
 									return (
 										<MemberDayCard
-											key={m.user_id}
+											key={`${m.user_id}-${day.date === defaultExpandedDate ? "open" : "closed"}`}
 											memberLabel={label}
 											memberName={m.name}
 											isMe={isMe}
+											shouldStartExpanded={
+												isMe && day.date === defaultExpandedDate
+											}
 											dayDate={day.date}
 											daySlots={day.slots}
 											planId={planDetail.id}
@@ -2396,17 +2418,6 @@ export default function MealPlanPage() {
 							</div>
 						))
 					)}
-				</div>
-			)}
-
-			{plans.length === 0 && (
-				<div className="empty-state">
-					<div style={{ fontSize: 40 }}>📋</div>
-					<p>
-						「新しい献立を作成」ボタンで
-						<br />
-						AIが7日分の献立を提案します
-					</p>
 				</div>
 			)}
 

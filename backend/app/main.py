@@ -61,6 +61,7 @@ def _run_migrations():
             ("body_age", "ALTER TABLE weight_logs ADD COLUMN IF NOT EXISTS body_age INTEGER"),
             ("bone_mass", "ALTER TABLE weight_logs ADD COLUMN IF NOT EXISTS bone_mass FLOAT"),
             ("visceral_fat_level", "ALTER TABLE weight_logs ADD COLUMN IF NOT EXISTS visceral_fat_level FLOAT"),
+            ("calories_out", "ALTER TABLE activity_logs ADD COLUMN IF NOT EXISTS calories_out INTEGER"),
         ]:
             try:
                 conn.execute(text(ddl))

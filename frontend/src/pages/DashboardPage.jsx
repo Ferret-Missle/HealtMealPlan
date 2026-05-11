@@ -38,6 +38,7 @@ import {
 	BarChart,
 	Cell,
 	ComposedChart,
+	Line,
 	Pie,
 	PieChart,
 	ReferenceLine,
@@ -134,6 +135,8 @@ const DEFAULT_VIS = Object.fromEntries(
 const DEFAULT_PERIODS = Object.fromEntries(WIDGET_IDS.map((id) => [id, "7d"]));
 
 const BRAND = "#16a34a";
+const CALORIE_BURN = "#f97316";
+const CALORIE_BALANCE = "#0f766e";
 const PFC_COLORS = ["#16a34a", "#f59e0b", "#3b82f6"];
 const widgetSyncButtonStyle = {
 	marginTop: 6,
@@ -423,6 +426,8 @@ function WeightGraph({ history, onBulkSync, isSyncing }) {
 // ── カロリー ──────────────────────────────────────────────────
 function CaloriesValue({
 	intake,
+	burned,
+	balance,
 	target,
 	pct,
 	remaining,
@@ -431,7 +436,17 @@ function CaloriesValue({
 }) {
 	const fill = `progress-fill${pct > 100 ? " over" : pct > 75 ? " warn" : ""}`;
 	const hasComparison =
-		yesterdayKcal != null || avgKcal7 != null || target != null;
+		yesterdayKcal != null ||
+		avgKcal7 != null ||
+		target != null ||
+		burned != null ||
+		balance != null;
+	const balanceColor =
+		balance == null
+			? "var(--text-2)"
+			: balance <= 0
+				? CALORIE_BALANCE
+				: "#dc2626";
 	return (
 		<>
 			<div
@@ -473,6 +488,23 @@ function CaloriesValue({
 								</span>
 							</div>
 						)}
+						{burned != null && (
+							<div>
+								消費{" "}
+								<span style={{ color: CALORIE_BURN, fontWeight: 700 }}>
+									{burned.toLocaleString()}
+								</span>
+							</div>
+						)}
+						{balance != null && (
+							<div>
+								収支{" "}
+								<span style={{ color: balanceColor, fontWeight: 700 }}>
+									{balance > 0 ? "+" : ""}
+									{balance.toLocaleString()}
+								</span>
+							</div>
+						)}
 						{target != null && (
 							<div>
 								目標{" "}
@@ -501,11 +533,11 @@ function CaloriesValue({
 	);
 }
 
-function getCalorieAxisConfig(chartData, target) {
+function getCalorieAxisConfig(chartData, keys = [], extras = []) {
 	const values = chartData
-		.map((entry) => entry.kcal)
+		.flatMap((entry) => keys.map((key) => entry[key]))
 		.filter((value) => Number.isFinite(value));
-	if (Number.isFinite(target)) values.push(target);
+	values.push(...extras.filter((value) => Number.isFinite(value)));
 
 	const maxValue = Math.max(...values, 0);
 	const step =
@@ -519,7 +551,9 @@ function getCalorieAxisConfig(chartData, target) {
 	const top = Math.max(step, Math.ceil(maxValue / step) * step);
 	const ticks = [];
 	for (let value = 0; value <= top; value += step) ticks.push(value);
-	if (Number.isFinite(target) && !ticks.includes(target)) ticks.push(target);
+	for (const value of extras) {
+		if (Number.isFinite(value) && !ticks.includes(value)) ticks.push(value);
+	}
 
 	return {
 		domain: [0, top],
@@ -527,68 +561,166 @@ function getCalorieAxisConfig(chartData, target) {
 	};
 }
 
+function getBalanceAxisConfig(chartData) {
+	const values = chartData
+		.map((entry) => entry.balance)
+		.filter((value) => Number.isFinite(value));
+	const maxAbs = Math.max(...values.map((value) => Math.abs(value)), 200);
+	const step =
+		maxAbs <= 600 ? 100 : maxAbs <= 1500 ? 200 : maxAbs <= 3000 ? 500 : 1000;
+	const top = Math.max(step, Math.ceil(maxAbs / step) * step);
+	const ticks = [];
+	for (let value = -top; value <= top; value += step) ticks.push(value);
+	return {
+		domain: [-top, top],
+		ticks,
+	};
+}
+
 function CaloriesGraph({ intake, target, history = [], period = "1d" }) {
-	// 7d / 30d：日別kcalの折れ線 + 面グラフ
+	// 7d / 30d：摂取/消費の棒グラフ + 収支の線グラフ
 	if (period !== "1d") {
 		if (!history.length) return <EmptyGraph />;
-		const days = period === "30d" ? 30 : 7;
-		const sliced = history.slice(0, days).reverse();
 		const fmtDate = (d) => {
 			const parts = d.split("-");
 			return `${parseInt(parts[1])}/${parseInt(parts[2])}`;
 		};
-		const chartData = sliced.map((r) => ({
+		const chartData = history.map((r) => ({
 			date: fmtDate(r.date),
-			kcal: r.total_kcal,
+			intake: r.total_kcal,
+			burned: r.calories_out,
+			balance: r.balance,
 		}));
-		const { domain, ticks } = getCalorieAxisConfig(chartData, target);
+		const hasBurnedData = chartData.some((entry) =>
+			Number.isFinite(entry.burned),
+		);
+		const hasBalanceData = chartData.some((entry) =>
+			Number.isFinite(entry.balance),
+		);
+		const { domain, ticks } = getCalorieAxisConfig(
+			chartData,
+			["intake", "burned"],
+			[target],
+		);
+		const balanceAxis = getBalanceAxisConfig(chartData);
 		return (
-			<ResponsiveContainer width="100%" height={120}>
-				<AreaChart
-					data={chartData}
-					margin={{ top: 4, right: 4, left: -20, bottom: 0 }}
+			<div style={{ display: "grid", gap: 10 }}>
+				<div
+					style={{
+						display: "flex",
+						flexWrap: "wrap",
+						gap: 12,
+						fontSize: 11,
+						color: "var(--text-2)",
+					}}
 				>
-					<defs>
-						<linearGradient id="calGrad" x1="0" y1="0" x2="0" y2="1">
-							<stop offset="5%" stopColor={BRAND} stopOpacity={0.3} />
-							<stop offset="95%" stopColor={BRAND} stopOpacity={0} />
-						</linearGradient>
-					</defs>
-					<XAxis
-						dataKey="date"
-						tick={{ fontSize: 9 }}
-						interval="preserveStartEnd"
-					/>
-					<YAxis
-						domain={domain}
-						ticks={ticks}
-						allowDecimals={false}
-						tick={{ fontSize: 9 }}
-					/>
-					<Tooltip
-						formatter={(v) => [`${v.toLocaleString()} kcal`, "摂取"]}
-						labelStyle={{ fontSize: 11 }}
-						contentStyle={{ fontSize: 11 }}
-					/>
-					{target && (
-						<ReferenceLine
-							y={target}
-							stroke="#94a3b8"
-							strokeDasharray="3 3"
-							label={{ value: "目標", fontSize: 9, fill: "#94a3b8" }}
+					<span>
+						<Dot color={BRAND} />
+						摂取カロリー
+					</span>
+					<span>
+						<Dot color={CALORIE_BURN} />
+						消費カロリー
+					</span>
+					<span>
+						<Dot color={CALORIE_BALANCE} />
+						収支
+					</span>
+					{!hasBurnedData && <span>消費データは未同期です</span>}
+				</div>
+				<ResponsiveContainer width="100%" height={128}>
+					<BarChart
+						data={chartData}
+						margin={{ top: 4, right: 4, left: -20, bottom: 0 }}
+					>
+						<XAxis
+							dataKey="date"
+							tick={{ fontSize: 9, fill: "var(--text-3)" }}
+							interval="preserveStartEnd"
+							axisLine={false}
+							tickLine={false}
 						/>
-					)}
-					<Area
-						type="monotone"
-						dataKey="kcal"
-						stroke={BRAND}
-						fill="url(#calGrad)"
-						strokeWidth={2}
-						dot={{ r: 3, fill: BRAND, strokeWidth: 0 }}
-						activeDot={{ r: 4 }}
-					/>
-				</AreaChart>
-			</ResponsiveContainer>
+						<YAxis
+							domain={domain}
+							ticks={ticks}
+							allowDecimals={false}
+							tick={{ fontSize: 9, fill: "var(--text-3)" }}
+							axisLine={false}
+							tickLine={false}
+						/>
+						<Tooltip
+							contentStyle={tipStyle}
+							formatter={(value, name) => {
+								const label = name === "intake" ? "摂取" : "消費";
+								return [`${value.toLocaleString()} kcal`, label];
+							}}
+						/>
+						{target && (
+							<ReferenceLine
+								y={target}
+								stroke="#94a3b8"
+								strokeDasharray="3 3"
+								label={{ value: "目標", fontSize: 9, fill: "#94a3b8" }}
+							/>
+						)}
+						<Bar
+							dataKey="intake"
+							name="intake"
+							fill={BRAND}
+							radius={[4, 4, 0, 0]}
+						/>
+						<Bar
+							dataKey="burned"
+							name="burned"
+							fill={CALORIE_BURN}
+							radius={[4, 4, 0, 0]}
+						/>
+					</BarChart>
+				</ResponsiveContainer>
+				{hasBalanceData ? (
+					<ResponsiveContainer width="100%" height={112}>
+						<ComposedChart
+							data={chartData}
+							margin={{ top: 4, right: 4, left: -20, bottom: 0 }}
+						>
+							<XAxis
+								dataKey="date"
+								tick={{ fontSize: 9, fill: "var(--text-3)" }}
+								interval="preserveStartEnd"
+								axisLine={false}
+								tickLine={false}
+							/>
+							<YAxis
+								domain={balanceAxis.domain}
+								ticks={balanceAxis.ticks}
+								allowDecimals={false}
+								tick={{ fontSize: 9, fill: "var(--text-3)" }}
+								axisLine={false}
+								tickLine={false}
+							/>
+							<Tooltip
+								contentStyle={tipStyle}
+								formatter={(value) => [
+									`${value.toLocaleString()} kcal`,
+									"収支",
+								]}
+							/>
+							<ReferenceLine y={0} stroke="#cbd5e1" strokeDasharray="3 3" />
+							<Line
+								type="monotone"
+								dataKey="balance"
+								stroke={CALORIE_BALANCE}
+								strokeWidth={2}
+								dot={{ r: 3, fill: CALORIE_BALANCE, strokeWidth: 0 }}
+								activeDot={{ r: 4 }}
+								connectNulls={false}
+							/>
+						</ComposedChart>
+					</ResponsiveContainer>
+				) : (
+					<EmptyGraph msg="消費データを同期すると日ごとの収支が表示されます" />
+				)}
+			</div>
 		);
 	}
 
@@ -646,9 +778,9 @@ function CaloriesGraph({ intake, target, history = [], period = "1d" }) {
 }
 
 // ── PFC ───────────────────────────────────────────────────────
-function PFCValue({ p, f, c, yp, yf, yc, tp, tf, tc }) {
-	const pfcRow = (color, label, val, yval, target) => {
-		const delta = val != null && yval != null ? val - yval : null;
+function PFCValue({ p, f, c, tp, tf, tc }) {
+	const pfcRow = (color, label, val, target) => {
+		const delta = val != null && target != null ? val - target : null;
 		return (
 			<div
 				style={{
@@ -667,11 +799,11 @@ function PFCValue({ p, f, c, yp, yf, yc, tp, tf, tc }) {
 						style={{
 							fontSize: 10,
 							fontWeight: 600,
-							color: delta >= 0 ? "#16a34a" : "#dc2626",
+							color: delta === 0 ? "var(--text-2)" : "var(--text)",
 						}}
 					>
-						{delta >= 0 ? "+" : ""}
-						{delta.toFixed(1)}
+						差 {delta >= 0 ? "+" : ""}
+						{delta.toFixed(1)}g
 					</span>
 				)}
 				{target != null && (
@@ -686,9 +818,9 @@ function PFCValue({ p, f, c, yp, yf, yc, tp, tf, tc }) {
 		<div
 			style={{ marginTop: 4, fontSize: 12, lineHeight: 2, textAlign: "center" }}
 		>
-			{pfcRow(PFC_COLORS[0], "P", p, yp, tp)}
-			{pfcRow(PFC_COLORS[1], "F", f, yf, tf)}
-			{pfcRow(PFC_COLORS[2], "C", c, yc, tc)}
+			{pfcRow(PFC_COLORS[0], "P", p, tp)}
+			{pfcRow(PFC_COLORS[1], "F", f, tf)}
+			{pfcRow(PFC_COLORS[2], "C", c, tc)}
 		</div>
 	);
 }
@@ -1492,6 +1624,10 @@ export default function DashboardPage() {
 
 	// 体重履歴：選択中の期間に応じて日数を調整
 	const weightDays = periods.weight === "30d" ? 30 : 7;
+	const calPeriod = periods.calories ?? "1d";
+	const pfcPeriod = periods.pfc ?? "1d";
+	const calorieHistoryDays =
+		calPeriod === "30d" ? 30 : calPeriod === "7d" ? 7 : 0;
 	const shouldLoadWeightHistory =
 		deferredQueriesEnabled && (vis.weight.value || vis.weight.graph);
 	const { data: weightHistory = [], isFetching: isWeightHistoryFetching } =
@@ -1512,10 +1648,12 @@ export default function DashboardPage() {
 	// 睡眠・歩数履歴：ウィジェットごとに独立したクエリ
 	const sleepDays = periods.sleep === "30d" ? 30 : 7;
 	const stepsDays = periods.steps === "30d" ? 30 : 7;
-	const activityDays = Math.max(sleepDays, stepsDays);
+	const activityDays = Math.max(sleepDays, stepsDays, calorieHistoryDays);
 	const shouldLoadActivityHistory =
 		deferredQueriesEnabled &&
-		(vis.sleep.graph || (vis.steps.graph && periods.steps !== "1d"));
+		(vis.sleep.graph ||
+			(vis.steps.graph && periods.steps !== "1d") ||
+			(vis.calories.graph && calPeriod !== "1d"));
 
 	const { data: activityHistory = [], isFetching: isActivityHistoryFetching } =
 		useQuery({
@@ -1529,8 +1667,7 @@ export default function DashboardPage() {
 
 	// 同期はより多い日数に合わせて実行
 	const sleepBulkSyncMutation = useMutation({
-		mutationFn: () =>
-			bodyApi.syncActivityHistory(Math.max(sleepDays, stepsDays)),
+		mutationFn: () => bodyApi.syncActivityHistory(activityDays),
 		onSuccess: () => qc.invalidateQueries({ queryKey: ["activity-history"] }),
 	});
 
@@ -1556,8 +1693,6 @@ export default function DashboardPage() {
 	});
 
 	// PFC・カロリー履歴（calories / pfc ウィジェットの 7d / 30d 用 + 前日値表示）
-	const calPeriod = periods.calories ?? "1d";
-	const pfcPeriod = periods.pfc ?? "1d";
 	const nutritionDays = (() => {
 		const max = Math.max(
 			calPeriod === "30d" ? 30 : calPeriod === "7d" ? 7 : 2,
@@ -1595,6 +1730,27 @@ export default function DashboardPage() {
 		if (!vals.length) return null;
 		return Math.round(vals.reduce((a, b) => a + b, 0) / vals.length);
 	})();
+	const calorieHistory = (() => {
+		if (calPeriod === "1d") return [];
+		const activityByDate = new Map(
+			activityHistory.map((entry) => [entry.date, entry]),
+		);
+		return dailyNutrition
+			.slice(0, calorieHistoryDays)
+			.map((entry) => {
+				const activity = activityByDate.get(entry.date);
+				const caloriesOut = Number.isFinite(activity?.calories_out)
+					? activity.calories_out
+					: null;
+				return {
+					date: entry.date,
+					total_kcal: entry.total_kcal,
+					calories_out: caloriesOut,
+					balance: caloriesOut != null ? entry.total_kcal - caloriesOut : null,
+				};
+			})
+			.reverse();
+	})();
 
 	const syncFatSecretMutation = useMutation({
 		mutationFn: () => mealsApi.syncFatSecret(dateStr),
@@ -1617,7 +1773,11 @@ export default function DashboardPage() {
 			isBodySyncing || (shouldLoadWeightHistory && isWeightHistoryFetching),
 		calories:
 			(shouldLoadDailyKcal && isDailyKcalFetching) ||
-			(shouldLoadNutrition && isDailyNutritionFetching),
+			(shouldLoadNutrition && isDailyNutritionFetching) ||
+			(shouldLoadActivityHistory &&
+				isActivityHistoryFetching &&
+				vis.calories.graph &&
+				calPeriod !== "1d"),
 		pfc: shouldLoadNutrition && isDailyNutritionFetching,
 		steps:
 			isBodySyncing ||
@@ -1641,7 +1801,7 @@ export default function DashboardPage() {
 			await bodyApi.sync(dateStr);
 			await Promise.allSettled([
 				bodyApi.syncWeightHistory(weightDays),
-				bodyApi.syncActivityHistory(Math.max(sleepDays, stepsDays)),
+				bodyApi.syncActivityHistory(activityDays),
 				// 過去8日分の FatSecret を bulk 同期
 				mealsApi.syncFatSecretBulk(dateStr, 8),
 			]);
@@ -1690,6 +1850,11 @@ export default function DashboardPage() {
 			: null;
 
 	const calIntake = nut.kcal ? Math.round(nut.kcal) : null;
+	const calBurned = Number.isFinite(summary?.calories_out)
+		? Math.round(summary.calories_out)
+		: null;
+	const calBalance =
+		calIntake != null && calBurned != null ? calIntake - calBurned : null;
 	const calTarget = goals.target_kcal || null;
 	const calPct =
 		calIntake && calTarget ? Math.round((calIntake / calTarget) * 100) : null;
@@ -1744,6 +1909,8 @@ export default function DashboardPage() {
 			value: (
 				<CaloriesValue
 					intake={calIntake}
+					burned={calBurned}
+					balance={calBalance}
 					target={calTarget}
 					pct={calPct}
 					remaining={calRemaining}
@@ -1755,7 +1922,7 @@ export default function DashboardPage() {
 				<CaloriesGraph
 					intake={calIntake}
 					target={calTarget}
-					history={dailyNutrition}
+					history={calorieHistory}
 					period={calPeriod}
 				/>
 			),
@@ -1767,9 +1934,6 @@ export default function DashboardPage() {
 					p={nut.protein_g}
 					f={nut.fat_g}
 					c={nut.carb_g}
-					yp={yesterdayNutrition?.protein_g ?? null}
-					yf={yesterdayNutrition?.fat_g ?? null}
-					yc={yesterdayNutrition?.carb_g ?? null}
 					tp={targetProtein}
 					tf={targetFat}
 					tc={targetCarb}

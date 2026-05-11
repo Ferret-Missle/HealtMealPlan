@@ -68,6 +68,7 @@ async def today_summary(
         "body_data_stale": bool(weight_snapshot.get("is_stale")) if weight_snapshot else False,
         "steps": activity_log.steps if activity_log else None,
         "active_kcal": activity_log.active_kcal if activity_log else None,
+        "calories_out": activity_log.calories_out if activity_log else None,
         "sleep_hours": activity_log.sleep_hours if activity_log else None,
         "sleep_score": activity_log.sleep_score if activity_log else None,
         "nutrition": {

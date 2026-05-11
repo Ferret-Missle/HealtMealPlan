@@ -203,6 +203,7 @@ class ActivityLog(Base):
     date = Column(String, nullable=False)
     steps = Column(Integer)
     active_kcal = Column(Integer)
+    calories_out = Column(Integer)
     sleep_hours = Column(Float)
     sleep_score = Column(Integer)
     heart_rate_zones_json = Column(JSON)
