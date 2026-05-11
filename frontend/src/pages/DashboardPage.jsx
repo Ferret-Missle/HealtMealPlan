@@ -52,8 +52,8 @@ import {
     addJstDays,
     formatJstDate,
     isTodayJst,
-	startOfJstMonth,
-	startOfJstWeek,
+    startOfJstMonth,
+    startOfJstWeek,
     toJstDateString
 } from "../utils/date";
 
