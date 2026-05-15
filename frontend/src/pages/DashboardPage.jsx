@@ -759,18 +759,39 @@ function getCalorieAxisConfig(chartData, keys = [], extras = []) {
 	};
 }
 
-function getBalanceAxisConfig(chartData) {
+function getBalanceAxisConfig(chartData, key = "balance") {
 	const values = chartData
-		.map((entry) => entry.balance)
+		.map((entry) => entry[key])
 		.filter((value) => Number.isFinite(value));
-	const maxAbs = Math.max(...values.map((value) => Math.abs(value)), 200);
+	if (!values.length) {
+		return {
+			domain: [-200, 200],
+			ticks: [-200, 0, 200],
+		};
+	}
+	const minValue = Math.min(...values, 0);
+	const maxValue = Math.max(...values, 0);
+	const span = Math.max(maxValue - minValue, 200);
 	const step =
-		maxAbs <= 600 ? 100 : maxAbs <= 1500 ? 200 : maxAbs <= 3000 ? 500 : 1000;
-	const top = Math.max(step, Math.ceil(maxAbs / step) * step);
+		span <= 600 ? 100 : span <= 1500 ? 200 : span <= 3000 ? 500 : 1000;
+	let bottom = minValue < 0 ? Math.floor(minValue / step) * step : 0;
+	let top = maxValue > 0 ? Math.ceil(maxValue / step) * step : 0;
+	if (bottom === top) {
+		if (top === 0) {
+			bottom = -step;
+			top = step;
+		} else if (top > 0) {
+			bottom = 0;
+			top = Math.max(step, top);
+		} else {
+			bottom = Math.min(-step, bottom);
+			top = 0;
+		}
+	}
 	const ticks = [];
-	for (let value = -top; value <= top; value += step) ticks.push(value);
+	for (let value = bottom; value <= top; value += step) ticks.push(value);
 	return {
-		domain: [-top, top],
+		domain: [bottom, top],
 		ticks,
 	};
 }
@@ -784,9 +805,7 @@ function CaloriesGraph({
 	if (!history.length) return <EmptyGraph />;
 	const chartData = history.reduce((entries, entry) => {
 		const balance = Number.isFinite(entry.balance) ? entry.balance : null;
-		const deficit =
-			Number.isFinite(balance) && balance < 0 ? Math.abs(balance) : 0;
-		const previousCumulative = entries.at(-1)?.cumulativeDeficit ?? 0;
+		const previousCumulative = entries.at(-1)?.cumulativeBalance ?? 0;
 		return [
 			...entries,
 			{
@@ -797,9 +816,8 @@ function CaloriesGraph({
 				intake: Number.isFinite(entry.total_kcal) ? entry.total_kcal : 0,
 				burned: Number.isFinite(entry.calories_out) ? entry.calories_out : null,
 				balance,
-				deficit,
-				cumulativeDeficit: Number.isFinite(balance)
-					? previousCumulative + deficit
+				cumulativeBalance: Number.isFinite(balance)
+					? previousCumulative + balance
 					: null,
 			},
 		];
@@ -813,8 +831,8 @@ function CaloriesGraph({
 	const hasCompleteBalanceData =
 		chartData.length > 0 &&
 		chartData.every((entry) => Number.isFinite(entry.balance));
-	const hasDeficitData = chartData.some((entry) =>
-		Number.isFinite(entry.cumulativeDeficit),
+	const hasCumulativeBalanceData = chartData.some((entry) =>
+		Number.isFinite(entry.cumulativeBalance),
 	);
 	const { domain, ticks } = getCalorieAxisConfig(
 		chartData,
@@ -822,14 +840,17 @@ function CaloriesGraph({
 		[target],
 	);
 	const balanceAxis = getBalanceAxisConfig(chartData);
-	const deficitAxis = getCalorieAxisConfig(chartData, ["cumulativeDeficit"]);
+	const cumulativeBalanceAxis = getBalanceAxisConfig(
+		chartData,
+		"cumulativeBalance",
+	);
 	const periodLabel = getPeriodLabel(period);
-	const showDeficitTrend = period !== "1d";
-	const totalDeficit =
+	const showCumulativeBalanceTrend = period !== "1d";
+	const totalCumulativeBalance =
 		[...chartData]
 			.reverse()
-			.find((entry) => Number.isFinite(entry.cumulativeDeficit))
-			?.cumulativeDeficit ?? null;
+			.find((entry) => Number.isFinite(entry.cumulativeBalance))
+			?.cumulativeBalance ?? null;
 	const totalBalanceColor =
 		totalBalance == null
 			? "var(--text-2)"
@@ -981,7 +1002,7 @@ function CaloriesGraph({
 					)}
 				</ComposedChart>
 			</ResponsiveContainer>
-			{showDeficitTrend && (
+			{showCumulativeBalanceTrend && (
 				<div style={{ display: "grid", gap: 8 }}>
 					<div
 						style={{
@@ -996,18 +1017,18 @@ function CaloriesGraph({
 					>
 						<span>
 							<Dot color={CALORIE_DEFICIT} />
-							累積マイナス収支
+							累計収支
 						</span>
 						<span>
-							{periodLabel}累積マイナス収支{" "}
+							{periodLabel}累計収支{" "}
 							<span style={{ color: CALORIE_DEFICIT, fontWeight: 700 }}>
-								{totalDeficit == null
+								{totalCumulativeBalance == null
 									? "—"
-									: `${totalDeficit.toLocaleString()} kcal`}
+									: `${totalCumulativeBalance > 0 ? "+" : ""}${totalCumulativeBalance.toLocaleString()} kcal`}
 							</span>
 						</span>
 					</div>
-					{hasDeficitData ? (
+					{hasCumulativeBalanceData ? (
 						<ResponsiveContainer width="100%" height={96}>
 							<AreaChart
 								data={chartData}
@@ -1021,23 +1042,24 @@ function CaloriesGraph({
 									tickLine={false}
 								/>
 								<YAxis
-									domain={deficitAxis.domain}
-									ticks={deficitAxis.ticks}
+									domain={cumulativeBalanceAxis.domain}
+									ticks={cumulativeBalanceAxis.ticks}
 									allowDecimals={false}
 									tick={{ fontSize: 9, fill: CALORIE_DEFICIT }}
 									axisLine={false}
 									tickLine={false}
 								/>
+								<ReferenceLine y={0} stroke="#cbd5e1" strokeDasharray="3 3" />
 								<Tooltip
 									contentStyle={tipStyle}
 									formatter={(value) => [
 										`${Number(value).toLocaleString()} kcal`,
-										"累積マイナス収支",
+										"累計収支",
 									]}
 								/>
 								<Area
 									type="monotone"
-									dataKey="cumulativeDeficit"
+									dataKey="cumulativeBalance"
 									stroke={CALORIE_DEFICIT}
 									strokeWidth={2}
 									fill={CALORIE_DEFICIT}
@@ -1050,10 +1072,10 @@ function CaloriesGraph({
 						</ResponsiveContainer>
 					) : (
 						<div style={{ fontSize: 11, color: "var(--text-2)" }}>
-							累積マイナス収支は総消費データ取得後に表示されます
+							累計収支は総消費データ取得後に表示されます
 						</div>
 					)}
-					{hasDeficitData && !hasCompleteBalanceData && (
+					{hasCumulativeBalanceData && !hasCompleteBalanceData && (
 						<div style={{ fontSize: 11, color: "var(--text-2)" }}>
 							一部の総消費データが未同期のため、取得済みの日付のみで表示しています
 						</div>
