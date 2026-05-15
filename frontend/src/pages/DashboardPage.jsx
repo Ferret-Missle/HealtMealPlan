@@ -610,7 +610,7 @@ function CaloriesValue({
 	const balanceColor =
 		balance == null
 			? "var(--text-2)"
-			: balance <= 0
+			: balance >= 0
 				? CALORIE_BALANCE
 				: "#dc2626";
 	const periodLabel = getPeriodLabel(period);
@@ -700,7 +700,7 @@ function CaloriesValue({
 						)}
 						{target != null && (
 							<div>
-								{isAggregatePeriod ? "期間目標" : "目標"}{" "}
+								摂取目標{" "}
 								<span style={{ color: "var(--text)", fontWeight: 700 }}>
 									{target.toLocaleString()}
 								</span>
@@ -714,12 +714,12 @@ function CaloriesValue({
 			) : (
 				!hasComparison &&
 				target && (
-					<div className="widget-sub">目標 {target.toLocaleString()}</div>
+					<div className="widget-sub">摂取目標 {target.toLocaleString()}</div>
 				)
 			)}
 			{showBalanceNote && (
 				<div className="widget-sub" style={{ fontSize: 10 }}>
-					{periodLabel}総収支 = 期間内の摂取合計 - 総消費合計
+					{periodLabel}総収支 = 期間内の総消費合計 - 摂取合計
 				</div>
 			)}
 			{pct != null && (
@@ -833,7 +833,7 @@ function CaloriesGraph({
 	const totalBalanceColor =
 		totalBalance == null
 			? "var(--text-2)"
-			: totalBalance <= 0
+			: totalBalance >= 0
 				? CALORIE_BALANCE
 				: "#dc2626";
 
@@ -887,7 +887,7 @@ function CaloriesGraph({
 			>
 				<span>
 					<Dot color={CALORIE_BALANCE} />
-					収支（摂取 - 総消費）
+					収支（総消費 - 摂取）
 				</span>
 				{!hasBalanceData && <span>収支は総消費データ取得後に表示されます</span>}
 			</div>
@@ -941,7 +941,7 @@ function CaloriesGraph({
 							y={target}
 							stroke="#94a3b8"
 							strokeDasharray="3 3"
-							label={{ value: "目標", fontSize: 9, fill: "#94a3b8" }}
+							label={{ value: "摂取目標", fontSize: 9, fill: "#94a3b8" }}
 						/>
 					)}
 					<Bar
@@ -999,7 +999,7 @@ function CaloriesGraph({
 							累積マイナス収支
 						</span>
 						<span>
-							{periodLabel}で削れたカロリー{" "}
+							{periodLabel}累積マイナス収支{" "}
 							<span style={{ color: CALORIE_DEFICIT, fontWeight: 700 }}>
 								{totalDeficit == null
 									? "—"
@@ -2131,7 +2131,7 @@ export default function DashboardPage() {
 					date: entry.date,
 					total_kcal: entry.total_kcal,
 					calories_out: caloriesOut,
-					balance: caloriesOut != null ? entry.total_kcal - caloriesOut : null,
+					balance: caloriesOut != null ? caloriesOut - entry.total_kcal : null,
 				};
 			})
 			.reverse();
@@ -2152,7 +2152,7 @@ export default function DashboardPage() {
 				calories_out: singleDayBurned,
 				balance:
 					singleDayIntake != null && singleDayBurned != null
-						? singleDayIntake - singleDayBurned
+						? singleDayBurned - singleDayIntake
 						: null,
 			},
 		];
@@ -2287,7 +2287,7 @@ export default function DashboardPage() {
 	const calBurned = calorieBurnedEntries.length > 0 ? calorieBurnedTotal : null;
 	const calBalance =
 		calIntake != null && hasCompleteCalorieBurnedData && calBurned != null
-			? calIntake - calBurned
+			? calBurned - calIntake
 			: null;
 	const dailyCalTarget = goals.target_kcal || null;
 	const calTarget =
