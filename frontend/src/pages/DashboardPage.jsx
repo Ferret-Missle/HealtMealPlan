@@ -1,60 +1,59 @@
 import {
-	closestCenter,
-	DndContext,
-	PointerSensor,
-	useSensor,
-	useSensors,
+    closestCenter,
+    DndContext,
+    PointerSensor,
+    useSensor,
+    useSensors,
 } from "@dnd-kit/core";
 import {
-	arrayMove,
-	rectSortingStrategy,
-	SortableContext,
-	useSortable,
+    arrayMove,
+    rectSortingStrategy,
+    SortableContext,
+    useSortable,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-	Calendar,
-	CalendarClock,
-	ChevronLeft,
-	ChevronRight,
-	Flame,
-	Footprints,
-	GripVertical,
-	Layers,
-	Link2Off,
-	Moon,
-	RefreshCw,
-	Scale,
-	Settings2,
-	UtensilsCrossed,
+    Calendar,
+    CalendarClock,
+    ChevronLeft,
+    ChevronRight,
+    Flame,
+    Footprints,
+    GripVertical,
+    Layers,
+    Link2Off,
+    Moon,
+    RefreshCw,
+    Scale,
+    Settings2,
+    UtensilsCrossed,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import {
-	Area,
-	AreaChart,
-	Bar,
-	BarChart,
-	Cell,
-	ComposedChart,
-	Line,
-	Pie,
-	PieChart,
-	ReferenceLine,
-	ResponsiveContainer,
-	Tooltip,
-	XAxis,
-	YAxis,
+    Area,
+    AreaChart,
+    Bar,
+    BarChart,
+    Cell,
+    ComposedChart,
+    Line,
+    Pie,
+    PieChart,
+    ReferenceLine,
+    ResponsiveContainer,
+    Tooltip,
+    XAxis,
+    YAxis,
 } from "recharts";
 import { bodyApi, dashboardApi, mealsApi, settingsApi } from "../services/api";
 import {
-	addJstDays,
-	formatJstDate,
-	isTodayJst,
-	startOfJstMonth,
-	startOfJstWeek,
-	toJstDateString,
+    addJstDays,
+    formatJstDate,
+    startOfJstMonth,
+    startOfJstWeek,
+    toJstDateString,
 } from "../utils/date";
 
 function todayStr() {
@@ -93,7 +92,26 @@ function lsSet(key, value) {
 	}
 }
 
+function getInitialWidgetDates(baseDate) {
+	const defaultDates = buildWidgetDates(baseDate);
+	const sessionKey = `dashboard-dates-reset:${baseDate}`;
+	try {
+		if (sessionStorage.getItem(sessionKey) !== "1") {
+			sessionStorage.setItem(sessionKey, "1");
+			lsSet("db-dates", defaultDates);
+			return defaultDates;
+		}
+	} catch {
+		return lsGet("db-dates", defaultDates);
+	}
+	return lsGet("db-dates", defaultDates);
+}
+
 const WIDGET_IDS = ["weight", "calories", "pfc", "steps", "sleep", "meals"];
+
+function buildWidgetDates(baseDate = todayStr()) {
+	return Object.fromEntries(WIDGET_IDS.map((id) => [id, baseDate]));
+}
 
 function normalizeWidgetOrder(order = []) {
 	const valid = order.filter((id) => WIDGET_IDS.includes(id));
@@ -148,27 +166,89 @@ const DEFAULT_PERIODS = Object.fromEntries(
 		supported[0] ?? "1d",
 	]),
 );
-const DEFAULT_WIDGET_DATES = Object.fromEntries(
-	WIDGET_IDS.map((id) => [id, todayStr()]),
-);
+const DASHBOARD_STARTUP_SYNC_DAYS = 7;
+const DASHBOARD_BULK_SYNC_DAYS = 30;
+const DASHBOARD_SYNC_CHUNK_DAYS = 30;
+const SYNC_PERIOD_OPTIONS = [
+	{ value: "1d", label: "今日分" },
+	{ value: "7d", label: "7日" },
+	{ value: "30d", label: "30日" },
+	{ value: "all", label: "全期間" },
+];
 
 const BRAND = "#16a34a";
 const CALORIE_BURN = "#f97316";
 const CALORIE_BALANCE = "#0f766e";
 const CALORIE_DEFICIT = "#15803d";
 const PFC_COLORS = ["#16a34a", "#f59e0b", "#3b82f6"];
-const widgetSyncButtonStyle = {
-	marginTop: 6,
-	marginBottom: 0,
-	width: "100%",
-	fontSize: 11,
-};
 const tipStyle = {
 	fontSize: 11,
 	padding: "4px 8px",
 	borderRadius: 6,
 	border: "1px solid #e2e8f0",
 };
+
+function getDateSpanDays(startDate, endDate) {
+	const start = new Date(`${String(startDate).split("T")[0]}T00:00:00+09:00`);
+	const end = new Date(`${String(endDate).split("T")[0]}T00:00:00+09:00`);
+	return Math.max(1, Math.floor((end - start) / 86400000) + 1);
+}
+
+function resolveSyncPeriodDays(syncPeriod, todayDate, userCreatedAt) {
+	if (syncPeriod === "1d") return 1;
+	if (syncPeriod === "7d") return 7;
+	if (syncPeriod === "30d") return 30;
+	const fallbackStartDate = offsetDate(todayDate, -(DASHBOARD_BULK_SYNC_DAYS - 1));
+	const startDate = userCreatedAt
+		? String(userCreatedAt).split("T")[0]
+		: fallbackStartDate;
+	return getDateSpanDays(startDate, todayDate);
+}
+
+function buildSyncWindows(totalDays, baseDate) {
+	const windows = [];
+	let remainingDays = Math.max(1, totalDays);
+	let currentBaseDate = baseDate;
+	while (remainingDays > 0) {
+		const chunkDays = Math.min(DASHBOARD_SYNC_CHUNK_DAYS, remainingDays);
+		windows.push({ days: chunkDays, baseDate: currentBaseDate });
+		remainingDays -= chunkDays;
+		if (remainingDays > 0) {
+			currentBaseDate = offsetDate(currentBaseDate, -chunkDays);
+		}
+	}
+	return windows;
+}
+
+function GraphSkeleton({ height = 120, bars = 5 }) {
+	return (
+		<div className="widget-graph-skeleton" style={{ minHeight: height }}>
+			<div className="widget-graph-skeleton-grid">
+				{Array.from({ length: bars }).map((_, index) => (
+					<span
+						key={index}
+						className="widget-graph-skeleton-bar"
+						style={{ height: `${38 + ((index * 17) % 45)}%` }}
+					/>
+				))}
+			</div>
+			<div className="widget-graph-skeleton-axis" />
+		</div>
+	);
+}
+
+function getGraphSkeleton(id, period) {
+	if (id === "calories") {
+		return <GraphSkeleton height={period === "1d" ? 196 : 312} bars={6} />;
+	}
+	if (id === "pfc") {
+		return <GraphSkeleton height={period === "1d" ? 104 : 130} bars={4} />;
+	}
+	if (id === "meals") {
+		return <GraphSkeleton height={168} bars={5} />;
+	}
+	return <GraphSkeleton height={112} bars={5} />;
+}
 
 function getWidgetStepDays(period, supported = []) {
 	if (supported.length <= 1) return 1;
@@ -301,6 +381,7 @@ function WidgetShell({
 	valueContent,
 	graphContent,
 	graphSupport,
+	graphSkeleton,
 	span,
 	needsConnection,
 	requirementLabel,
@@ -417,7 +498,7 @@ function WidgetShell({
 					{vis.value && <div>{valueContent}</div>}
 					{(showBoth || !vis.graph) && <div className="widget-divider" />}
 					{controls}
-					{vis.graph && <div>{graphContent}</div>}
+					{vis.graph && <div>{isBusy ? graphSkeleton : graphContent}</div>}
 				</>
 			)}
 		</div>
@@ -456,7 +537,7 @@ function WeightValue({ latest, delta, pct }) {
 	);
 }
 
-function WeightGraph({ history, onBulkSync, isSyncing }) {
+function WeightGraph({ history }) {
 	const isEmpty = !history?.length;
 	const data = isEmpty
 		? []
@@ -507,24 +588,6 @@ function WeightGraph({ history, onBulkSync, isSyncing }) {
 					</AreaChart>
 				</ResponsiveContainer>
 			)}
-			{/* 一括同期ボタン */}
-			<button
-				className="btn btn-outline btn-sm"
-				style={widgetSyncButtonStyle}
-				onClick={onBulkSync}
-				disabled={isSyncing}
-			>
-				<RefreshCw
-					size={11}
-					strokeWidth={2}
-					style={
-						isSyncing
-							? { animation: "spin 0.65s linear infinite", marginRight: 4 }
-							: { marginRight: 4 }
-					}
-				/>
-				{isSyncing ? "同期中…" : "過去の体重を一括同期"}
-			</button>
 		</div>
 	);
 }
@@ -1243,7 +1306,7 @@ function StepsValue({ steps }) {
 	);
 }
 
-function StepsGraph({ steps, history, period, onBulkSync, isSyncing }) {
+function StepsGraph({ steps, history, period }) {
 	// 1d：今日のドーナツグラフ
 	if (period === "1d") {
 		if (!steps) return <EmptyGraph />;
@@ -1346,23 +1409,6 @@ function StepsGraph({ steps, history, period, onBulkSync, isSyncing }) {
 					</BarChart>
 				</ResponsiveContainer>
 			)}
-			<button
-				className="btn btn-outline btn-sm"
-				style={widgetSyncButtonStyle}
-				onClick={onBulkSync}
-				disabled={isSyncing}
-			>
-				<RefreshCw
-					size={11}
-					strokeWidth={2}
-					style={
-						isSyncing
-							? { animation: "spin 0.65s linear infinite", marginRight: 4 }
-							: { marginRight: 4 }
-					}
-				/>
-				{isSyncing ? "同期中…" : "過去の歩数を一括同期"}
-			</button>
 		</div>
 	);
 }
@@ -1382,7 +1428,7 @@ function SleepValue({ hours, score }) {
 	);
 }
 
-function SleepGraph({ history, onBulkSync, isSyncing }) {
+function SleepGraph({ history }) {
 	const isEmpty = !history?.length;
 	const data = isEmpty
 		? []
@@ -1436,23 +1482,6 @@ function SleepGraph({ history, onBulkSync, isSyncing }) {
 					</AreaChart>
 				</ResponsiveContainer>
 			)}
-			<button
-				className="btn btn-outline btn-sm"
-				style={widgetSyncButtonStyle}
-				onClick={onBulkSync}
-				disabled={isSyncing}
-			>
-				<RefreshCw
-					size={11}
-					strokeWidth={2}
-					style={
-						isSyncing
-							? { animation: "spin 0.65s linear infinite", marginRight: 4 }
-							: { marginRight: 4 }
-					}
-				/>
-				{isSyncing ? "同期中…" : "過去の睡眠を一括同期"}
-			</button>
 		</div>
 	);
 }
@@ -1496,7 +1525,7 @@ function MealsValue({ logs, yesterdayKcal }) {
 	);
 }
 
-function MealsList({ logs, onSync, isSyncing }) {
+function MealsList({ logs }) {
 	// meal_type ごとにグルーピング
 	const grouped = MEAL_TYPE_ORDER.reduce((acc, t) => {
 		const items = logs.filter((l) => l.meal_type === t);
@@ -1526,27 +1555,11 @@ function MealsList({ logs, onSync, isSyncing }) {
 				))
 			)}
 			<div className="meal-widget-actions">
-				<button
-					className="btn btn-outline btn-sm"
-					style={{ flex: 1, fontSize: 11, marginTop: 6, marginBottom: 0 }}
-					onClick={onSync}
-					disabled={isSyncing}
-				>
-					<RefreshCw
-						size={11}
-						strokeWidth={2}
-						style={
-							isSyncing
-								? { animation: "spin 0.65s linear infinite", marginRight: 4 }
-								: { marginRight: 4 }
-						}
-					/>
-					{isSyncing ? "同期中…" : "FatSecret 同期"}
-				</button>
 				<Link
 					to="/meals"
 					className="btn btn-outline btn-sm"
 					style={{
+						flex: 1,
 						fontSize: 11,
 						textDecoration: "none",
 						marginTop: 6,
@@ -1752,7 +1765,7 @@ function SettingsPanel({ vis, onToggle }) {
 // ── メインページ ─────────────────────────────────────────────
 export default function DashboardPage() {
 	const qc = useQueryClient();
-	const autoBodySyncRef = useRef("");
+	const startupSyncRef = useRef("");
 	const todayDate = todayStr();
 
 	// ウィジェット設定：cloud 同期（初期はローカルキャッシュをフォールバック）
@@ -1764,10 +1777,11 @@ export default function DashboardPage() {
 		lsGet("db-periods", DEFAULT_PERIODS),
 	);
 	const [widgetDates, setWidgetDates] = useState(() =>
-		lsGet("db-dates", DEFAULT_WIDGET_DATES),
+		getInitialWidgetDates(todayDate),
 	);
 	const [showSettings, setShowSettings] = useState(false);
 	const [deferredQueriesEnabled, setDeferredQueriesEnabled] = useState(false);
+	const [syncPeriod, setSyncPeriod] = useState("30d");
 
 	useEffect(() => {
 		const frameId = window.requestAnimationFrame(() => {
@@ -1786,14 +1800,15 @@ export default function DashboardPage() {
 	useEffect(() => {
 		if (dashSettingsData?.settings && !dashSettingsLoadedRef.current) {
 			const s = dashSettingsData.settings;
-			if (Array.isArray(s.order)) setOrder(normalizeWidgetOrder(s.order));
-			if (s.vis && typeof s.vis === "object")
-				setVis({ ...DEFAULT_VIS, ...s.vis });
-			if (s.periods && typeof s.periods === "object")
-				setPeriods({ ...DEFAULT_PERIODS, ...s.periods });
-			if (s.dates && typeof s.dates === "object")
-				setWidgetDates({ ...DEFAULT_WIDGET_DATES, ...s.dates });
 			dashSettingsLoadedRef.current = true;
+			const frameId = window.requestAnimationFrame(() => {
+				if (Array.isArray(s.order)) setOrder(normalizeWidgetOrder(s.order));
+				if (s.vis && typeof s.vis === "object")
+					setVis({ ...DEFAULT_VIS, ...s.vis });
+				if (s.periods && typeof s.periods === "object")
+					setPeriods({ ...DEFAULT_PERIODS, ...s.periods });
+			});
+			return () => window.cancelAnimationFrame(frameId);
 		}
 	}, [dashSettingsData]);
 
@@ -1856,8 +1871,14 @@ export default function DashboardPage() {
 		WIDGET_PERIOD_SUPPORTS.calories,
 	);
 	const pfcDays = getWidgetStepDays(pfcPeriod, WIDGET_PERIOD_SUPPORTS.pfc);
-	const stepsDays = getWidgetStepDays(stepsPeriod, WIDGET_PERIOD_SUPPORTS.steps);
-	const sleepDays = getWidgetStepDays(sleepPeriod, WIDGET_PERIOD_SUPPORTS.sleep);
+	const stepsDays = getWidgetStepDays(
+		stepsPeriod,
+		WIDGET_PERIOD_SUPPORTS.steps,
+	);
+	const sleepDays = getWidgetStepDays(
+		sleepPeriod,
+		WIDGET_PERIOD_SUPPORTS.sleep,
+	);
 
 	const weightRangeEnd = getWidgetRangeEnd(
 		weightDate,
@@ -1868,11 +1889,6 @@ export default function DashboardPage() {
 		caloriesDate,
 		caloriesPeriod,
 		WIDGET_PERIOD_SUPPORTS.calories,
-	);
-	const pfcRangeEnd = getWidgetRangeEnd(
-		pfcDate,
-		pfcPeriod,
-		WIDGET_PERIOD_SUPPORTS.pfc,
 	);
 	const stepsRangeEnd = getWidgetRangeEnd(
 		stepsDate,
@@ -1896,12 +1912,32 @@ export default function DashboardPage() {
 	);
 
 	const widgetDateLabel = {
-		weight: getWidgetRangeLabel(weightDate, weightPeriod, WIDGET_PERIOD_SUPPORTS.weight),
-		calories: getWidgetRangeLabel(caloriesDate, caloriesPeriod, WIDGET_PERIOD_SUPPORTS.calories),
+		weight: getWidgetRangeLabel(
+			weightDate,
+			weightPeriod,
+			WIDGET_PERIOD_SUPPORTS.weight,
+		),
+		calories: getWidgetRangeLabel(
+			caloriesDate,
+			caloriesPeriod,
+			WIDGET_PERIOD_SUPPORTS.calories,
+		),
 		pfc: getWidgetRangeLabel(pfcDate, pfcPeriod, WIDGET_PERIOD_SUPPORTS.pfc),
-		steps: getWidgetRangeLabel(stepsDate, stepsPeriod, WIDGET_PERIOD_SUPPORTS.steps),
-		sleep: getWidgetRangeLabel(sleepDate, sleepPeriod, WIDGET_PERIOD_SUPPORTS.sleep),
-		meals: getWidgetRangeLabel(mealsDate, mealsPeriod, WIDGET_PERIOD_SUPPORTS.meals),
+		steps: getWidgetRangeLabel(
+			stepsDate,
+			stepsPeriod,
+			WIDGET_PERIOD_SUPPORTS.steps,
+		),
+		sleep: getWidgetRangeLabel(
+			sleepDate,
+			sleepPeriod,
+			WIDGET_PERIOD_SUPPORTS.sleep,
+		),
+		meals: getWidgetRangeLabel(
+			mealsDate,
+			mealsPeriod,
+			WIDGET_PERIOD_SUPPORTS.meals,
+		),
 	};
 
 	const moveWidgetDate = (id, direction) => {
@@ -1916,27 +1952,31 @@ export default function DashboardPage() {
 		queryFn: () => dashboardApi.today(todayDate).then((r) => r.data),
 	});
 	const connectedServices = dashboardMeta?.connected_services ?? [];
-	const connectedServicesKey = connectedServices.slice().sort().join(",");
 	const goals = dashboardMeta?.goals || {};
+	const userCreatedAt = dashboardMeta?.user_created_at ?? null;
 
 	const shouldLoadWeightSummary = deferredQueriesEnabled && vis.weight.value;
-	const { data: weightSummary, isFetching: isWeightSummaryFetching } = useQuery({
-		queryKey: ["dashboard-summary", "weight", weightDate],
-		queryFn: () => dashboardApi.today(weightDate).then((r) => r.data),
-		enabled: shouldLoadWeightSummary,
-		staleTime: 5 * 60 * 1000,
-	});
+	const { data: weightSummary, isFetching: isWeightSummaryFetching } = useQuery(
+		{
+			queryKey: ["dashboard-summary", "weight", weightDate],
+			queryFn: () => dashboardApi.today(weightDate).then((r) => r.data),
+			enabled: shouldLoadWeightSummary,
+			staleTime: 5 * 60 * 1000,
+		},
+	);
 	const shouldLoadCaloriesSummary =
 		deferredQueriesEnabled &&
 		(vis.calories.value || (vis.calories.graph && caloriesPeriod === "1d"));
-	const { data: caloriesSummary, isFetching: isCaloriesSummaryFetching } = useQuery({
-		queryKey: ["dashboard-summary", "calories", caloriesDate],
-		queryFn: () => dashboardApi.today(caloriesDate).then((r) => r.data),
-		enabled: shouldLoadCaloriesSummary,
-		staleTime: 5 * 60 * 1000,
-	});
+	const { data: caloriesSummary, isFetching: isCaloriesSummaryFetching } =
+		useQuery({
+			queryKey: ["dashboard-summary", "calories", caloriesDate],
+			queryFn: () => dashboardApi.today(caloriesDate).then((r) => r.data),
+			enabled: shouldLoadCaloriesSummary,
+			staleTime: 5 * 60 * 1000,
+		});
 	const shouldLoadPfcSummary =
-		deferredQueriesEnabled && (vis.pfc.value || (vis.pfc.graph && pfcPeriod === "1d"));
+		deferredQueriesEnabled &&
+		(vis.pfc.value || (vis.pfc.graph && pfcPeriod === "1d"));
 	const { data: pfcSummary, isFetching: isPfcSummaryFetching } = useQuery({
 		queryKey: ["dashboard-summary", "pfc", pfcDate],
 		queryFn: () => dashboardApi.today(pfcDate).then((r) => r.data),
@@ -1944,7 +1984,8 @@ export default function DashboardPage() {
 		staleTime: 5 * 60 * 1000,
 	});
 	const shouldLoadStepsSummary =
-		deferredQueriesEnabled && (vis.steps.value || (vis.steps.graph && stepsPeriod === "1d"));
+		deferredQueriesEnabled &&
+		(vis.steps.value || (vis.steps.graph && stepsPeriod === "1d"));
 	const { data: stepsSummary, isFetching: isStepsSummaryFetching } = useQuery({
 		queryKey: ["dashboard-summary", "steps", stepsDate],
 		queryFn: () => dashboardApi.today(stepsDate).then((r) => r.data),
@@ -1959,86 +2000,51 @@ export default function DashboardPage() {
 		staleTime: 5 * 60 * 1000,
 	});
 
-	const todayTrackedWidgets = [weightDate, caloriesDate, pfcDate, stepsDate, sleepDate].filter(
-		(date, index) =>
-			[
-				vis.weight.value || vis.weight.graph,
-				vis.calories.value || vis.calories.graph,
-				vis.pfc.value || vis.pfc.graph,
-				vis.steps.value || vis.steps.graph,
-				vis.sleep.value || vis.sleep.graph,
-			][index] && isTodayJst(date),
-	);
-	const shouldAutoSyncBody =
-		deferredQueriesEnabled &&
-		todayTrackedWidgets.length > 0 &&
-		connectedServices.some(
-			(service) => service === "fitbit" || service === "healthplanet",
-		);
-	const { mutate: runBodySync, isPending: isBodySyncing } = useMutation({
-		mutationFn: () => bodyApi.sync(todayDate),
-		onSuccess: () => {
-			qc.invalidateQueries({ queryKey: ["dashboard-summary"] });
-			qc.invalidateQueries({ queryKey: ["weight-history"] });
-			qc.invalidateQueries({ queryKey: ["activity-history"] });
-		},
-	});
-
-	useEffect(() => {
-		if (!shouldAutoSyncBody) return;
-		const syncKey = `${todayTrackedWidgets.join("|")}:${connectedServicesKey}`;
-		if (autoBodySyncRef.current === syncKey) return;
-		autoBodySyncRef.current = syncKey;
-		runBodySync();
-	}, [connectedServicesKey, runBodySync, shouldAutoSyncBody, todayTrackedWidgets]);
-
 	const shouldLoadWeightHistory =
 		deferredQueriesEnabled && (vis.weight.value || vis.weight.graph);
-	const { data: weightHistory = [], isFetching: isWeightHistoryFetching } = useQuery({
-		queryKey: ["weight-history", weightDays, weightRangeEnd],
-		queryFn: () => bodyApi.weightHistory(weightDays, weightRangeEnd).then((r) => r.data),
-		enabled: shouldLoadWeightHistory,
-		staleTime: 5 * 60 * 1000,
-	});
-	const weightSyncMutation = useMutation({
-		mutationFn: ({ days, baseDate }) => bodyApi.syncWeightHistory(days, baseDate),
-		onSuccess: () => {
-			qc.invalidateQueries({ queryKey: ["weight-history"] });
-			qc.invalidateQueries({ queryKey: ["dashboard-summary"] });
-		},
-	});
-
+	const { data: weightHistory = [], isFetching: isWeightHistoryFetching } =
+		useQuery({
+			queryKey: ["weight-history", weightDays, weightRangeEnd],
+			queryFn: () =>
+				bodyApi.weightHistory(weightDays, weightRangeEnd).then((r) => r.data),
+			enabled: shouldLoadWeightHistory,
+			staleTime: 5 * 60 * 1000,
+		});
 	const shouldLoadCaloriesActivityHistory =
-		deferredQueriesEnabled && (vis.calories.graph || vis.calories.value) && caloriesPeriod !== "1d";
-	const { data: caloriesActivityHistory = [], isFetching: isCaloriesActivityHistoryFetching } = useQuery({
+		deferredQueriesEnabled &&
+		(vis.calories.graph || vis.calories.value) &&
+		caloriesPeriod !== "1d";
+	const {
+		data: caloriesActivityHistory = [],
+		isFetching: isCaloriesActivityHistoryFetching,
+	} = useQuery({
 		queryKey: ["activity-history", "calories", caloriesDays, caloriesRangeEnd],
-		queryFn: () => bodyApi.activityHistory(caloriesDays, caloriesRangeEnd).then((r) => r.data),
+		queryFn: () =>
+			bodyApi
+				.activityHistory(caloriesDays, caloriesRangeEnd)
+				.then((r) => r.data),
 		enabled: shouldLoadCaloriesActivityHistory,
 		staleTime: 5 * 60 * 1000,
 	});
 	const shouldLoadStepsHistory =
 		deferredQueriesEnabled && vis.steps.graph && stepsPeriod !== "1d";
-	const { data: stepsHistory = [], isFetching: isStepsHistoryFetching } = useQuery({
-		queryKey: ["activity-history", "steps", stepsDays, stepsRangeEnd],
-		queryFn: () => bodyApi.activityHistory(stepsDays, stepsRangeEnd).then((r) => r.data),
-		enabled: shouldLoadStepsHistory,
-		staleTime: 5 * 60 * 1000,
-	});
+	const { data: stepsHistory = [], isFetching: isStepsHistoryFetching } =
+		useQuery({
+			queryKey: ["activity-history", "steps", stepsDays, stepsRangeEnd],
+			queryFn: () =>
+				bodyApi.activityHistory(stepsDays, stepsRangeEnd).then((r) => r.data),
+			enabled: shouldLoadStepsHistory,
+			staleTime: 5 * 60 * 1000,
+		});
 	const shouldLoadSleepHistory = deferredQueriesEnabled && vis.sleep.graph;
-	const { data: sleepHistory = [], isFetching: isSleepHistoryFetching } = useQuery({
-		queryKey: ["activity-history", "sleep", sleepDays, sleepRangeEnd],
-		queryFn: () => bodyApi.activityHistory(sleepDays, sleepRangeEnd).then((r) => r.data),
-		enabled: shouldLoadSleepHistory,
-		staleTime: 5 * 60 * 1000,
-	});
-	const activitySyncMutation = useMutation({
-		mutationFn: ({ days, baseDate }) => bodyApi.syncActivityHistory(days, baseDate),
-		onSuccess: () => {
-			qc.invalidateQueries({ queryKey: ["activity-history"] });
-			qc.invalidateQueries({ queryKey: ["dashboard-summary"] });
-		},
-	});
-
+	const { data: sleepHistory = [], isFetching: isSleepHistoryFetching } =
+		useQuery({
+			queryKey: ["activity-history", "sleep", sleepDays, sleepRangeEnd],
+			queryFn: () =>
+				bodyApi.activityHistory(sleepDays, sleepRangeEnd).then((r) => r.data),
+			enabled: shouldLoadSleepHistory,
+			staleTime: 5 * 60 * 1000,
+		});
 	const shouldLoadMeals =
 		deferredQueriesEnabled && (vis.meals.value || vis.meals.graph);
 	const { data: mealLogs = [], isFetching: isMealLogsFetching } = useQuery({
@@ -2049,30 +2055,49 @@ export default function DashboardPage() {
 	});
 	const shouldLoadMealsDailyKcal =
 		deferredQueriesEnabled && (vis.meals.value || vis.meals.graph);
-	const { data: mealsDailyKcal = [], isFetching: isMealsDailyKcalFetching } = useQuery({
-		queryKey: ["meals-daily-kcal", "meals", mealsDate],
-		queryFn: () => mealsApi.dailyKcal(mealsDate, 8),
-		enabled: shouldLoadMealsDailyKcal,
-		staleTime: 5 * 60 * 1000,
-	});
-	const shouldLoadCaloriesDailyKcal = deferredQueriesEnabled && vis.calories.value;
-	const { data: caloriesDailyKcal = [], isFetching: isCaloriesDailyKcalFetching } = useQuery({
+	const { data: mealsDailyKcal = [], isFetching: isMealsDailyKcalFetching } =
+		useQuery({
+			queryKey: ["meals-daily-kcal", "meals", mealsDate],
+			queryFn: () => mealsApi.dailyKcal(mealsDate, 8),
+			enabled: shouldLoadMealsDailyKcal,
+			staleTime: 5 * 60 * 1000,
+		});
+	const shouldLoadCaloriesDailyKcal =
+		deferredQueriesEnabled && vis.calories.value;
+	const {
+		data: caloriesDailyKcal = [],
+		isFetching: isCaloriesDailyKcalFetching,
+	} = useQuery({
 		queryKey: ["meals-daily-kcal", "calories", caloriesDate],
 		queryFn: () => mealsApi.dailyKcal(caloriesDate, 8),
 		enabled: shouldLoadCaloriesDailyKcal,
 		staleTime: 5 * 60 * 1000,
 	});
 	const shouldLoadCaloriesNutrition =
-		deferredQueriesEnabled && (vis.calories.graph || vis.calories.value) && caloriesPeriod !== "1d";
-	const { data: caloriesDailyNutrition = [], isFetching: isCaloriesDailyNutritionFetching } = useQuery({
-		queryKey: ["meals-daily-nutrition", "calories", caloriesHistoryBaseDate, caloriesDays],
-		queryFn: () => mealsApi.dailyNutrition(caloriesHistoryBaseDate, caloriesDays),
+		deferredQueriesEnabled &&
+		(vis.calories.graph || vis.calories.value) &&
+		caloriesPeriod !== "1d";
+	const {
+		data: caloriesDailyNutrition = [],
+		isFetching: isCaloriesDailyNutritionFetching,
+	} = useQuery({
+		queryKey: [
+			"meals-daily-nutrition",
+			"calories",
+			caloriesHistoryBaseDate,
+			caloriesDays,
+		],
+		queryFn: () =>
+			mealsApi.dailyNutrition(caloriesHistoryBaseDate, caloriesDays),
 		enabled: shouldLoadCaloriesNutrition,
 		staleTime: 5 * 60 * 1000,
 	});
 	const shouldLoadPfcNutrition =
 		deferredQueriesEnabled && vis.pfc.graph && pfcPeriod !== "1d";
-	const { data: pfcDailyNutrition = [], isFetching: isPfcDailyNutritionFetching } = useQuery({
+	const {
+		data: pfcDailyNutrition = [],
+		isFetching: isPfcDailyNutritionFetching,
+	} = useQuery({
 		queryKey: ["meals-daily-nutrition", "pfc", pfcHistoryBaseDate, pfcDays],
 		queryFn: () => mealsApi.dailyNutrition(pfcHistoryBaseDate, pfcDays),
 		enabled: shouldLoadPfcNutrition,
@@ -2112,8 +2137,7 @@ export default function DashboardPage() {
 					date: entry.date,
 					total_kcal: entry.total_kcal,
 					calories_out: caloriesOut,
-					balance:
-						caloriesOut != null ? entry.total_kcal - caloriesOut : null,
+					balance: caloriesOut != null ? entry.total_kcal - caloriesOut : null,
 				};
 			})
 			.reverse();
@@ -2140,70 +2164,81 @@ export default function DashboardPage() {
 		];
 	})();
 
-	const syncFatSecretMutation = useMutation({
-		mutationFn: ({ date }) => mealsApi.syncFatSecret(date),
-		onSuccess: () => {
-			qc.invalidateQueries({ queryKey: ["meals"] });
-			qc.invalidateQueries({ queryKey: ["meals-daily-kcal"] });
-			qc.invalidateQueries({ queryKey: ["dashboard-summary"] });
-			qc.invalidateQueries({ queryKey: ["meals-daily-nutrition"] });
-		},
-	});
-
 	const { data: calendarData, isFetching: isCalendarFetching } = useQuery({
 		queryKey: ["dashboard-calendar", todayDate],
 		queryFn: () => dashboardApi.calendar(todayDate),
 		enabled: deferredQueriesEnabled && connectedServices.includes("google"),
 		staleTime: 5 * 60 * 1000,
 	});
+	const invalidateDashboardSyncQueries = () => {
+		qc.invalidateQueries({ queryKey: ["dashboard-summary"] });
+		qc.invalidateQueries({ queryKey: ["weight-history"] });
+		qc.invalidateQueries({ queryKey: ["activity-history"] });
+		qc.invalidateQueries({ queryKey: ["meals"] });
+		qc.invalidateQueries({ queryKey: ["meals-daily-kcal"] });
+		qc.invalidateQueries({ queryKey: ["meals-daily-nutrition"] });
+		qc.invalidateQueries({ queryKey: ["dashboard-calendar"] });
+	};
+	const runDashboardSync = async (syncPeriodValue) => {
+		const totalDays = resolveSyncPeriodDays(
+			syncPeriodValue,
+			todayDate,
+			userCreatedAt,
+		);
+		const syncWindows = buildSyncWindows(totalDays, todayDate);
+		await bodyApi.sync(todayDate);
+		for (const syncWindow of syncWindows) {
+			await Promise.allSettled([
+				bodyApi.syncWeightHistory(syncWindow.days, syncWindow.baseDate),
+				bodyApi.syncActivityHistory(syncWindow.days, syncWindow.baseDate),
+				mealsApi.syncFatSecretBulk(syncWindow.baseDate, syncWindow.days),
+			]);
+		}
+	};
+	const startupSyncMutation = useMutation({
+		mutationFn: () => runDashboardSync(`${DASHBOARD_STARTUP_SYNC_DAYS}d`),
+		onSuccess: invalidateDashboardSyncQueries,
+	});
+	const syncMutation = useMutation({
+		mutationFn: (syncPeriodValue) => runDashboardSync(syncPeriodValue),
+		onSuccess: invalidateDashboardSyncQueries,
+	});
+	useEffect(() => {
+		if (!deferredQueriesEnabled) return;
+		if (startupSyncRef.current === todayDate) return;
+		startupSyncRef.current = todayDate;
+		startupSyncMutation.mutate();
+	}, [deferredQueriesEnabled, startupSyncMutation, todayDate]);
+	const isDashboardSyncing =
+		startupSyncMutation.isPending || syncMutation.isPending;
 	const widgetBusy = {
 		weight:
-			isBodySyncing ||
+			isDashboardSyncing ||
 			(shouldLoadWeightHistory && isWeightHistoryFetching) ||
 			(shouldLoadWeightSummary && isWeightSummaryFetching),
 		calories:
+			isDashboardSyncing ||
 			(shouldLoadCaloriesSummary && isCaloriesSummaryFetching) ||
 			(shouldLoadCaloriesDailyKcal && isCaloriesDailyKcalFetching) ||
 			(shouldLoadCaloriesNutrition && isCaloriesDailyNutritionFetching) ||
 			(shouldLoadCaloriesActivityHistory && isCaloriesActivityHistoryFetching),
 		pfc:
+			isDashboardSyncing ||
 			(shouldLoadPfcSummary && isPfcSummaryFetching) ||
 			(shouldLoadPfcNutrition && isPfcDailyNutritionFetching),
 		steps:
-			isBodySyncing ||
+			isDashboardSyncing ||
 			(shouldLoadStepsSummary && isStepsSummaryFetching) ||
 			(shouldLoadStepsHistory && isStepsHistoryFetching),
 		sleep:
-			isBodySyncing ||
+			isDashboardSyncing ||
 			(shouldLoadSleepSummary && isSleepSummaryFetching) ||
 			(shouldLoadSleepHistory && isSleepHistoryFetching),
 		meals:
+			isDashboardSyncing ||
 			(shouldLoadMeals && isMealLogsFetching) ||
 			(shouldLoadMealsDailyKcal && isMealsDailyKcalFetching),
 	};
-
-	const syncMutation = useMutation({
-		mutationFn: async () => {
-			await bodyApi.sync(todayDate);
-			await Promise.allSettled([
-				bodyApi.syncWeightHistory(weightDays, weightRangeEnd),
-				bodyApi.syncActivityHistory(
-					Math.max(caloriesDays, stepsDays, sleepDays),
-					todayDate,
-				),
-				mealsApi.syncFatSecretBulk(todayDate, 8),
-			]);
-		},
-		onSuccess: () => {
-			qc.invalidateQueries({ queryKey: ["dashboard-summary"] });
-			qc.invalidateQueries({ queryKey: ["weight-history"] });
-			qc.invalidateQueries({ queryKey: ["activity-history"] });
-			qc.invalidateQueries({ queryKey: ["meals"] });
-			qc.invalidateQueries({ queryKey: ["meals-daily-kcal"] });
-			qc.invalidateQueries({ queryKey: ["meals-daily-nutrition"] });
-			qc.invalidateQueries({ queryKey: ["dashboard-calendar"] });
-		},
-	});
 
 	const latestW = weightHistory.at(-1)?.weight ?? weightSummary?.weight;
 	const oldestW = weightHistory[0]?.weight;
@@ -2236,7 +2271,8 @@ export default function DashboardPage() {
 	const pfcNut = pfcSummary?.nutrition || {};
 	const calorieIntakeTotal = caloriePeriodHistory.reduce(
 		(sum, entry) =>
-			sum + (Number.isFinite(entry.total_kcal) ? Math.round(entry.total_kcal) : 0),
+			sum +
+			(Number.isFinite(entry.total_kcal) ? Math.round(entry.total_kcal) : 0),
 		0,
 	);
 	const calorieBurnedEntries = caloriePeriodHistory.filter((entry) =>
@@ -2249,9 +2285,12 @@ export default function DashboardPage() {
 	const hasCompleteCalorieBurnedData =
 		caloriePeriodHistory.length > 0 &&
 		calorieBurnedEntries.length === caloriePeriodHistory.length;
-	const calIntake = caloriePeriodHistory.length ? calorieIntakeTotal : (caloriesNut.kcal ? Math.round(caloriesNut.kcal) : null);
-	const calBurned =
-		calorieBurnedEntries.length > 0 ? calorieBurnedTotal : null;
+	const calIntake = caloriePeriodHistory.length
+		? calorieIntakeTotal
+		: caloriesNut.kcal
+			? Math.round(caloriesNut.kcal)
+			: null;
+	const calBurned = calorieBurnedEntries.length > 0 ? calorieBurnedTotal : null;
 	const calBalance =
 		calIntake != null && hasCompleteCalorieBurnedData && calBurned != null
 			? calIntake - calBurned
@@ -2300,18 +2339,8 @@ export default function DashboardPage() {
 		weight: {
 			support: WIDGET_PERIOD_SUPPORTS.weight,
 			value: <WeightValue latest={latestW} delta={wDelta} pct={wPct} />,
-			graph: (
-				<WeightGraph
-					history={weightHistory}
-					onBulkSync={() =>
-						weightSyncMutation.mutate({
-							days: weightDays,
-							baseDate: weightRangeEnd,
-						})
-					}
-					isSyncing={weightSyncMutation.isPending}
-				/>
-			),
+			graph: <WeightGraph history={weightHistory} />,
+			graphSkeleton: getGraphSkeleton("weight", weightPeriod),
 		},
 		calories: {
 			support: WIDGET_PERIOD_SUPPORTS.calories,
@@ -2336,6 +2365,7 @@ export default function DashboardPage() {
 					totalBalance={calBalance}
 				/>
 			),
+			graphSkeleton: getGraphSkeleton("calories", caloriesPeriod),
 		},
 		pfc: {
 			support: WIDGET_PERIOD_SUPPORTS.pfc,
@@ -2358,6 +2388,7 @@ export default function DashboardPage() {
 					period={pfcPeriod}
 				/>
 			),
+			graphSkeleton: getGraphSkeleton("pfc", pfcPeriod),
 		},
 		steps: {
 			support: WIDGET_PERIOD_SUPPORTS.steps,
@@ -2367,15 +2398,9 @@ export default function DashboardPage() {
 					steps={stepsSummary?.steps}
 					history={stepsHistory}
 					period={stepsPeriod}
-					onBulkSync={() =>
-						activitySyncMutation.mutate({
-							days: stepsDays,
-							baseDate: stepsRangeEnd,
-						})
-					}
-					isSyncing={activitySyncMutation.isPending}
 				/>
 			),
+			graphSkeleton: getGraphSkeleton("steps", stepsPeriod),
 		},
 		sleep: {
 			support: WIDGET_PERIOD_SUPPORTS.sleep,
@@ -2385,29 +2410,14 @@ export default function DashboardPage() {
 					score={sleepSummary?.sleep_score}
 				/>
 			),
-			graph: (
-				<SleepGraph
-					history={sleepHistory}
-					onBulkSync={() =>
-						activitySyncMutation.mutate({
-							days: sleepDays,
-							baseDate: sleepRangeEnd,
-						})
-					}
-					isSyncing={activitySyncMutation.isPending}
-				/>
-			),
+			graph: <SleepGraph history={sleepHistory} />,
+			graphSkeleton: getGraphSkeleton("sleep", sleepPeriod),
 		},
 		meals: {
 			support: WIDGET_PERIOD_SUPPORTS.meals,
 			value: <MealsValue logs={mealLogs} yesterdayKcal={mealsYesterdayKcal} />,
-			graph: (
-				<MealsList
-					logs={mealLogs}
-					onSync={() => syncFatSecretMutation.mutate({ date: mealsDate })}
-					isSyncing={syncFatSecretMutation.isPending}
-				/>
-			),
+			graph: <MealsList logs={mealLogs} />,
+			graphSkeleton: getGraphSkeleton("meals", mealsPeriod),
 		},
 	};
 
@@ -2425,22 +2435,36 @@ export default function DashboardPage() {
 						<Settings2 size={13} strokeWidth={1.8} />
 						設定
 					</button>
+					<select
+						className="btn btn-outline btn-sm"
+						value={syncPeriod}
+						onChange={(event) => setSyncPeriod(event.target.value)}
+						disabled={isDashboardSyncing}
+						style={{ minWidth: 96 }}
+						title="一括同期の対象期間"
+					>
+						{SYNC_PERIOD_OPTIONS.map((option) => (
+							<option key={option.value} value={option.value}>
+								{option.label}
+							</option>
+						))}
+					</select>
 					<button
 						className="btn btn-primary btn-sm"
-						onClick={() => syncMutation.mutate()}
-						disabled={syncMutation.isPending}
-						title="体重・歩数・睡眠・食事をまとめて同期"
+						onClick={() => syncMutation.mutate(syncPeriod)}
+						disabled={isDashboardSyncing}
+						title="全ウィジェットをまとめて同期"
 					>
 						<RefreshCw
 							size={13}
 							strokeWidth={2}
 							style={
-								syncMutation.isPending
+								isDashboardSyncing
 									? { animation: "spin 0.65s linear infinite" }
 									: {}
 							}
 						/>
-						{syncMutation.isPending ? "同期中…" : "一括同期"}
+						{isDashboardSyncing ? "同期中…" : "一括同期"}
 					</button>
 				</div>
 			</div>
@@ -2497,6 +2521,7 @@ export default function DashboardPage() {
 											valueContent={def.value}
 											graphContent={def.graph}
 											graphSupport={def.support}
+															graphSkeleton={def.graphSkeleton}
 											span={
 												v.graph
 													? id === "meals"

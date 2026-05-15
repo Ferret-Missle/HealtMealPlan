@@ -1380,6 +1380,45 @@ select.form-input {
   background: var(--s100);
   margin: var(--sp-1) 0;
 }
+.widget-graph-skeleton {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--r-md);
+  border: 1px solid var(--s100);
+  background:
+    linear-gradient(90deg, rgba(255,255,255,0) 0%, rgba(255,255,255,0.58) 50%, rgba(255,255,255,0) 100%),
+    linear-gradient(180deg, var(--s50) 0%, #f8fafc 100%);
+  background-size: 220px 100%, 100% 100%;
+  background-repeat: no-repeat;
+  animation: widget-skeleton-shimmer 1.4s linear infinite;
+  padding: 12px 10px 10px;
+}
+.widget-graph-skeleton-grid {
+  height: 100%;
+  min-height: inherit;
+  display: grid;
+  align-items: end;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 8px;
+}
+.widget-graph-skeleton-bar {
+  display: block;
+  width: 100%;
+  border-radius: 999px 999px 0 0;
+  background: linear-gradient(180deg, rgba(22, 163, 74, 0.24) 0%, rgba(148, 163, 184, 0.18) 100%);
+}
+.widget-graph-skeleton-axis {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 10px;
+  height: 1px;
+  background: var(--s200);
+}
+@keyframes widget-skeleton-shimmer {
+  0% { background-position: -220px 0, 0 0; }
+  100% { background-position: calc(100% + 220px) 0, 0 0; }
+}
 /* Widget — not connected overlay */
 .widget-not-connected {
   display: flex;

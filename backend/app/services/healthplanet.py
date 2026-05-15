@@ -19,6 +19,37 @@ HP_INNERSCAN_TAGS = {
 HP_INNERSCAN_TAG_LIST = ",".join(HP_INNERSCAN_TAGS.keys())
 
 
+def _collapse_healthplanet_innerscan_items(data_list: list[dict]) -> list[dict]:
+    by_date: dict[str, dict] = {}
+    for item in data_list:
+        raw_timestamp = str(item.get("date") or "")
+        raw_date = raw_timestamp[:8]
+        if len(raw_date) != 8:
+            continue
+        formatted = f"{raw_date[:4]}-{raw_date[4:6]}-{raw_date[6:8]}"
+        record = by_date.setdefault(
+            formatted,
+            {"source": "healthplanet", "_field_timestamps": {}},
+        )
+        tag = item.get("tag")
+        keydata = item.get("keydata")
+        mapping = HP_INNERSCAN_TAGS.get(tag)
+        if not mapping or keydata in (None, ""):
+            continue
+        field_name, caster = mapping
+        previous_timestamp = record["_field_timestamps"].get(field_name, "")
+        if raw_timestamp < previous_timestamp:
+            continue
+        record[field_name] = caster(keydata)
+        record["_field_timestamps"][field_name] = raw_timestamp
+
+    return [
+        {"date": entry_date, **{k: v for k, v in record.items() if k != "_field_timestamps"}}
+        for entry_date, record in sorted(by_date.items())
+        if len(record) > 1
+    ]
+
+
 async def _get_access_token(user_id: str, db: Session) -> str:
     token = db.query(models.OAuthToken).filter_by(user_id=user_id, service="healthplanet").first()
     if not token:
@@ -60,42 +91,11 @@ async def get_innerscan(user_id: str, date: str, db: Session) -> dict | None:
     HealthPlanet 公式仕様では 6023/6026/6027/6028/6029 は 2020-06-29 に連携終了扱いのため、
     返ってこないケースがある。その場合は None のまま扱う。
     """
-    access_token = await _get_access_token(user_id, db)
-
-    # HealthPlanet requires a date range (max 3 months)
-    from_date = date.replace("-", "")
-    to_date = date.replace("-", "")
-
-    async with httpx.AsyncClient() as client:
-        resp = await client.post(
-            f"{BASE_URL}/status/innerscan.json",
-            data={
-                "access_token": access_token,
-                "date": "1",
-                "from": f"{from_date}000000",
-                "to": f"{to_date}235959",
-                "tag": HP_INNERSCAN_TAG_LIST,
-            },
-        )
-    if resp.status_code != 200:
-        raise ValueError(f"HealthPlanet innerscan error {resp.status_code}: {resp.text}")
-
-    data = resp.json()
-    data_list = data.get("data", [])
-    if not data_list:
+    entries = await get_innerscan_range(user_id, date, date, db)
+    if not entries:
         return None
-
-    result = {"source": "healthplanet"}
-    for item in data_list:
-        tag = item.get("tag")
-        keydata = item.get("keydata")
-        mapping = HP_INNERSCAN_TAGS.get(tag)
-        if not mapping or keydata in (None, ""):
-            continue
-        field_name, caster = mapping
-        result[field_name] = caster(keydata)
-
-    return result if len(result) > 1 else None
+    entry = entries[-1]
+    return {key: value for key, value in entry.items() if key != "date"}
 
 
 async def get_innerscan_range(user_id: str, from_date: str, to_date: str, db: Session) -> list[dict]:
@@ -119,17 +119,4 @@ async def get_innerscan_range(user_id: str, from_date: str, to_date: str, db: Se
         raise ValueError(f"HealthPlanet range error {resp.status_code}: {resp.text}")
 
     data_list = resp.json().get("data", [])
-    by_date: dict[str, dict] = {}
-    for item in data_list:
-        raw_date = item.get("date", "")[:8]          # YYYYMMDDHHMMSS → YYYYMMDD
-        formatted = f"{raw_date[:4]}-{raw_date[4:6]}-{raw_date[6:8]}"
-        by_date.setdefault(formatted, {"source": "healthplanet"})
-        tag     = item.get("tag")
-        keydata = item.get("keydata")
-        mapping = HP_INNERSCAN_TAGS.get(tag)
-        if not mapping or keydata in (None, ""):
-            continue
-        field_name, caster = mapping
-        by_date[formatted][field_name] = caster(keydata)
-
-    return [{"date": d, **v} for d, v in by_date.items() if len(v) > 1]
+    return _collapse_healthplanet_innerscan_items(data_list)

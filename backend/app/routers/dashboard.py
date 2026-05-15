@@ -86,6 +86,7 @@ async def today_summary(
 
     return {
         "date": today,
+        "user_created_at": current_user.created_at.isoformat() if getattr(current_user, "created_at", None) else None,
         "weight": weight_snapshot.get("weight") if weight_snapshot else None,
         "weight_date": weight_snapshot.get("weight_date") if weight_snapshot else None,
         "weight_source": weight_snapshot.get("weight_source") if weight_snapshot else None,

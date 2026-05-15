@@ -206,3 +206,36 @@ def build_weight_metric_lines(snapshot: dict | None) -> list[str]:
         if candidate:
             lines.append(candidate)
     return lines
+
+
+def aggregate_weight_logs_by_date(logs: list[models.WeightLog]) -> list[dict]:
+    grouped: dict[str, list[models.WeightLog]] = {}
+    for log in logs:
+        grouped.setdefault(log.date, []).append(log)
+
+    history: list[dict] = []
+    for date in sorted(grouped):
+        same_day_logs = sorted(
+            grouped[date],
+            key=lambda log: (
+                SOURCE_PRIORITY.get(str(getattr(log, "source", "") or "").lower(), 0),
+                getattr(log, "created_at", None) or datetime.min,
+                getattr(log, "id", 0) or 0,
+            ),
+            reverse=True,
+        )
+        primary = same_day_logs[0]
+        entry = {
+            "id": primary.id,
+            "date": date,
+            "source": primary.source,
+        }
+        for field in WEIGHT_METRIC_FIELDS:
+            entry[field] = None
+            for log in same_day_logs:
+                value = getattr(log, field, None)
+                if value is not None:
+                    entry[field] = value
+                    break
+        history.append(entry)
+    return history

@@ -9,6 +9,33 @@ FITBIT_CLIENT_SECRET = os.getenv("FITBIT_CLIENT_SECRET", "")
 BASE_URL = "https://api.fitbit.com"
 
 
+def _fitbit_weight_entry_order_key(entry: dict) -> tuple[int, str]:
+    try:
+        log_id = int(entry.get("logId") or 0)
+    except (TypeError, ValueError):
+        log_id = 0
+    return (log_id, str(entry.get("time") or ""))
+
+
+def _collapse_fitbit_weight_entries(entries: list[dict]) -> list[dict]:
+    by_date: dict[str, dict] = {}
+    for entry in entries:
+        entry_date = entry.get("date")
+        if not entry_date:
+            continue
+        current = by_date.get(entry_date)
+        if current is None or _fitbit_weight_entry_order_key(entry) >= _fitbit_weight_entry_order_key(current):
+            by_date[entry_date] = entry
+    return [
+        {
+            "date": entry_date,
+            "weight": by_date[entry_date].get("weight"),
+            "bmi": by_date[entry_date].get("bmi"),
+        }
+        for entry_date in sorted(by_date)
+    ]
+
+
 async def _get_access_token(user_id: str, db: Session) -> str:
     token = db.query(models.OAuthToken).filter_by(user_id=user_id, service="fitbit").first()
     if not token:
@@ -74,18 +101,10 @@ async def get_sleep(user_id: str, date: str, db: Session) -> dict:
 
 
 async def get_weight(user_id: str, date: str, db: Session) -> dict | None:
-    access_token = await _get_access_token(user_id, db)
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(
-            f"{BASE_URL}/1/user/-/body/log/weight/date/{date}.json",
-            headers={"Authorization": f"Bearer {access_token}"},
-        )
-    resp.raise_for_status()
-    data = resp.json()
-    weights = data.get("weight", [])
-    if not weights:
+    entries = await get_weight_range(user_id, date, date, db)
+    if not entries:
         return None
-    entry = weights[-1]
+    entry = entries[-1]
     return {
         "weight": entry.get("weight"),
         "bmi": entry.get("bmi"),
@@ -103,10 +122,7 @@ async def get_weight_range(user_id: str, start: str, end: str, db: Session) -> l
         )
     resp.raise_for_status()
     entries = resp.json().get("weight", [])
-    return [
-        {"date": e["date"], "weight": e.get("weight"), "bmi": e.get("bmi")}
-        for e in entries
-    ]
+    return _collapse_fitbit_weight_entries(entries)
 
 
 async def get_sleep_range(user_id: str, start: str, end: str, db: Session) -> list[dict]:
@@ -149,22 +165,31 @@ async def get_steps_range(user_id: str, start: str, end: str, db: Session) -> li
 
 
 async def get_activities_range(user_id: str, start: str, end: str, db: Session) -> list[dict]:
-    """Fitbit の日付範囲で総消費カロリーと活動指標を一括取得する。"""
+    """Fitbit の日付範囲で総消費カロリーを日次 summary.caloriesOut から取得する。"""
     access_token = await _get_access_token(user_id, db)
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(
-            f"{BASE_URL}/1/user/-/activities/calories/date/{start}/{end}.json",
-            headers={"Authorization": f"Bearer {access_token}"},
-        )
-    resp.raise_for_status()
-    entries = resp.json().get("activities-calories", [])
+    start_date = datetime.fromisoformat(start).date()
+    end_date = datetime.fromisoformat(end).date()
+    if end_date < start_date:
+        return []
+
     result = []
-    for e in entries:
-        try:
-            calories_out = int(float(e.get("value", 0)))
-        except (TypeError, ValueError):
-            calories_out = 0
-        result.append({"date": e["dateTime"], "calories_out": calories_out})
+    async with httpx.AsyncClient() as client:
+        current = start_date
+        while current <= end_date:
+            date_str = current.isoformat()
+            resp = await client.get(
+                f"{BASE_URL}/1/user/-/activities/date/{date_str}.json",
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+            resp.raise_for_status()
+            summary = resp.json().get("summary", {})
+            calories_out_raw = summary.get("caloriesOut")
+            try:
+                calories_out = int(float(calories_out_raw)) if calories_out_raw is not None else None
+            except (TypeError, ValueError):
+                calories_out = None
+            result.append({"date": date_str, "calories_out": calories_out})
+            current += timedelta(days=1)
     return result
 
 

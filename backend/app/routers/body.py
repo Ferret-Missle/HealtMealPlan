@@ -7,7 +7,7 @@ from ..database import get_db
 from .. import models
 from ..auth_deps import get_current_user
 from ..services import healthplanet, fitbit
-from ..services.body_snapshot import merge_missing_weight_metrics
+from ..services.body_snapshot import aggregate_weight_logs_by_date, merge_missing_weight_metrics
 
 router = APIRouter()
 
@@ -44,7 +44,7 @@ async def get_weight_history(
         .order_by(models.WeightLog.date)
         .all()
     )
-    return [_weight_to_dict(log) for log in logs]
+    return aggregate_weight_logs_by_date(logs)
 
 
 @router.post("/weight")
