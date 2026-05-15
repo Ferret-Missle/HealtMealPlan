@@ -15,6 +15,14 @@ WEIGHT_METRIC_FIELDS = (
     "bone_mass",
     "visceral_fat_level",
 )
+ACTIVITY_METRIC_FIELDS = (
+    "steps",
+    "active_kcal",
+    "calories_out",
+    "sleep_hours",
+    "sleep_score",
+    "heart_rate_zones_json",
+)
 BODY_SNAPSHOT_STALE_DAYS = 7
 SOURCE_PRIORITY = {
     "manual": 3,
@@ -231,6 +239,39 @@ def aggregate_weight_logs_by_date(logs: list[models.WeightLog]) -> list[dict]:
             "source": primary.source,
         }
         for field in WEIGHT_METRIC_FIELDS:
+            entry[field] = None
+            for log in same_day_logs:
+                value = getattr(log, field, None)
+                if value is not None:
+                    entry[field] = value
+                    break
+        history.append(entry)
+    return history
+
+
+def aggregate_activity_logs_by_date(logs: list[models.ActivityLog]) -> list[dict]:
+    grouped: dict[str, list[models.ActivityLog]] = {}
+    for log in logs:
+        grouped.setdefault(log.date, []).append(log)
+
+    history: list[dict] = []
+    for date in sorted(grouped):
+        same_day_logs = sorted(
+            grouped[date],
+            key=lambda log: (
+                SOURCE_PRIORITY.get(str(getattr(log, "source", "") or "").lower(), 0),
+                getattr(log, "created_at", None) or datetime.min,
+                getattr(log, "id", 0) or 0,
+            ),
+            reverse=True,
+        )
+        primary = same_day_logs[0]
+        entry = {
+            "id": primary.id,
+            "date": date,
+            "source": primary.source,
+        }
+        for field in ACTIVITY_METRIC_FIELDS:
             entry[field] = None
             for log in same_day_logs:
                 value = getattr(log, field, None)

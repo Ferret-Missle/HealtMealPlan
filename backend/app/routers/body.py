@@ -7,7 +7,11 @@ from ..database import get_db
 from .. import models
 from ..auth_deps import get_current_user
 from ..services import healthplanet, fitbit
-from ..services.body_snapshot import aggregate_weight_logs_by_date, merge_missing_weight_metrics
+from ..services.body_snapshot import (
+    aggregate_activity_logs_by_date,
+    aggregate_weight_logs_by_date,
+    merge_missing_weight_metrics,
+)
 
 router = APIRouter()
 
@@ -322,17 +326,7 @@ async def get_activity_history(
         except Exception:
             pass
 
-    return [
-        {
-            "date":        log.date,
-            "steps":       log.steps,
-            "active_kcal": log.active_kcal,
-            "calories_out": log.calories_out,
-            "sleep_hours": log.sleep_hours,
-            "sleep_score": log.sleep_score,
-        }
-        for log in logs
-    ]
+    return aggregate_activity_logs_by_date(logs)
 
 
 @router.post("/sync-activity-history")
