@@ -2037,7 +2037,9 @@ export default function DashboardPage() {
 		queryKey: ["activity-history", "calories", caloriesDays, caloriesRangeEnd],
 		queryFn: () =>
 			bodyApi
-				.activityHistory(caloriesDays, caloriesRangeEnd)
+				.activityHistory(caloriesDays, caloriesRangeEnd, {
+					refreshCalories: true,
+				})
 				.then((r) => r.data),
 		enabled: shouldLoadCaloriesActivityHistory,
 		staleTime: 5 * 60 * 1000,

@@ -270,6 +270,7 @@ async def sync_weight_history(
 async def get_activity_history(
     days: int = 7,
     base_date: str | None = None,
+    refresh_calories: bool = False,
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -293,7 +294,8 @@ async def get_activity_history(
 
     has_missing_calories = any(log.calories_out is None for log in logs)
     has_missing_days = len({log.date for log in logs}) < days
-    if "fitbit" in connected and (not logs or has_missing_calories or has_missing_days):
+    should_refresh_calories = refresh_calories or not logs or has_missing_calories or has_missing_days
+    if "fitbit" in connected and should_refresh_calories:
         try:
             end = str(anchor)
             activity_entries = await fitbit.get_activities_range(current_user.id, start, end, db)
