@@ -94,17 +94,8 @@ function lsSet(key, value) {
 
 function getInitialWidgetDates(baseDate) {
 	const defaultDates = buildWidgetDates(baseDate);
-	const sessionKey = `dashboard-dates-reset:${baseDate}`;
-	try {
-		if (sessionStorage.getItem(sessionKey) !== "1") {
-			sessionStorage.setItem(sessionKey, "1");
-			lsSet("db-dates", defaultDates);
-			return defaultDates;
-		}
-	} catch {
-		return lsGet("db-dates", defaultDates);
-	}
-	return lsGet("db-dates", defaultDates);
+	lsSet("db-dates", defaultDates);
+	return defaultDates;
 }
 
 const WIDGET_IDS = ["weight", "calories", "pfc", "steps", "sleep", "meals"];
@@ -198,7 +189,10 @@ function resolveSyncPeriodDays(syncPeriod, todayDate, userCreatedAt) {
 	if (syncPeriod === "1d") return 1;
 	if (syncPeriod === "7d") return 7;
 	if (syncPeriod === "30d") return 30;
-	const fallbackStartDate = offsetDate(todayDate, -(DASHBOARD_BULK_SYNC_DAYS - 1));
+	const fallbackStartDate = offsetDate(
+		todayDate,
+		-(DASHBOARD_BULK_SYNC_DAYS - 1),
+	);
 	const startDate = userCreatedAt
 		? String(userCreatedAt).split("T")[0]
 		: fallbackStartDate;
@@ -1781,7 +1775,7 @@ export default function DashboardPage() {
 	);
 	const [showSettings, setShowSettings] = useState(false);
 	const [deferredQueriesEnabled, setDeferredQueriesEnabled] = useState(false);
-	const [syncPeriod, setSyncPeriod] = useState("30d");
+	const [syncPeriod, setSyncPeriod] = useState("7d");
 
 	useEffect(() => {
 		const frameId = window.requestAnimationFrame(() => {
@@ -2521,7 +2515,7 @@ export default function DashboardPage() {
 											valueContent={def.value}
 											graphContent={def.graph}
 											graphSupport={def.support}
-															graphSkeleton={def.graphSkeleton}
+											graphSkeleton={def.graphSkeleton}
 											span={
 												v.graph
 													? id === "meals"
