@@ -2222,41 +2222,17 @@ export default function DashboardPage() {
 		onSuccess: invalidateDashboardSyncQueries,
 	});
 	useEffect(() => {
-		if (!deferredQueriesEnabled) return;
+		if (!deferredQueriesEnabled || isLoading) return;
 		if (startupSyncRef.current === todayDate) return;
-		startupSyncRef.current = todayDate;
-		startupSyncMutation.mutate();
-	}, [deferredQueriesEnabled, startupSyncMutation, todayDate]);
-	const isDashboardSyncing =
-		startupSyncMutation.isPending || syncMutation.isPending;
-	const widgetBusy = {
-		weight:
-			isDashboardSyncing ||
-			(shouldLoadWeightHistory && isWeightHistoryFetching) ||
-			(shouldLoadWeightSummary && isWeightSummaryFetching),
-		calories:
-			isDashboardSyncing ||
-			(shouldLoadCaloriesSummary && isCaloriesSummaryFetching) ||
-			(shouldLoadCaloriesDailyKcal && isCaloriesDailyKcalFetching) ||
-			(shouldLoadCaloriesNutrition && isCaloriesDailyNutritionFetching) ||
-			(shouldLoadCaloriesActivityHistory && isCaloriesActivityHistoryFetching),
-		pfc:
-			isDashboardSyncing ||
-			(shouldLoadPfcSummary && isPfcSummaryFetching) ||
-			(shouldLoadPfcNutrition && isPfcDailyNutritionFetching),
-		steps:
-			isDashboardSyncing ||
-			(shouldLoadStepsSummary && isStepsSummaryFetching) ||
-			(shouldLoadStepsHistory && isStepsHistoryFetching),
-		sleep:
-			isDashboardSyncing ||
-			(shouldLoadSleepSummary && isSleepSummaryFetching) ||
-			(shouldLoadSleepHistory && isSleepHistoryFetching),
-		meals:
-			isDashboardSyncing ||
-			(shouldLoadMeals && isMealLogsFetching) ||
-			(shouldLoadMealsDailyKcal && isMealsDailyKcalFetching),
-	};
+		const timeoutId = window.setTimeout(() => {
+			startupSyncRef.current = todayDate;
+			startupSyncMutation.mutate();
+		}, 0);
+		return () => window.clearTimeout(timeoutId);
+	}, [deferredQueriesEnabled, isLoading, startupSyncMutation, todayDate]);
+	const isStartupSyncing = startupSyncMutation.isPending;
+	const isManualSyncing = syncMutation.isPending;
+	const isDashboardSyncing = isStartupSyncing || isManualSyncing;
 
 	const latestW = weightHistory.at(-1)?.weight ?? weightSummary?.weight;
 	const oldestW = weightHistory[0]?.weight;
@@ -2331,6 +2307,60 @@ export default function DashboardPage() {
 		: null;
 	const targetFat = calTarget ? Math.round((calTarget * fatRatio) / 9) : null;
 	const targetCarb = calTarget ? Math.round((calTarget * carbRatio) / 4) : null;
+	const hasWeightData =
+		latestW != null || weightHistory.some((entry) => entry.weight != null);
+	const hasCaloriesData =
+		calIntake != null || calBurned != null || caloriePeriodHistory.length > 0;
+	const hasPfcData =
+		Number.isFinite(pfcNut.protein_g) ||
+		Number.isFinite(pfcNut.fat_g) ||
+		Number.isFinite(pfcNut.carb_g) ||
+		pfcDailyNutrition.length > 0;
+	const hasStepsData =
+		stepsSummary?.steps != null ||
+		stepsHistory.some((entry) => entry.steps != null);
+	const hasSleepData =
+		sleepSummary?.sleep_hours != null ||
+		sleepSummary?.sleep_score != null ||
+		sleepHistory.some(
+			(entry) => entry.sleep_hours != null || entry.sleep_score != null,
+		);
+	const hasMealsData = mealLogs.length > 0 || mealsDailyKcal.length > 0;
+	const widgetBusy = {
+		weight:
+			isManualSyncing ||
+			(((shouldLoadWeightHistory && isWeightHistoryFetching) ||
+				(shouldLoadWeightSummary && isWeightSummaryFetching)) &&
+				!hasWeightData),
+		calories:
+			isManualSyncing ||
+			(((shouldLoadCaloriesSummary && isCaloriesSummaryFetching) ||
+				(shouldLoadCaloriesDailyKcal && isCaloriesDailyKcalFetching) ||
+				(shouldLoadCaloriesNutrition && isCaloriesDailyNutritionFetching) ||
+				(shouldLoadCaloriesActivityHistory &&
+					isCaloriesActivityHistoryFetching)) &&
+				!hasCaloriesData),
+		pfc:
+			isManualSyncing ||
+			(((shouldLoadPfcSummary && isPfcSummaryFetching) ||
+				(shouldLoadPfcNutrition && isPfcDailyNutritionFetching)) &&
+				!hasPfcData),
+		steps:
+			isManualSyncing ||
+			(((shouldLoadStepsSummary && isStepsSummaryFetching) ||
+				(shouldLoadStepsHistory && isStepsHistoryFetching)) &&
+				!hasStepsData),
+		sleep:
+			isManualSyncing ||
+			(((shouldLoadSleepSummary && isSleepSummaryFetching) ||
+				(shouldLoadSleepHistory && isSleepHistoryFetching)) &&
+				!hasSleepData),
+		meals:
+			isManualSyncing ||
+			(((shouldLoadMeals && isMealLogsFetching) ||
+				(shouldLoadMealsDailyKcal && isMealsDailyKcalFetching)) &&
+				!hasMealsData),
+	};
 
 	// DnD（長押し 300ms）
 	const sensors = useSensors(
