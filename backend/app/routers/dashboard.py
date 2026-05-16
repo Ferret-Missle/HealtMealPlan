@@ -11,7 +11,7 @@ from ..database import get_db
 from .. import models
 from ..auth_deps import get_current_user
 from ..services import fitbit, gcal
-from ..services.body_snapshot import get_weight_metric_snapshot
+from ..services.body_snapshot import get_weight_metric_snapshot, upsert_activity_log_fields
 
 limiter = Limiter(key_func=get_remote_address)
 router = APIRouter()
@@ -63,16 +63,15 @@ async def today_summary(
     ):
         try:
             fitbit_activity = await fitbit.get_activities(current_user.id, today, db)
-            if activity_log is None:
-                activity_log = models.ActivityLog(
-                    user_id=current_user.id,
-                    date=today,
-                    source="fitbit",
-                )
-                db.add(activity_log)
-            activity_log.steps = fitbit_activity.get("steps")
-            activity_log.active_kcal = fitbit_activity.get("active_kcal")
-            activity_log.calories_out = fitbit_activity.get("calories_out")
+            activity_log, _ = upsert_activity_log_fields(
+                db,
+                current_user.id,
+                today,
+                source="fitbit",
+                steps=fitbit_activity.get("steps"),
+                active_kcal=fitbit_activity.get("active_kcal"),
+                calories_out=fitbit_activity.get("calories_out"),
+            )
             db.commit()
             db.refresh(activity_log)
         except Exception:

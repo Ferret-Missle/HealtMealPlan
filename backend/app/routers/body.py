@@ -11,6 +11,7 @@ from ..services.body_snapshot import (
     aggregate_activity_logs_by_date,
     aggregate_weight_logs_by_date,
     merge_missing_weight_metrics,
+    upsert_activity_log_fields,
 )
 
 router = APIRouter()
@@ -162,24 +163,15 @@ async def sync_body_data(
 
         try:
             activity = await fitbit.get_activities(current_user.id, today, db)
-            activity_log = (
-                db.query(models.ActivityLog)
-                .filter_by(user_id=current_user.id, date=today)
-                .first()
+            upsert_activity_log_fields(
+                db,
+                current_user.id,
+                today,
+                source="fitbit",
+                steps=activity.get("steps"),
+                active_kcal=activity.get("active_kcal"),
+                calories_out=activity.get("calories_out"),
             )
-            if activity_log:
-                activity_log.steps = activity.get("steps")
-                activity_log.active_kcal = activity.get("active_kcal")
-                activity_log.calories_out = activity.get("calories_out")
-            else:
-                db.add(models.ActivityLog(
-                    user_id=current_user.id,
-                    date=today,
-                    steps=activity.get("steps"),
-                    active_kcal=activity.get("active_kcal"),
-                    calories_out=activity.get("calories_out"),
-                    source="fitbit",
-                ))
             db.commit()
         except Exception:
             pass
@@ -300,20 +292,13 @@ async def get_activity_history(
             end = str(anchor)
             activity_entries = await fitbit.get_activities_range(current_user.id, start, end, db)
             for entry in activity_entries:
-                log = (
-                    db.query(models.ActivityLog)
-                    .filter_by(user_id=current_user.id, date=entry["date"])
-                    .first()
+                upsert_activity_log_fields(
+                    db,
+                    current_user.id,
+                    entry["date"],
+                    source="fitbit",
+                    calories_out=entry["calories_out"],
                 )
-                if log:
-                    log.calories_out = entry["calories_out"]
-                else:
-                    db.add(models.ActivityLog(
-                        user_id=current_user.id,
-                        date=entry["date"],
-                        calories_out=entry["calories_out"],
-                        source="fitbit",
-                    ))
             db.commit()
             logs = (
                 db.query(models.ActivityLog)
@@ -355,22 +340,15 @@ async def sync_activity_history(
     try:
         sleep_entries = await fitbit.get_sleep_range(current_user.id, start, end, db)
         for e in sleep_entries:
-            log = (
-                db.query(models.ActivityLog)
-                .filter_by(user_id=current_user.id, date=e["date"])
-                .first()
+            _, created = upsert_activity_log_fields(
+                db,
+                current_user.id,
+                e["date"],
+                source="fitbit",
+                sleep_hours=e["sleep_hours"],
+                sleep_score=e["sleep_score"],
             )
-            if log:
-                log.sleep_hours = e["sleep_hours"]
-                log.sleep_score = e["sleep_score"]
-            else:
-                db.add(models.ActivityLog(
-                    user_id=current_user.id,
-                    date=e["date"],
-                    sleep_hours=e["sleep_hours"],
-                    sleep_score=e["sleep_score"],
-                    source="fitbit",
-                ))
+            if created:
                 saved += 1
         db.commit()
     except Exception as exc:
@@ -379,20 +357,14 @@ async def sync_activity_history(
     try:
         steps_entries = await fitbit.get_steps_range(current_user.id, start, end, db)
         for e in steps_entries:
-            log = (
-                db.query(models.ActivityLog)
-                .filter_by(user_id=current_user.id, date=e["date"])
-                .first()
+            _, created = upsert_activity_log_fields(
+                db,
+                current_user.id,
+                e["date"],
+                source="fitbit",
+                steps=e["steps"],
             )
-            if log:
-                log.steps = e["steps"]
-            else:
-                db.add(models.ActivityLog(
-                    user_id=current_user.id,
-                    date=e["date"],
-                    steps=e["steps"],
-                    source="fitbit",
-                ))
+            if created:
                 saved += 1
         db.commit()
     except Exception as exc:
@@ -401,20 +373,14 @@ async def sync_activity_history(
     try:
         activity_entries = await fitbit.get_activities_range(current_user.id, start, end, db)
         for e in activity_entries:
-            log = (
-                db.query(models.ActivityLog)
-                .filter_by(user_id=current_user.id, date=e["date"])
-                .first()
+            _, created = upsert_activity_log_fields(
+                db,
+                current_user.id,
+                e["date"],
+                source="fitbit",
+                calories_out=e["calories_out"],
             )
-            if log:
-                log.calories_out = e["calories_out"]
-            else:
-                db.add(models.ActivityLog(
-                    user_id=current_user.id,
-                    date=e["date"],
-                    calories_out=e["calories_out"],
-                    source="fitbit",
-                ))
+            if created:
                 saved += 1
         db.commit()
     except Exception as exc:

@@ -249,6 +249,34 @@ def aggregate_weight_logs_by_date(logs: list[models.WeightLog]) -> list[dict]:
     return history
 
 
+def _activity_log_sort_key(log: models.ActivityLog) -> tuple[int, datetime, int]:
+    return (
+        SOURCE_PRIORITY.get(str(getattr(log, "source", "") or "").lower(), 0),
+        getattr(log, "created_at", None) or datetime.min,
+        getattr(log, "id", 0) or 0,
+    )
+
+
+def upsert_activity_log_fields(
+    db: Session,
+    user_id: str,
+    date: str,
+    source: str = "fitbit",
+    **fields,
+) -> tuple[models.ActivityLog, bool]:
+    logs = db.query(models.ActivityLog).filter_by(user_id=user_id, date=date).all()
+    if logs:
+        for log in logs:
+            for field, value in fields.items():
+                setattr(log, field, value)
+        primary = sorted(logs, key=_activity_log_sort_key, reverse=True)[0]
+        return primary, False
+
+    log = models.ActivityLog(user_id=user_id, date=date, source=source, **fields)
+    db.add(log)
+    return log, True
+
+
 def aggregate_activity_logs_by_date(logs: list[models.ActivityLog]) -> list[dict]:
     grouped: dict[str, list[models.ActivityLog]] = {}
     for log in logs:
@@ -256,15 +284,7 @@ def aggregate_activity_logs_by_date(logs: list[models.ActivityLog]) -> list[dict
 
     history: list[dict] = []
     for date in sorted(grouped):
-        same_day_logs = sorted(
-            grouped[date],
-            key=lambda log: (
-                SOURCE_PRIORITY.get(str(getattr(log, "source", "") or "").lower(), 0),
-                getattr(log, "created_at", None) or datetime.min,
-                getattr(log, "id", 0) or 0,
-            ),
-            reverse=True,
-        )
+        same_day_logs = sorted(grouped[date], key=_activity_log_sort_key, reverse=True)
         primary = same_day_logs[0]
         entry = {
             "id": primary.id,
