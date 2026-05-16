@@ -121,10 +121,11 @@ async def today_summary(
 @router.get("/calendar")
 async def get_calendar_events(
     date: str | None = None,
+    days: int = Query(7, ge=1, le=14),
     current_user: models.User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """ダッシュボード用: 指定日のカレンダー予定一覧（タイトルそのまま）を返す。"""
+    """ダッシュボード用: 指定日からのカレンダー予定一覧（タイトルそのまま）を返す。"""
     target = date or str(dt_date.today())
 
     connected = [
@@ -133,13 +134,13 @@ async def get_calendar_events(
     ]
 
     if "google" not in connected:
-        return {"connected": False, "events": []}
+        return {"connected": False, "events": [], "days": days}
 
     try:
-        events = await gcal.get_user_events(current_user.id, target, db)
-        return {"connected": True, "events": events}
+        events = await gcal.get_user_events(current_user.id, target, db, days=days)
+        return {"connected": True, "events": events, "days": days}
     except Exception:
-        return {"connected": True, "events": []}
+        return {"connected": True, "events": [], "days": days}
 
 
 @router.get("/sleep")

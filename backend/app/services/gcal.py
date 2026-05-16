@@ -102,13 +102,25 @@ def _calendar_events_url(calendar_id: str) -> str:
     return f"https://www.googleapis.com/calendar/v3/calendars/{encoded_calendar_id}/events"
 
 
-async def get_user_events(user_id: str, date: str, db: Session) -> list:
+def _event_date_value(start_ev: dict) -> str:
+    if start_ev.get("date"):
+        return start_ev["date"]
+    return str(start_ev.get("dateTime", ""))[:10]
+
+
+async def get_user_events(user_id: str, date: str, db: Session, days: int = 1) -> list:
     """ユーザー自身のカレンダー予定を（タイトルそのまま）一覧で返す。ダッシュボード表示用。"""
     calendar_ids = _selected_calendar_ids(user_id, db)
+    calendars = await list_calendars(user_id, db)
+    calendar_name_by_id = {
+        calendar["id"]: calendar.get("summary") or "カレンダー"
+        for calendar in calendars
+    }
 
     access_token = await _get_access_token(user_id, db)
     time_min = f"{date}T00:00:00Z"
-    time_max = f"{date}T23:59:59Z"
+    end_date = (datetime.fromisoformat(date).date() + timedelta(days=max(days - 1, 0))).isoformat()
+    time_max = f"{end_date}T23:59:59Z"
 
     events = []
     async with httpx.AsyncClient(timeout=15.0) as client:
@@ -131,12 +143,23 @@ async def get_user_events(user_id: str, date: str, db: Session) -> list:
                 end_ev = ev.get("end", {})
                 events.append({
                     "summary": ev.get("summary", "(無題)"),
+                    "date": _event_date_value(start_ev),
                     "start": start_ev.get("dateTime", start_ev.get("date", "")),
                     "end": end_ev.get("dateTime", end_ev.get("date", "")),
                     "all_day": "date" in start_ev and "dateTime" not in start_ev,
+                    "calendar_id": cal_id,
+                    "calendar_summary": calendar_name_by_id.get(cal_id, "カレンダー"),
                 })
 
-    return events
+    return sorted(
+        events,
+        key=lambda event: (
+            event.get("date", ""),
+            event.get("all_day") is False,
+            event.get("start", ""),
+            event.get("summary", ""),
+        ),
+    )
 
 
 async def get_daily_events(user_id: str, date: str, db: Session) -> dict:

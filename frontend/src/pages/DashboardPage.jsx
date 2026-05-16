@@ -1590,8 +1590,30 @@ function MealsList({ logs }) {
 }
 
 // ── 今日の予定（フルワイド固定） ─────────────────────────────
+function formatScheduleDateLabel(dateStr) {
+	if (!dateStr) return "日付未設定";
+	const [year, month, day] = dateStr.split("-").map(Number);
+	if (!year || !month || !day) return dateStr;
+	const date = new Date(year, month - 1, day);
+	return date.toLocaleDateString("ja-JP", {
+		month: "numeric",
+		day: "numeric",
+		weekday: "short",
+	});
+}
+
 function ScheduleCard({ connected, calendarData, isLoading }) {
 	const events = calendarData?.events ?? [];
+	const days = calendarData?.days ?? 7;
+	const groupedEvents = events.reduce((groups, event) => {
+		const lastGroup = groups.at(-1);
+		if (!lastGroup || lastGroup.date !== event.date) {
+			groups.push({ date: event.date, events: [event] });
+			return groups;
+		}
+		lastGroup.events.push(event);
+		return groups;
+	}, []);
 
 	// 未連携: 連携 CTA カードを表示
 	if (!connected) {
@@ -1602,7 +1624,7 @@ function ScheduleCard({ connected, calendarData, isLoading }) {
 					style={{ display: "flex", alignItems: "center", gap: 5 }}
 				>
 					<CalendarClock size={12} strokeWidth={2} />
-					今日の予定
+					今後1週間の予定
 				</div>
 				<div className="widget-not-connected" style={{ minHeight: 100 }}>
 					<Link2Off
@@ -1614,7 +1636,7 @@ function ScheduleCard({ connected, calendarData, isLoading }) {
 						Googleカレンダー未連携
 						<br />
 						<span style={{ fontSize: 11, color: "var(--text-2)" }}>
-							連携すると本日の予定を表示できます
+							連携すると今後1週間の予定を表示できます
 						</span>
 					</div>
 					<Link
@@ -1636,7 +1658,7 @@ function ScheduleCard({ connected, calendarData, isLoading }) {
 					style={{ display: "flex", alignItems: "center", gap: 5 }}
 				>
 					<CalendarClock size={12} strokeWidth={2} />
-					今日の予定
+					今後1週間の予定
 				</div>
 				<div style={{ padding: "8px 0" }}>
 					<InlineProgress label="Googleカレンダーを取得中" />
@@ -1652,7 +1674,7 @@ function ScheduleCard({ connected, calendarData, isLoading }) {
 				style={{ display: "flex", alignItems: "center", gap: 5 }}
 			>
 				<CalendarClock size={12} strokeWidth={2} />
-				今日の予定
+				今後{days}日間の予定
 				<span
 					style={{
 						marginLeft: "auto",
@@ -1666,61 +1688,96 @@ function ScheduleCard({ connected, calendarData, isLoading }) {
 			</div>
 			{events.length === 0 ? (
 				<div style={{ fontSize: 13, color: "var(--text-2)", padding: "8px 0" }}>
-					予定なし
+					今後{days}日間の予定なし
 				</div>
 			) : (
-				events.map((ev, i) => {
-					const timeStr = ev.all_day
-						? "終日"
-						: ev.start
-							? new Date(ev.start).toLocaleTimeString("ja-JP", {
-									hour: "2-digit",
-									minute: "2-digit",
-									timeZone: "Asia/Tokyo",
-								})
-							: "";
-					return (
-						<div key={i} className="list-item">
-							<div
-								style={{
-									display: "flex",
-									alignItems: "center",
-									gap: 8,
-									flex: 1,
-									minWidth: 0,
-								}}
-							>
-								<Calendar
-									size={13}
-									strokeWidth={1.5}
-									style={{ color: "var(--text-2)", flexShrink: 0 }}
-								/>
-								<span
-									style={{
-										fontSize: 13,
-										overflow: "hidden",
-										textOverflow: "ellipsis",
-										whiteSpace: "nowrap",
-									}}
-								>
-									{ev.summary}
-								</span>
-							</div>
-							{timeStr && (
-								<span
-									style={{
-										fontSize: 12,
-										color: "var(--text-2)",
-										flexShrink: 0,
-										marginLeft: 8,
-									}}
-								>
-									{timeStr}
-								</span>
-							)}
+				groupedEvents.map((group) => (
+					<div key={group.date} style={{ display: "grid", gap: 6 }}>
+						<div
+							style={{
+								fontSize: 12,
+								fontWeight: 700,
+								color: "var(--text-2)",
+								paddingTop: 4,
+							}}
+						>
+							{formatScheduleDateLabel(group.date)}
 						</div>
-					);
-				})
+						{group.events.map((ev, index) => {
+							const timeStr = ev.all_day
+								? "終日"
+								: ev.start
+									? new Date(ev.start).toLocaleTimeString("ja-JP", {
+											hour: "2-digit",
+											minute: "2-digit",
+											timeZone: "Asia/Tokyo",
+										})
+									: "";
+							return (
+								<div key={`${group.date}-${index}`} className="list-item">
+									<div
+										style={{
+											display: "flex",
+											alignItems: "center",
+											gap: 8,
+											flex: 1,
+											minWidth: 0,
+										}}
+									>
+										<Calendar
+											size={13}
+											strokeWidth={1.5}
+											style={{ color: "var(--text-2)", flexShrink: 0 }}
+										/>
+										<div
+											style={{
+												display: "grid",
+												gap: 4,
+												minWidth: 0,
+											}}
+										>
+											<span
+												style={{
+													fontSize: 13,
+													overflow: "hidden",
+													textOverflow: "ellipsis",
+													whiteSpace: "nowrap",
+												}}
+											>
+												{ev.summary}
+											</span>
+											<span
+												style={{
+													fontSize: 10,
+													color: "var(--text-2)",
+													background: "var(--surface-2)",
+													border: "1px solid var(--line)",
+													borderRadius: 999,
+													padding: "2px 8px",
+													width: "fit-content",
+												}}
+											>
+												{ev.calendar_summary}
+											</span>
+										</div>
+									</div>
+									{timeStr && (
+										<span
+											style={{
+												fontSize: 12,
+												color: "var(--text-2)",
+												flexShrink: 0,
+												marginLeft: 8,
+											}}
+										>
+											{timeStr}
+										</span>
+									)}
+								</div>
+							);
+						})}
+					</div>
+				))
 			)}
 		</div>
 	);
