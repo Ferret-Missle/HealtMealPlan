@@ -120,43 +120,48 @@ def _normalize_generated_menu(data: dict, source_type: str, targets: dict | None
     return data
 
 
-SYSTEM_PROMPT = """あなたは家庭料理に詳しい管理栄養士です。指定された目標カロリーとPFCバランス（タンパク質・脂質・炭水化物）に厳密に合わせ、家庭で作りやすい現実的な献立を提案してください。
+SYSTEM_PROMPT = """あなたは家庭料理に詳しい管理栄養士です。目標カロリーとPFCに合わせ、一般的な日本の家庭で現実的に用意しやすい献立を提案してください。
 
-【絶対遵守ルール】
-- 「おまかせ」「お好みで」「適量」など曖昧な表現は禁止。必ず具体的な料理名・商品名を提示すること
-- 提案料理の serving_grams（1人前の総量g）は、目標カロリーとPFCに ±10% 以内で一致するよう調整
-- kcal_per_serving / protein_g / fat_g / carb_g は serving_grams に対する実値を計算して記載
-- 複数の料理を組み合わせる場合、menu_name は改行(\\n)区切りで列挙（「＋」記号は使わない）
-- 一般的な日本食品の栄養素データを使い、目標値に最も近づく分量を計算すること
-- 回答は必ずJSON形式のみで返すこと。JSON以外のテキストは含めない
+【必須ルール】
+- 回答はJSONのみ
+- serving_grams は1人前の総量(g)。kcal_per_serving / protein_g / fat_g / carb_g はその実値を記載
+- 栄養値は目標カロリー・PFCにできるだけ近づけ、±10%以内を目指す
+- 複数料理を出す場合、menu_name は改行(\\n)区切りで列挙し、「＋」は使わない
+- 曖昧語は禁止。「おまかせ」「適量」だけでなく、「小鉢」「温野菜」「焼き魚」「高たんぱく○○」「プレート」のようなカテゴリ名・説明名でも逃げない
+- homecook / bento の menu_name 各行は、家庭で何を作るか一読で分かる一般的な料理名にする
+- 高価すぎる食材、特殊すぎる食材、家庭にない調味料、長時間の凝った調理は避ける
 
-【家庭料理重視（コスト・入手性）】
-- スーパーで普通に買える食材を使う。家庭料理として一般的な献立にすること
-- 推奨食材: 鶏むね肉/鶏もも肉/豚こま肉/豚バラ肉/挽き肉/卵/豆腐/納豆/鮭/サバ/ツナ缶/玉ねぎ/人参/キャベツ/もやし/ほうれん草/小松菜/ピーマン/ブロッコリー/きのこ類/じゃがいも
-- 高価/特殊で家庭料理に向かない食材は避ける:
-  ✗ 和牛/牛ヒレ/サーロイン/ラム/ジビエ
-  ✗ 鯛/ウニ/イクラ/カニ/伊勢海老/フォアグラ/トリュフ/キャビア
-  ✗ 業務用調味料、特殊スパイス（家庭にないもの）
-- 凝った技法（低温調理、本格的な煮込み数時間など）は避け、20-40分で作れる現実的な料理に
+【cooking_summary】
+- homecook / bento: 1手順ごとに改行し、「番号. 動詞で始まる短い指示」で書く
+- conbini: 「コンビニ購入」
+- drink_only: 「飲み物のみ（1本）」"""
 
-【食材集約（買い物まとめ重視）】
-- 1週間の献立で食材をなるべく重複させ、買い物リストが集約されるよう設計
-- 主菜のタンパク源は週で2-3種類に絞る（例: 鶏むね・豚こま・鮭の3種をローテーション）
-- 同じ食材を異なる調理法・味付けで使い回す（例: 鶏むね → 月：照り焼き／水：油淋鶏／金：チキン南蛮）
-- 野菜も週で5-7種類に絞り、複数日で活用する
-- 調味料も家庭にある定番（醤油・みりん・酒・味噌・コンソメ・中華だし・カレー粉等）の範囲で
+MAX_MENU_PREFERENCE_ITEMS = 3
+MAX_BODY_INFO_LINES = 4
+MAX_PAST_INGREDIENTS = 10
+MAX_SAME_DAY_INGREDIENTS = 8
+MAX_PLAN_USED_INGREDIENTS = 8
+MAX_RECENT_SAME_MEALS = 3
 
-【バラエティ（食材集約と両立）】
-- メニュー名は毎日変える（同じ料理の繰り返しは厳禁）
-- 同じタンパク源でも調理法・味付け・系統（和洋中）を変えてバラエティを出す
-- 食材は集約しつつ、料理としては別物に見せる工夫を
 
-【cooking_summary の書き方（重要）】
-- 手順は **必ず1手順ごとに改行(\\n)** で区切ること。1行に複数手順を詰め込まない
-- 各手順は「番号. 動詞で始まる短い指示」の形式
-- 良い例: "1. 鶏むね肉を一口大に切る\\n2. 塩こしょうを振り片栗粉をまぶす\\n3. フライパンに油を熱する\\n4. 鶏肉を中火で両面焼く\\n5. 醤油・みりん・砂糖を加え煮絡める"
-- 悪い例（NG）: "鶏肉を切って塩こしょうしてから片栗粉をまぶし、フライパンで焼いて..." ← 改行なし禁止
-- コンビニの場合は "コンビニ購入" の1行のみでOK"""
+def _trim_text_items(values: list | None, limit: int) -> list[str]:
+    if not values or limit <= 0:
+        return []
+    items: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        text = str(value).strip()
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        items.append(text)
+        if len(items) >= limit:
+            break
+    return items
+
+
+def _format_member_menu_line(label: str, title: str, items: list[str]) -> str:
+    return f"- メンバー{label} {title}: {', '.join(items)}"
 
 
 def _meal_ratio(meal_type: str, light_breakfast: bool) -> float:
@@ -388,32 +393,8 @@ def _format_body_info(body_info: dict | None) -> str:
         lines.append(line)
     if "body_fat_pct" in body_info:
         lines.append(f"  - 体脂肪率: {body_info['body_fat_pct']}%")
-    if "muscle_mass_kg" in body_info:
-        lines.append(f"  - 筋肉量: {body_info['muscle_mass_kg']}kg")
-    if "bmi" in body_info:
+    elif "bmi" in body_info:
         lines.append(f"  - BMI: {body_info['bmi']}")
-    if "basal_metabolism_kcal" in body_info:
-        label = "基礎代謝量(推定)" if body_info.get("basal_metabolism_source") == "estimated" else "基礎代謝量"
-        lines.append(f"  - {label}: {body_info['basal_metabolism_kcal']}kcal")
-    if "body_age" in body_info:
-        lines.append(f"  - 体内年齢: {body_info['body_age']}才")
-    if "bone_mass_kg" in body_info:
-        lines.append(f"  - 推定骨量: {body_info['bone_mass_kg']}kg")
-    if "visceral_fat_level" in body_info:
-        lines.append(f"  - 内臓脂肪レベル: {body_info['visceral_fat_level']}")
-    if "height_cm" in body_info:
-        lines.append(f"  - 身長: {body_info['height_cm']}cm")
-    if "gender" in body_info or "age_group" in body_info:
-        attr = []
-        if "gender" in body_info:
-            attr.append(body_info["gender"])
-        if "age_group" in body_info:
-            attr.append(body_info["age_group"])
-        lines.append(f"  - 属性: {' / '.join(attr)}")
-    if "avg_steps_7d" in body_info:
-        lines.append(f"  - 直近7日平均歩数: {body_info['avg_steps_7d']:,}歩")
-    if "avg_active_kcal_7d" in body_info:
-        lines.append(f"  - 直近7日平均活動消費: {body_info['avg_active_kcal_7d']}kcal")
     if "weight_delta_7d_kg" in body_info:
         d = body_info["weight_delta_7d_kg"]
         trend = "減少中" if d < -0.1 else ("増加中" if d > 0.1 else "ほぼ維持")
@@ -423,7 +404,9 @@ def _format_body_info(body_info: dict | None) -> str:
             f"  - 直近7日平均食事量: {body_info['avg_intake_kcal_7d']}kcal "
             f"(P{body_info.get('avg_intake_p_7d')}g / F{body_info.get('avg_intake_f_7d')}g / C{body_info.get('avg_intake_c_7d')}g)"
         )
-    return "\n".join(lines)
+    elif "avg_steps_7d" in body_info:
+        lines.append(f"  - 直近7日平均歩数: {body_info['avg_steps_7d']:,}歩")
+    return "\n".join(lines[:MAX_BODY_INFO_LINES])
 
 
 def _get_day_cond_members(day_date: str, conditions: dict) -> list:
@@ -481,7 +464,6 @@ async def generate_menus(plan_id: str, user_id: str, db: Session, conditions: di
             "goal_type": goals.goal_type or "maintain",
             "preferences": prefs,
             "excluded_foods": goals.excluded_foods_json or [],
-            # plan-time に渡された frequent_menus を後段でマージできるようキー予約
             "frequent_menus": (prefs.get("frequent_menus") if isinstance(prefs, dict) else None) or {},
             "liked_menus": {meal: menu_feedback[meal]["good"] for meal in ("breakfast", "lunch", "dinner")},
             "disliked_menus": {meal: menu_feedback[meal]["bad"] for meal in ("breakfast", "lunch", "dinner")},
@@ -497,7 +479,6 @@ async def generate_menus(plan_id: str, user_id: str, db: Session, conditions: di
         for mc in member_contexts:
             uid_freq = plan_freq.get(mc["user_id"])
             if isinstance(uid_freq, dict):
-                # 結合（plan指定が優先 + UserGoals.preferences の値も保持）
                 merged = dict(mc.get("frequent_menus") or {})
                 for k, v in uid_freq.items():
                     if v:
@@ -672,68 +653,41 @@ async def _call_llm(
 
     if source_type == "conbini":
         source_note = (
-            "【購入スタイル: コンビニ・スーパー購入】\n"
-            "★店舗統一ルール: 必ず【セブンイレブン】1店舗で買える商品のみで構成すること。\n"
-            "  - 複数のコンビニを跨いで買い回るような提案は厳禁\n"
-            "  - セブンイレブンで通常販売されている定番商品名を使う\n"
-            "  - どうしてもセブンに該当商品がない場合のみ、代わりに『大手スーパー（イトーヨーカドー等）』で代用可\n"
-            "そのまま食べられる商品の組み合わせを提案してください。\n"
-            "★許可されるもの:\n"
-            "  - おにぎり（鮭/梅/ツナマヨ/昆布等の定番）、サンドイッチ、サラダチキン、惣菜パック\n"
-            "  - カット済み果物（パイン・バナナ等のすぐ食べられるもの）\n"
-            "  - 野菜ジュース・果汁ジュース・スムージー\n"
-            "  - ヨーグルト、プリン、納豆、豆腐\n"
-            "  - レンジで温めるだけの弁当・おかず\n"
-            "★禁止：調理・加工が必要なもの:\n"
-            "  - 皮を剥いたりカットが必要な丸ごと果物（りんご・オレンジなど）\n"
-            "  - 生の魚・肉、未調理の野菜（人参・ジャガイモ等）\n"
-            "  - 米・パスタ・小麦粉などの未調理食品\n"
-            "menu_name は商品名を改行区切りで具体的に書く（例：\"鮭おにぎり\\nサラダチキン プレーン\\n千切りキャベツ\"）\n"
-            "  ※ 商品名の先頭に「セブンイレブン」「セブン」などの店舗名は付けないこと（冗長になるため）\n"
-            "cooking_summary は \"コンビニ購入\" と記載"
+            "【購入: コンビニ・スーパー】\n"
+            "そのまま食べられる商品だけを提案してください。おにぎり、サンドイッチ、サラダチキン、惣菜、ヨーグルト、カット果物、温めるだけの弁当は可です。\n"
+            "調理が必要な生鮮品や未調理食品は不可です。menu_name は商品名を改行区切りで書き、店舗名は付けないでください。"
         )
     elif source_type == "bento":
         source_note = (
-            "【購入スタイル: 自作弁当】\n"
-            "家で作って持参できるお弁当メニューを提案してください。\n"
-            "冷めても美味しく、持ち運びしやすい料理が理想です。\n"
-            "menu_name は複数の料理を改行区切りで列挙（例：\"鶏むね唐揚げ\\n卵焼き\\nブロッコリーの胡麻和え\\n玄米\"）\n"
-            "cooking_summary に簡単な調理手順を記載してください。"
+            "【購入: 自作弁当】\n"
+            "冷めても食べやすく持ち運びしやすい、一般的な弁当向け料理にしてください。\n"
+            "menu_name 各行は料理として通じる具体名にし、『おかず』『小鉢』『高たんぱく○○』のような曖昧名は使わないでください。"
         )
     elif source_type == "homecook":
         source_note = (
-            "【購入スタイル: 自炊】\n"
-            "自宅で調理できる料理を提案してください。主菜・副菜・主食をバランスよく組み合わせてOK。\n"
-            "menu_name は複数の料理を改行区切りで列挙（例：\"鮭の塩焼き\\n小松菜の煮浸し\\n味噌汁\\nご飯\"）\n"
-            "cooking_summary に調理手順の概要を記載してください。"
+            "【購入: 自炊】\n"
+            "家庭で普通に作れる献立にしてください。主菜・副菜・汁物・主食を組み合わせても構いません。\n"
+            "menu_name 各行は『何を作るか』が一読で分かる料理名にし、『小鉢』『温野菜』『焼き魚』『プレート』のようなカテゴリ名は使わないでください。"
         )
     elif source_type == "drink_only":
         source_note = (
-            "【購入スタイル: 飲み物のみ】\n"
-            "固形物は提案しないでください。代わりに以下のような飲み物のみを提案してください：\n"
-            "  - プロテインドリンク（ザバス、SAVAS MILK PROTEIN 等の市販品）\n"
-            "  - 野菜ジュース・果汁ジュース・スムージー\n"
-            "  - 完全食ドリンク（COMP、Huel など）\n"
-            "  - 豆乳・牛乳・甘酒\n"
-            "  - 栄養補助ドリンク（カロリーメイト リキッド 等）\n"
-            "この食事では【必ず飲み物1本のみ】を提案してください。複数本の組み合わせは禁止です。\n"
-            "1回で飲み切る前提の市販品1本を選び、目標 kcal/PFC に最も近い1本を優先してください。\n"
-            "menu_name は商品名1つだけを1行で返すこと。改行区切りやセット提案は禁止。\n"
-            "ingredients も1要素のみ、cooking_summary は \"飲み物のみ（1本）\" と記載"
+            "【購入: 飲み物のみ】\n"
+            "固形物は禁止です。必ず市販の飲み物1本だけを提案し、目標 kcal/PFC に最も近い商品を優先してください。\n"
+            "menu_name は商品名1つだけ、ingredients も1要素のみです。プロテイン飲料、完全食ドリンク、栄養補助ドリンク、豆乳、甘酒は可です。"
         )
     else:
         source_note = "自炊またはコンビニ購入どちらでも構いません。"
 
     breakfast_note = ""
     if meal_type_str == "breakfast" and light_breakfast:
-        breakfast_note = "【朝食は軽めに】消化が良く手軽な内容にしてください。\n"
+        breakfast_note = "【朝食は軽め】消化が良く、短時間で食べやすい内容にしてください。\n"
 
     user_request_section = ""
     if user_request:
         user_request_section = (
             "\n[今回の差し替え希望]\n"
             f"{user_request}\n"
-            "上記の希望を優先しつつ、栄養目標・除外条件・重複回避ルールは必ず守ってください。"
+            "希望を優先しつつ、栄養目標と除外条件は守ってください。"
         )
 
     # メンバー情報（よく食べるメニューも反映）
@@ -744,48 +698,48 @@ async def _call_llm(
     body_sections = []
     for mc in member_contexts:
         member_lines.append(f"  - メンバー{mc['label']}: 1日目標 {mc['target_kcal']}kcal / 目標:{mc['goal_type']}")
-        favs = (mc.get("frequent_menus") or {}).get(meal_type_str, [])
+        favs = _trim_text_items((mc.get("frequent_menus") or {}).get(meal_type_str, []), MAX_MENU_PREFERENCE_ITEMS)
         if favs:
-            fav_lines.append(f"  - メンバー{mc['label']} がよく食べる{ {'breakfast':'朝食','lunch':'昼食','dinner':'夕食'}.get(meal_type_str,'食事') }: {', '.join(favs)}")
-        liked = (mc.get("liked_menus") or {}).get(meal_type_str, [])
+            fav_lines.append(_format_member_menu_line(mc["label"], f"がよく食べる{ {'breakfast':'朝食','lunch':'昼食','dinner':'夕食'}.get(meal_type_str,'食事') }", favs))
+        liked = _trim_text_items((mc.get("liked_menus") or {}).get(meal_type_str, []), MAX_MENU_PREFERENCE_ITEMS)
         if liked:
-            liked_lines.append(f"  - メンバー{mc['label']} がまた食べたい{ {'breakfast':'朝食','lunch':'昼食','dinner':'夕食'}.get(meal_type_str,'食事') }: {', '.join(liked)}")
-        disliked = (mc.get("disliked_menus") or {}).get(meal_type_str, [])
+            liked_lines.append(_format_member_menu_line(mc["label"], f"がまた食べたい{ {'breakfast':'朝食','lunch':'昼食','dinner':'夕食'}.get(meal_type_str,'食事') }", liked))
+        disliked = _trim_text_items((mc.get("disliked_menus") or {}).get(meal_type_str, []), MAX_MENU_PREFERENCE_ITEMS)
         if disliked:
-            disliked_lines.append(f"  - メンバー{mc['label']} が避けたい{ {'breakfast':'朝食','lunch':'昼食','dinner':'夕食'}.get(meal_type_str,'食事') }: {', '.join(disliked)}")
+            disliked_lines.append(_format_member_menu_line(mc["label"], f"が避けたい{ {'breakfast':'朝食','lunch':'昼食','dinner':'夕食'}.get(meal_type_str,'食事') }", disliked))
         body_text = _format_body_info(mc.get("body_info"))
         if body_text:
             body_sections.append(f"[メンバー{mc['label']} の身体情報]\n{body_text}")
     member_info = "\n".join(member_lines)
-    fav_section = ("\n[よく食べるメニュー（参考にしてバリエーションを混ぜる）]\n" + "\n".join(fav_lines)) if fav_lines else ""
-    liked_section = ("\n[また食べたいメニュー（優先候補）]\n" + "\n".join(liked_lines) + "\n上記に近いメニューは優先候補として扱い、栄養目標を満たす範囲で積極的に採用してください。") if liked_lines else ""
-    disliked_section = ("\n[避けたいメニュー（再提案しない）]\n" + "\n".join(disliked_lines) + "\n上記は今回の候補から外し、類似の主食・主菜・タンパク源も避けてください。") if disliked_lines else ""
-    body_section = ("\n\n" + "\n\n".join(body_sections) + "\n→ 上記の身体情報・トレンドを踏まえ、減量/維持/増量フェーズに合った料理（タンパク質量や調理法）を選んでください。") if body_sections else ""
+    fav_section = ("\n[参考メニュー]\n" + "\n".join(fav_lines)) if fav_lines else ""
+    liked_section = ("\n[優先メニュー]\n" + "\n".join(liked_lines) + "\n近い味・構成の料理は優先して構いません。") if liked_lines else ""
+    disliked_section = ("\n[避けるメニュー]\n" + "\n".join(disliked_lines) + "\n近い主食・主菜・主要タンパク源も避けてください。") if disliked_lines else ""
+    body_section = ("\n\n" + "\n\n".join(body_sections) + "\n身体情報は減量・維持・増量の方向づけにだけ使ってください。") if body_sections else ""
 
     excluded = list(set(food for mc in member_contexts for food in mc.get("excluded_foods", [])))
+    excluded = _trim_text_items(excluded, MAX_PAST_INGREDIENTS)
+    compact_past_ingredients = _trim_text_items(past_ingredients, MAX_PAST_INGREDIENTS)
 
     # 同日内ですでに提案済みのメニューを抽出（朝→昼→夕の順で蓄積される）
     same_day_section = ""
     if same_day_done:
-        same_day_flat = "; ".join(s.replace("\n", " / ") for s in same_day_done)
+        same_day_flat = "; ".join(s.replace("\n", " / ") for s in _trim_text_items(same_day_done, MAX_RECENT_SAME_MEALS))
         same_day_section = (
-            f"\n[★ 同日内で既に提案済みのメニュー（必ず避ける）]\n"
+            f"\n[同日NGメニュー]\n"
             f"{same_day_flat}\n"
-            f"上記と似た組み合わせ（例：おにぎり+サラダチキンの繰り返し、同じ主食、同じタンパク源）は厳禁。\n"
-            f"主食・主菜・タンパク源・調理法を変えてバリエーションを出してください。\n"
+            f"同じ主食・主菜・主要タンパク源・調理法は避けてください。\n"
         )
 
     same_day_ingredients_section = ""
     if same_day_used_ingredients:
         from collections import Counter
         same_day_counter = Counter(str(ing).strip() for ing in same_day_used_ingredients if str(ing).strip())
-        same_day_top = [ing for ing, _ in same_day_counter.most_common(12)]
+        same_day_top = [ing for ing, _ in same_day_counter.most_common(MAX_SAME_DAY_INGREDIENTS)]
         if same_day_top:
             same_day_ingredients_section = (
-                f"\n[★ 同日内で既に使った食材（再利用しない）]\n"
+                f"\n[同日NG食材]\n"
                 f"{', '.join(same_day_top)}\n"
-                f"特に卵・鶏・豚・牛・魚・豆腐など主要なタンパク源は同じ日に再利用しないこと。\n"
-                f"例: 朝にゆで卵を出した日は、昼に味付きゆで卵や卵メインの献立を出さない。\n"
+                f"卵・鶏・豚・牛・魚・豆腐など主要タンパク源の再利用は禁止です。\n"
             )
 
     # プラン内ですでに使用された食材（買い物まとめのため再活用を促す）
@@ -797,30 +751,27 @@ async def _call_llm(
         # 重複を除き使用回数の多い順に最大15個
         from collections import Counter
         counter = Counter(historical_plan_used_ingredients)
-        top_used = [ing for ing, _ in counter.most_common(15)]
+        top_used = [ing for ing, _ in counter.most_common(MAX_PLAN_USED_INGREDIENTS)]
         plan_used_section = (
-            f"\n[★ プラン内の別日で既に使用された食材（買い物まとめのため再活用可）]\n"
+            f"\n[再活用候補食材]\n"
             f"{', '.join(top_used)}\n"
-            f"上記の食材は別日なら異なる調理法・味付けで使い回して構いません。\n"
-            f"ただし同日内では同じ主要食材・同じタンパク源を繰り返さないこと。\n"
-            f"全く新しい食材を毎回追加するのではなく、これらの食材を中心にメニューを構成すること。\n"
+            f"別日なら味付けや調理法を変えて再利用して構いません。\n"
         )
 
     # 同じ食事タイプでプラン内の他日に提案済みのメニュー（連続/類似を避ける）
     meal_jp = {"breakfast": "朝食", "lunch": "昼食", "dinner": "夕食"}.get(meal_type_str, "食事")
     recent_section = ""
     if recent_same_meal:
-        recent_flat = "; ".join(s.replace("\n", " / ") for s in recent_same_meal)
+        recent_flat = "; ".join(s.replace("\n", " / ") for s in _trim_text_items(recent_same_meal, MAX_RECENT_SAME_MEALS))
         recent_section = (
-            f"\n[★ プラン内の他日の{meal_jp}（連続を避ける）]\n"
+            f"\n[他日の近い{meal_jp}]\n"
             f"{recent_flat}\n"
-            f"上記と同じ料理や、主菜・主食・タンパク源が同じ料理は出さないでください。\n"
-            f"7日間でバラエティ豊かになるよう、和洋中・主食種類・タンパク源（鶏/豚/牛/魚/卵/豆/海鮮）・調理法を毎回変えること。\n"
+            f"直近で同じ料理名や同じ主菜・主食・主要タンパク源は避けてください。\n"
         )
 
     user_prompt = f"""以下の条件で{meal_name_jp}（{sharing_jp}・{members_count}名分）の献立を提案してください。
 
-[★ 1人あたりの栄養目標（必ず ±10% 以内で合わせる）]
+[1人あたりの栄養目標]
 - カロリー: 約 {targets['kcal']} kcal
 - タンパク質 (P): 約 {targets['protein']} g
 - 脂質 (F): 約 {targets['fat']} g
@@ -836,13 +787,11 @@ async def _call_llm(
 
 [除外/重複]
 除外食材: {", ".join(excluded) if excluded else "なし"}
-過去3日の使用食材（重複回避推奨）: {", ".join(past_ingredients) if past_ingredients else "なし"}{same_day_ingredients_section}{plan_used_section}{same_day_section}{recent_section}
+過去3日の使用食材: {", ".join(compact_past_ingredients) if compact_past_ingredients else "なし"}{same_day_ingredients_section}{plan_used_section}{same_day_section}{recent_section}
 
 [出力ルール]
-- serving_grams は 1 人前の総重量（g）。料理の量で目標 kcal/PFC に合わせること。
-- kcal_per_serving / protein_g / fat_g / carb_g は serving_grams に対する栄養素値（実測した実値）。
-- 一般的な日本食品の栄養素データを使い、目標値に最も近い分量を計算すること。
-- ingredients は使用する食材名を具体的にリスト化（コンビニの場合は商品名）。
+- homecook / bento は、各行が家庭で一般的に通じる料理名になるようにしてください。
+- ingredients は使う食材名を具体的に書いてください（conbini / drink_only は商品名可）。
 
 [出力形式]
 以下のJSON形式のみで返してください（説明文不要）:
@@ -857,12 +806,9 @@ async def _call_llm(
   "cooking_summary": "調理手順またはコンビニ購入"
 }}
 
-【最終チェック（必ず守る）】
-1. 上記「同日内で既に提案済み」「他日の同食事タイプ」のリストにある料理と
-   主食・主菜・タンパク源・調理法のいずれかが重複していないか確認
-2. 重複していれば違うタンパク源（鶏/豚/牛/魚/海鮮/卵/大豆）に変えて再考
-3. 同日内ですでに使った主要食材（特に卵・鶏・豚・牛・魚・豆腐）を再利用していないこと
-4. menu_name はリストにある料理名と完全一致しないこと"""
+[最終チェック]
+1. 同日NGメニューや直近の{meal_jp}と、料理名・主食・主菜・主要タンパク源が重なっていないか確認
+2. homecook / bento の menu_name に曖昧なカテゴリ名が混ざっていないか確認"""
 
     try:
         result = await adapter.complete(SYSTEM_PROMPT, user_prompt, json_mode=True)
@@ -964,12 +910,12 @@ def _fallback_menu(meal_name: str, source_type: str = "auto", targets: dict | No
         ("conbini", "夕食"): "鶏むね弁当\nミニサラダ\nヨーグルト",
         ("bento", "朝食"): "鮭おにぎり\nゆで卵\nミニサラダ",
         ("bento", "昼食"): "鶏むね唐揚げ\n卵焼き\nブロッコリー胡麻和え\n玄米",
-        ("bento", "夕食"): "焼き魚\n卵焼き\n煮物\nご飯",
+        ("bento", "夕食"): "さばの塩焼き\n卵焼き\nひじき煮\nご飯",
         ("homecook", "朝食"): "ご飯\n味噌汁\n卵焼き\n焼鮭",
-        ("homecook", "昼食"): "鶏むね肉の野菜炒め\nご飯\n小鉢",
-        ("homecook", "夕食"): "鮭の塩焼き\n野菜の煮物\n味噌汁\nご飯",
+        ("homecook", "昼食"): "鶏むね肉の生姜焼き\nほうれん草のおひたし\nご飯",
+        ("homecook", "夕食"): "鮭の塩焼き\nかぼちゃの煮物\n味噌汁\nご飯",
     }
-    menu_name = name_map.get((source_type, meal_name)) or "鶏むね肉のグリル\n温野菜\nご飯"
+    menu_name = name_map.get((source_type, meal_name)) or "鶏むね肉の照り焼き\nキャベツの胡麻和え\nご飯"
 
     if targets:
         kcal = targets.get("kcal", 500)
